@@ -1,40 +1,50 @@
 # open-cypher
 
-_created by Austin Poor_
-
 Parse [openCypher](https://opencypher.org/) queries using Rust.
 
-`open-cypher` uses the [pest](https://pest.rs/) library to parse cypher queries using the pestfile, `src/cypher.pest`, based on the openCypher EBNF file ([link](https://opencypher.org/resources/) or [file](assets/cypher.ebnf)).
+`open-cypher` provides a typed AST for openCypher queries, built on top of a [pest](https://pest.rs/) grammar derived from the openCypher EBNF specification.
 
+## Quick Start
 
-## Project Status
+Add to your `Cargo.toml`:
 
-This library is still in a very early stage. The repo includes a pest grammar file for defining the cyper language, based on the ebnf file from the openCypher site.
+```toml
+[dependencies]
+open-cypher = "0.2"
+```
 
-My goal is to finish the pest definition and possibly generate a cleaner AST based on what pest parses.
+```rust
+use open_cypher::parse;
 
-For reference, the following other projects use pest: https://github.com/pest-parser/pest#projects-using-pest
+let query = parse("MATCH (n:Person) WHERE n.age > 18 RETURN n.name;").unwrap();
+println!("{:#?}", query);
+```
 
+## Features
+
+- **Typed AST** — Every Cypher construct maps to a Rust enum or struct with full type safety.
+- **Source spans** — Every AST node carries a `Span { start, end }` (byte offsets into the input) for diagnostics.
+- **Ergonomic errors** — `CypherError` with syntax, AST build, and unsupported-production variants via `thiserror`.
+- **`serde` support** — Optional `serde` feature for `Serialize`/`Deserialize` derives on all AST nodes.
+- **Low-level escape hatch** — The `low-level` feature re-exports the raw pest `Rule` and `Pairs` types for advanced use.
+
+## Stability
+
+The AST is **unstable** until 0.2.0. Grammar completeness is tracked against the openCypher EBNF. Unsupported grammar productions return `CypherError::Unsupported` rather than panicking.
 
 ## Project Structure
 
-- `src/`
-  - `cypher.pest`: The [pest](https://pest.rs/) grammar file for generating a rust parser and types, based on the [ebnf file](./assets/cypher.ebnf) from the [openCypher site](https://opencypher.org/).
-  - `main.rs`: Currently the main directory for quick tests (will be removed)
-  - `parser.rs`: Contains functions for parsing and viewing parsed cypher queries
-  - `ast.rs`: Will contain code for _potentially_ exposing a cleaner cypher AST, than is created by pest
-- `assets/`
-  - `cypher.ebnf`: Open cypher grammar definition from the openCypher site
+- `src/cypher.pest` — The pest grammar file, based on the openCypher EBNF.
+- `src/ast/` — Typed AST node definitions.
+- `src/ast/build.rs` — Builder that converts pest parse trees into the typed AST.
+- `src/error.rs` — `CypherError` and `Span` types.
+- `src/lib.rs` — Public API (`parse`, `Query`, `CypherError`).
+- `assets/cypher.ebnf` — OpenCypher grammar definition from the openCypher site.
 
 ## Contributing
 
-Contributions of any size are more than welcome! Please feel free to submit issues or PRs.
+Contributions of any size are welcome! Please feel free to submit issues or PRs.
 
-I'm also open to any suggestions regarding overall project direction.
+## License
 
-
-## To Do
-
-- [ ] Add tests
-- [ ] Add examples
-- [ ] Add documentation
+MIT OR Apache-2.0

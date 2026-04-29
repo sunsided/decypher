@@ -1,9 +1,10 @@
 [package]
 name = "open-cypher"
-version = "0.1.1"
+version = "0.2.0-alpha.1"
 edition = "2021"
+rust-version = "1.95"
 authors = ["Austin Poor <code@austinpoor.com"]
-description = "A rust library for parsing openCyper queries."
+description = "A rust library for parsing openCypher queries."
 documentation = "https://docs.rs/open-cypher"
 readme = "README.md"
 homepage = "https://github.com/a-poor/open-cypher"
@@ -15,4 +16,10 @@ categories = ["parser-implementations"]
 [dependencies]
 pest = "2.0"
 pest_derive = "2.0"
+thiserror = "1"
+serde = { version = "1", optional = true, features = ["derive"] }
 
+[features]
+default = []
+low-level = []
+serde = ["dep:serde"]
