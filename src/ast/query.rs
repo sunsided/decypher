@@ -83,6 +83,6 @@ pub struct Union {
 }
 
 pub enum Statement {
-    Query(RegularQuery),
-    StandaloneCall(StandaloneCall),
+    Query(Box<RegularQuery>),
+    StandaloneCall(Box<StandaloneCall>),
 }

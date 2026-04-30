@@ -198,5 +198,5 @@ pub struct ExistsExpression {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExistsInner {
     Pattern(super::pattern::Pattern, Option<Box<Expression>>),
-    RegularQuery(super::query::RegularQuery),
+    RegularQuery(Box<super::query::RegularQuery>),
 }

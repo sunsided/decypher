@@ -381,13 +381,8 @@ fn build_set_item(pair: Pair<'_, Rule>) -> Result<SetItem> {
             let var = build_variable(children[0].clone())?;
             if children.len() >= 2 {
                 match children[1].as_rule() {
-                    Rule::EQ => {
-                        let value_expr = children
-                            .iter()
-                            .skip(2)
-                            .find(|p| p.as_rule() == Rule::Expression)
-                            .unwrap();
-                        let value = build_expression(value_expr.clone())?;
+                    Rule::Expression => {
+                        let value = build_expression(children[1].clone())?;
                         Ok(SetItem::Variable {
                             variable: var,
                             value,
@@ -510,16 +505,14 @@ fn build_procedure_invocation(pair: Pair<'_, Rule>) -> Result<ProcedureInvocatio
 
     for child in pair.into_inner() {
         match child.as_rule() {
-            Rule::Namespace => {
-                if !in_args {
+            Rule::Namespace
+                if !in_args => {
                     name_parts.extend(extract_symbolic_names(child));
                 }
-            }
-            Rule::SymbolicName => {
-                if !in_args {
+            Rule::SymbolicName
+                if !in_args => {
                     name_parts.push(build_symbolic_name(child)?);
                 }
-            }
             Rule::Expression => {
                 in_args = true;
                 args.push(build_expression(child)?);
@@ -654,15 +647,17 @@ fn build_return(pair: Pair<'_, Rule>) -> Result<Return> {
     })
 }
 
-fn build_projection_body(
-    pair: Pair<'_, Rule>,
-) -> Result<(
+type ProjectionParts = (
     bool,
     Vec<ProjectionItem>,
     Option<Order>,
     Option<Expression>,
     Option<Expression>,
-)> {
+);
+
+fn build_projection_body(
+    pair: Pair<'_, Rule>,
+) -> Result<ProjectionParts> {
     assert_eq!(pair.as_rule(), Rule::ProjectionBody);
     let mut distinct = false;
     let mut items = Vec::new();
@@ -675,8 +670,22 @@ fn build_projection_body(
             Rule::DISTINCT => distinct = true,
             Rule::ProjectionItems => items = build_projection_items(child)?,
             Rule::Order => order = Some(build_order(child)?),
-            Rule::Skip => skip = Some(build_expression(child.into_inner().next().unwrap())?),
-            Rule::Limit => limit = Some(build_expression(child.into_inner().next().unwrap())?),
+            Rule::Skip => {
+                skip = Some(build_expression(
+                    child
+                        .into_inner()
+                        .find(|p| p.as_rule() == Rule::Expression)
+                        .unwrap(),
+                )?)
+            }
+            Rule::Limit => {
+                limit = Some(build_expression(
+                    child
+                        .into_inner()
+                        .find(|p| p.as_rule() == Rule::Expression)
+                        .unwrap(),
+                )?)
+            }
             Rule::SP => {}
             _ => return Err(unsupported(child.as_rule())),
         }
@@ -729,9 +738,7 @@ fn build_sort_item(pair: Pair<'_, Rule>) -> Result<SortItem> {
         .collect();
     let expr = build_expression(children[0].clone())?;
     let direction = children
-        .iter()
-        .skip(1)
-        .next()
+        .get(1)
         .and_then(|p| match p.as_rule() {
             Rule::ASC | Rule::ASCENDING => Some(SortDirection::Ascending),
             Rule::DESC | Rule::DESCENDING => Some(SortDirection::Descending),
@@ -878,9 +885,7 @@ fn build_relationship_pattern(pair: Pair<'_, Rule>) -> Result<RelationshipPatter
         }
     }
 
-    if has_left && has_right {
-        direction = RelationshipDirection::Left;
-    } else if has_left {
+    if has_left {
         direction = RelationshipDirection::Left;
     } else if has_right {
         direction = RelationshipDirection::Right;
@@ -1049,7 +1054,7 @@ fn build_expression(pair: Pair<'_, Rule>) -> Result<Expression> {
                     }
                 }
                 Rule::XorExpression => {
-                    while let Some(child) = inner.next() {
+                    for child in inner.by_ref() {
                         if child.as_rule() != Rule::SP && child.as_rule() != Rule::XOR {
                             let rhs = build_expression(child)?;
                             expr = Expression::BinaryOp {
@@ -1062,7 +1067,7 @@ fn build_expression(pair: Pair<'_, Rule>) -> Result<Expression> {
                     }
                 }
                 Rule::AndExpression => {
-                    while let Some(child) = inner.next() {
+                    for child in inner.by_ref() {
                         if child.as_rule() != Rule::SP && child.as_rule() != Rule::AND {
                             let rhs = build_expression(child)?;
                             expr = Expression::BinaryOp {
@@ -1098,7 +1103,7 @@ fn build_expression(pair: Pair<'_, Rule>) -> Result<Expression> {
                 }
                 Rule::ComparisonExpression => {
                     let mut operators = Vec::new();
-                    while let Some(child) = inner.next() {
+                    for child in inner.by_ref() {
                         if child.as_rule() == Rule::PartialComparisonExpression {
                             let (op, rhs) = build_partial_comparison(child)?;
                             operators.push((op, rhs));
@@ -1114,65 +1119,34 @@ fn build_expression(pair: Pair<'_, Rule>) -> Result<Expression> {
                 }
                 Rule::AddOrSubtractExpression => {
                     while let Some(child) = inner.next() {
-                        if child.as_rule() != Rule::SP {
-                            let op = match child.as_rule() {
-                                Rule::ADD => Some(BinaryOperator::Add),
-                                Rule::SUBTRACT => Some(BinaryOperator::Subtract),
-                                Rule::Expression => Some(BinaryOperator::Add),
-                                _ => None,
-                            };
-                            if let Some(op) = op {
-                                let rhs = if child.as_rule() == Rule::Expression {
-                                    build_expression(child)?
-                                } else if let Some(next) = inner.next() {
+                        if child.as_rule() == Rule::SP {
+                            continue;
+                        }
+                        let op = match child.as_rule() {
+                            Rule::ADD | Rule::PLUS => Some(BinaryOperator::Add),
+                            Rule::SUBTRACT => Some(BinaryOperator::Subtract),
+                            Rule::Expression => Some(BinaryOperator::Add),
+                            _ => None,
+                        };
+                        if let Some(op) = op {
+                            let rhs = if child.as_rule() == Rule::Expression {
+                                build_expression(child)?
+                            } else {
+                                while let Some(next) = inner.peek() {
+                                    if next.as_rule() == Rule::SP {
+                                        inner.next();
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                if let Some(next) = inner.next() {
                                     build_expression(next)?
                                 } else {
                                     continue;
-                                };
-                                expr = Expression::BinaryOp {
-                                    op,
-                                    lhs: Box::new(expr),
-                                    rhs: Box::new(rhs),
-                                    span: sp,
-                                };
-                            }
-                        }
-                    }
-                }
-                Rule::MultiplyDivideModuloExpression => {
-                    while let Some(child) = inner.next() {
-                        if child.as_rule() != Rule::SP {
-                            let op = match child.as_rule() {
-                                Rule::MULTIPLY => Some(BinaryOperator::Multiply),
-                                Rule::DIVIDE => Some(BinaryOperator::Divide),
-                                Rule::MODULO => Some(BinaryOperator::Modulo),
-                                Rule::Expression => Some(BinaryOperator::Multiply),
-                                _ => None,
+                                }
                             };
-                            if let Some(op) = op {
-                                let rhs = if child.as_rule() == Rule::Expression {
-                                    build_expression(child)?
-                                } else if let Some(next) = inner.next() {
-                                    build_expression(next)?
-                                } else {
-                                    continue;
-                                };
-                                expr = Expression::BinaryOp {
-                                    op,
-                                    lhs: Box::new(expr),
-                                    rhs: Box::new(rhs),
-                                    span: sp,
-                                };
-                            }
-                        }
-                    }
-                }
-                Rule::PowerOfExpression => {
-                    while let Some(child) = inner.next() {
-                        if child.as_rule() != Rule::SP && child.as_rule() != Rule::POW {
-                            let rhs = build_expression(child)?;
                             expr = Expression::BinaryOp {
-                                op: BinaryOperator::Power,
+                                op,
                                 lhs: Box::new(expr),
                                 rhs: Box::new(rhs),
                                 span: sp,
@@ -1180,16 +1154,89 @@ fn build_expression(pair: Pair<'_, Rule>) -> Result<Expression> {
                         }
                     }
                 }
+                Rule::MultiplyDivideModuloExpression => {
+                    while let Some(child) = inner.next() {
+                        if child.as_rule() == Rule::SP {
+                            continue;
+                        }
+                        let op = match child.as_rule() {
+                            Rule::MULTIPLY => Some(BinaryOperator::Multiply),
+                            Rule::DIVIDE => Some(BinaryOperator::Divide),
+                            Rule::MODULO => Some(BinaryOperator::Modulo),
+                            Rule::Expression => Some(BinaryOperator::Multiply),
+                            _ => None,
+                        };
+                        if let Some(op) = op {
+                            let rhs = if child.as_rule() == Rule::Expression {
+                                build_expression(child)?
+                            } else {
+                                while let Some(next) = inner.peek() {
+                                    if next.as_rule() == Rule::SP {
+                                        inner.next();
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                if let Some(next) = inner.next() {
+                                    build_expression(next)?
+                                } else {
+                                    continue;
+                                }
+                            };
+                            expr = Expression::BinaryOp {
+                                op,
+                                lhs: Box::new(expr),
+                                rhs: Box::new(rhs),
+                                span: sp,
+                            };
+                        }
+                    }
+                }
+                Rule::PowerOfExpression => {
+                    while let Some(child) = inner.next() {
+                        if child.as_rule() == Rule::SP || child.as_rule() == Rule::POW {
+                            if child.as_rule() == Rule::POW {
+                                while let Some(next) = inner.peek() {
+                                    if next.as_rule() == Rule::SP {
+                                        inner.next();
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                if let Some(next) = inner.next() {
+                                    let rhs = build_expression(next)?;
+                                    expr = Expression::BinaryOp {
+                                        op: BinaryOperator::Power,
+                                        lhs: Box::new(expr),
+                                        rhs: Box::new(rhs),
+                                        span: sp,
+                                    };
+                                }
+                            }
+                            continue;
+                        }
+                        let rhs = build_expression(child)?;
+                        expr = Expression::BinaryOp {
+                            op: BinaryOperator::Power,
+                            lhs: Box::new(expr),
+                            rhs: Box::new(rhs),
+                            span: sp,
+                        };
+                    }
+                }
                 Rule::UnaryAddOrSubtractExpression => {
                     let mut ops = Vec::new();
                     while let Some(child) = inner.peek() {
                         match child.as_rule() {
-                            Rule::ADD => {
+                            Rule::ADD | Rule::PLUS => {
                                 ops.push(UnaryOperator::Plus);
                                 inner.next();
                             }
                             Rule::SUBTRACT => {
                                 ops.push(UnaryOperator::Negate);
+                                inner.next();
+                            }
+                            Rule::SP => {
                                 inner.next();
                             }
                             _ => break,
@@ -1208,7 +1255,7 @@ fn build_expression(pair: Pair<'_, Rule>) -> Result<Expression> {
                     }
                 }
                 Rule::StringListNullOperatorExpression => {
-                    while let Some(child) = inner.next() {
+                    for child in inner.by_ref() {
                         match child.as_rule() {
                             Rule::StringOperatorExpression => {
                                 expr = build_string_op(expr, child)?;
@@ -1225,7 +1272,7 @@ fn build_expression(pair: Pair<'_, Rule>) -> Result<Expression> {
                     }
                 }
                 Rule::PropertyOrLabelsExpression => {
-                    while let Some(child) = inner.next() {
+                    for child in inner {
                         match child.as_rule() {
                             Rule::PropertyLookup => {
                                 let key = build_property_key_name_from_lookup(child)?;
@@ -1466,10 +1513,10 @@ fn build_property_or_labels_expression(pair: Pair<'_, Rule>) -> Result<Expressio
     let mut inner = pair.into_inner();
     let mut expr = build_expression(inner.next().unwrap())?;
 
-    while let Some(child) = inner.next() {
+    for child in inner {
         match child.as_rule() {
             Rule::PropertyLookup => {
-                let key = build_property_key_name(child)?;
+                let key = build_property_key_name_from_lookup(child)?;
                 expr = Expression::PropertyLookup {
                     base: Box::new(expr),
                     property: key,
@@ -1498,7 +1545,7 @@ fn build_property_expression(pair: Pair<'_, Rule>) -> Result<Expression> {
     let mut inner = pair.into_inner();
     let mut expr = build_expression(inner.next().unwrap())?;
 
-    while let Some(child) = inner.next() {
+    for child in inner {
         if child.as_rule() == Rule::PropertyLookup {
             let key = build_property_key_name_from_lookup(child)?;
             expr = Expression::PropertyLookup {
@@ -1549,6 +1596,10 @@ fn build_atom(pair: Pair<'_, Rule>) -> Result<Expression> {
         Rule::Variable => {
             let var = build_variable(pair)?;
             Ok(Expression::Variable(var))
+        }
+        Rule::COUNT => {
+            let sp = span(&pair);
+            Ok(Expression::CountStar { span: sp })
         }
         Rule::ALL | Rule::ANY_ | Rule::NONE | Rule::SINGLE => {
             let kind = pair.as_rule();
@@ -1606,7 +1657,10 @@ fn build_literal(pair: Pair<'_, Rule>) -> Result<Expression> {
 
 fn build_partial_comparison(pair: Pair<'_, Rule>) -> Result<(ComparisonOperator, Box<Expression>)> {
     assert_eq!(pair.as_rule(), Rule::PartialComparisonExpression);
-    let children: Vec<_> = pair.into_inner().filter(|p| p.as_rule() != Rule::SP).collect();
+    let children: Vec<_> = pair
+        .into_inner()
+        .filter(|p| p.as_rule() != Rule::SP)
+        .collect();
     let op_pair = &children[0];
     let op = match op_pair.as_rule() {
         Rule::EQ => ComparisonOperator::Eq,
@@ -1646,9 +1700,9 @@ fn build_string_literal(pair: Pair<'_, Rule>) -> Result<StringLiteral> {
     assert_eq!(pair.as_rule(), Rule::StringLiteral);
     let sp = span(&pair);
     let raw = pair.as_str();
-    let value = if raw.starts_with('"') && raw.ends_with('"') {
-        raw[1..raw.len() - 1].to_string()
-    } else if raw.starts_with('\'') && raw.ends_with('\'') {
+    let value = if (raw.starts_with('"') && raw.ends_with('"'))
+        || (raw.starts_with('\'') && raw.ends_with('\''))
+    {
         raw[1..raw.len() - 1].to_string()
     } else {
         raw.to_string()
@@ -1754,12 +1808,12 @@ fn extract_function_name_parts(pair: Pair<'_, Rule>) -> Vec<SymbolicName> {
 fn build_case_expression(pair: Pair<'_, Rule>) -> Result<CaseExpression> {
     assert_eq!(pair.as_rule(), Rule::CaseExpression);
     let sp = span(&pair);
-    let mut inner = pair.into_inner();
+    let inner = pair.into_inner();
     let mut scrutinee = None;
     let mut alternatives = Vec::new();
     let mut default = None;
 
-    while let Some(child) = inner.next() {
+    for child in inner {
         match child.as_rule() {
             Rule::CASE | Rule::END | Rule::SP => {}
             Rule::Expression => {
@@ -1787,7 +1841,9 @@ fn build_case_alternative(pair: Pair<'_, Rule>) -> Result<CaseAlternative> {
     assert_eq!(pair.as_rule(), Rule::CaseAlternative);
     let children: Vec<_> = pair
         .into_inner()
-        .filter(|p| p.as_rule() != Rule::SP)
+        .filter(|p| {
+            p.as_rule() != Rule::SP && p.as_rule() != Rule::WHEN && p.as_rule() != Rule::THEN
+        })
         .collect();
     let when = build_expression(children[0].clone())?;
     let then = build_expression(children[1].clone())?;
@@ -1894,7 +1950,7 @@ fn build_exists_expression(pair: Pair<'_, Rule>) -> Result<ExistsExpression> {
     let inner_val = match body.as_rule() {
         Rule::RegularQuery => {
             let regular = build_regular_query(body.clone())?;
-            ExistsInner::RegularQuery(regular)
+            ExistsInner::RegularQuery(Box::new(regular))
         }
         Rule::Pattern => {
             let pattern = build_pattern(body.clone())?;

@@ -228,7 +228,7 @@ ComparisonExpression = {
 }
 
 AddOrSubtractExpression = {
-    MultiplyDivideModuloExpression ~ (SP? ~ (ADD | SUBTRACT) ~ SP? ~ MultiplyDivideModuloExpression)*
+    MultiplyDivideModuloExpression ~ (SP? ~ (PLUS | ADD | SUBTRACT) ~ SP? ~ MultiplyDivideModuloExpression)*
 }
 
 MultiplyDivideModuloExpression = {
@@ -240,7 +240,7 @@ PowerOfExpression = {
 }
 
 UnaryAddOrSubtractExpression = {
-    ((ADD | SUBTRACT) ~ SP?)* ~ StringListNullOperatorExpression
+    ((PLUS | ADD | SUBTRACT) ~ SP?)* ~ StringListNullOperatorExpression
 }
 
 StringListNullOperatorExpression = {
@@ -740,6 +740,7 @@ MULTIPLY = @{ "*" }
 DIVIDE = @{ "/" }
 MODULO = @{ "%" }
 // ADD = @{ "+" }
+PLUS = @{ "+" }
 SUBTRACT = @{ "-" }
 DOT_DOT = @{ ".." }
 // WHERE = @{ ^"WHERE" }
