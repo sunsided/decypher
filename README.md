@@ -25,12 +25,28 @@ println!("{:#?}", query);
 - **Typed AST** — Every Cypher construct maps to a Rust enum or struct with full type safety.
 - **Source spans** — Every AST node carries a `Span { start, end }` (byte offsets into the input) for diagnostics.
 - **Ergonomic errors** — `CypherError` with syntax, AST build, and unsupported-production variants via `thiserror`.
+- **Cypher emission** — The `ToCypher` trait renders any AST node back into valid openCypher text, enabling round-trips (`parse → ast → to_cypher → parse`).
 - **`serde` support** — Optional `serde` feature for `Serialize`/`Deserialize` derives on all AST nodes.
 - **Low-level escape hatch** — The `low-level` feature re-exports the raw pest `Rule` and `Pairs` types for advanced use.
+
+## Emitting Cypher
+
+The `ToCypher` trait converts AST nodes back into openCypher text. This is useful for query rewriting, formatting, and round-trip testing.
+
+```rust
+use open_cypher::ast::ToCypher;
+use open_cypher::parse;
+
+let query = parse("MATCH (n:Person) WHERE n.age > 18 RETURN n.name;").unwrap();
+let cypher = query.to_cypher();
+assert!(cypher.contains("MATCH"));
+```
 
 ## Stability
 
 The AST is **unstable** until 0.2.0. Grammar completeness is tracked against the openCypher EBNF. Unsupported grammar productions return `CypherError::Unsupported` rather than panicking.
+
+The `ToCypher` trait and round-trip guarantees are also **unstable** — formatting output may change between releases until 0.2.0.
 
 ## Project Structure
 

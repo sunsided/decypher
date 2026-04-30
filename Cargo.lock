@@ -77,6 +77,7 @@ version = "0.2.0-alpha.1"
 dependencies = [
  "pest",
  "pest_derive",
+ "ryu",
  "serde",
  "thiserror",
 ]
@@ -141,6 +142,12 @@ checksum = "3bcdf212e9776fbcb2d23ab029360416bb1706b1aea2d1a5ba002727cbcab804"
 dependencies = [
  "proc-macro2",
 ]
+
+[[package]]
+name = "ryu"
+version = "1.0.23"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9774ba4a74de5f7b1c1451ed6cd5285a32eddb5cccb8cc655a4e50009e06477f"
 
 [[package]]
 name = "serde"

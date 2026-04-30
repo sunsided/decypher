@@ -505,14 +505,12 @@ fn build_procedure_invocation(pair: Pair<'_, Rule>) -> Result<ProcedureInvocatio
 
     for child in pair.into_inner() {
         match child.as_rule() {
-            Rule::Namespace
-                if !in_args => {
-                    name_parts.extend(extract_symbolic_names(child));
-                }
-            Rule::SymbolicName
-                if !in_args => {
-                    name_parts.push(build_symbolic_name(child)?);
-                }
+            Rule::Namespace if !in_args => {
+                name_parts.extend(extract_symbolic_names(child));
+            }
+            Rule::SymbolicName if !in_args => {
+                name_parts.push(build_symbolic_name(child)?);
+            }
             Rule::Expression => {
                 in_args = true;
                 args.push(build_expression(child)?);
@@ -655,9 +653,7 @@ type ProjectionParts = (
     Option<Expression>,
 );
 
-fn build_projection_body(
-    pair: Pair<'_, Rule>,
-) -> Result<ProjectionParts> {
+fn build_projection_body(pair: Pair<'_, Rule>) -> Result<ProjectionParts> {
     assert_eq!(pair.as_rule(), Rule::ProjectionBody);
     let mut distinct = false;
     let mut items = Vec::new();
@@ -737,13 +733,11 @@ fn build_sort_item(pair: Pair<'_, Rule>) -> Result<SortItem> {
         .filter(|p| p.as_rule() != Rule::SP)
         .collect();
     let expr = build_expression(children[0].clone())?;
-    let direction = children
-        .get(1)
-        .and_then(|p| match p.as_rule() {
-            Rule::ASC | Rule::ASCENDING => Some(SortDirection::Ascending),
-            Rule::DESC | Rule::DESCENDING => Some(SortDirection::Descending),
-            _ => None,
-        });
+    let direction = children.get(1).and_then(|p| match p.as_rule() {
+        Rule::ASC | Rule::ASCENDING => Some(SortDirection::Ascending),
+        Rule::DESC | Rule::DESCENDING => Some(SortDirection::Descending),
+        _ => None,
+    });
     Ok(SortItem {
         expression: expr,
         direction,
