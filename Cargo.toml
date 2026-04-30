@@ -19,8 +19,10 @@ pest_derive = "2.0"
 thiserror = "1"
 serde = { version = "1", optional = true, features = ["derive"] }
 ryu = "1"
+miette = { version = "7", optional = true }
 
 [features]
 default = []
 low-level = []
 serde = ["dep:serde"]
+miette = ["dep:miette"]

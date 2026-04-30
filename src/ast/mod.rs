@@ -6,6 +6,7 @@ pub mod pattern;
 pub mod print;
 pub mod procedure;
 pub mod query;
+pub mod visit;
 
 pub use crate::ast::expr::Expression;
 pub use crate::ast::print::ToCypher;

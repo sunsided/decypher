@@ -632,11 +632,7 @@ impl ToCypher for RelationshipDetail {
             var.write_cypher(w)?;
         }
         if !self.types.is_empty() {
-            if self.variable.is_some() {
-                write!(w, ":")?;
-            } else {
-                write!(w, ":")?;
-            }
+            write!(w, ":")?;
             for (i, t) in self.types.iter().enumerate() {
                 if i > 0 {
                     write!(w, "|")?;

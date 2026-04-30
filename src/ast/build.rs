@@ -6,7 +6,7 @@ use crate::ast::names::*;
 use crate::ast::pattern::*;
 use crate::ast::procedure::*;
 use crate::ast::query::*;
-use crate::error::{CypherError, Result, Span};
+use crate::error::{CypherError, ErrorKind, Result, Span};
 use crate::parser::Rule;
 
 fn span(pair: &Pair<'_, Rule>) -> Span {
@@ -14,27 +14,151 @@ fn span(pair: &Pair<'_, Rule>) -> Span {
     Span::new(s.start(), s.end())
 }
 
-fn unsupported(rule: Rule) -> CypherError {
-    CypherError::Unsupported(format!("{rule:?}").leak())
+fn unsupported(rule: Rule, sp: Span) -> CypherError {
+    CypherError {
+        kind: ErrorKind::Unsupported {
+            production: match rule {
+                Rule::Cypher => "Cypher",
+                Rule::Statement => "Statement",
+                Rule::Query => "Query",
+                Rule::RegularQuery => "RegularQuery",
+                Rule::SingleQuery => "SingleQuery",
+                Rule::SinglePartQuery => "SinglePartQuery",
+                Rule::MultiPartQuery => "MultiPartQuery",
+                Rule::Union => "Union",
+                Rule::ReadingClause => "ReadingClause",
+                Rule::UpdatingClause => "UpdatingClause",
+                Rule::Match => "Match",
+                Rule::Unwind => "Unwind",
+                Rule::Merge => "Merge",
+                Rule::MergeAction => "MergeAction",
+                Rule::Create => "Create",
+                Rule::Delete => "Delete",
+                Rule::Set => "Set",
+                Rule::SetItem => "SetItem",
+                Rule::Remove => "Remove",
+                Rule::RemoveItem => "RemoveItem",
+                Rule::InQueryCall => "InQueryCall",
+                Rule::StandaloneCall => "StandaloneCall",
+                Rule::YieldItems => "YieldItems",
+                Rule::YieldItem => "YieldItem",
+                Rule::With => "With",
+                Rule::Return => "Return",
+                Rule::ProjectionBody => "ProjectionBody",
+                Rule::ProjectionItems => "ProjectionItems",
+                Rule::ProjectionItem => "ProjectionItem",
+                Rule::Order => "Order",
+                Rule::SortItem => "SortItem",
+                Rule::Where => "Where",
+                Rule::Pattern => "Pattern",
+                Rule::PatternPart => "PatternPart",
+                Rule::AnonymousPatternPart => "AnonymousPatternPart",
+                Rule::PatternElement => "PatternElement",
+                Rule::NodePattern => "NodePattern",
+                Rule::PatternElementChain => "PatternElementChain",
+                Rule::RelationshipPattern => "RelationshipPattern",
+                Rule::RelationshipDetail => "RelationshipDetail",
+                Rule::RelationshipTypes => "RelationshipTypes",
+                Rule::NodeLabels => "NodeLabels",
+                Rule::NodeLabel => "NodeLabel",
+                Rule::RangeLiteral => "RangeLiteral",
+                Rule::LabelName => "LabelName",
+                Rule::RelTypeName => "RelTypeName",
+                Rule::Properties => "Properties",
+                Rule::RelationshipsPattern => "RelationshipsPattern",
+                Rule::Expression => "Expression",
+                Rule::OrExpression => "OrExpression",
+                Rule::XorExpression => "XorExpression",
+                Rule::AndExpression => "AndExpression",
+                Rule::NotExpression => "NotExpression",
+                Rule::ComparisonExpression => "ComparisonExpression",
+                Rule::AddOrSubtractExpression => "AddOrSubtractExpression",
+                Rule::MultiplyDivideModuloExpression => "MultiplyDivideModuloExpression",
+                Rule::PowerOfExpression => "PowerOfExpression",
+                Rule::UnaryAddOrSubtractExpression => "UnaryAddOrSubtractExpression",
+                Rule::StringListNullOperatorExpression => "StringListNullOperatorExpression",
+                Rule::PropertyOrLabelsExpression => "PropertyOrLabelsExpression",
+                Rule::Atom => "Atom",
+                Rule::Literal => "Literal",
+                Rule::NumberLiteral => "NumberLiteral",
+                Rule::IntegerLiteral => "IntegerLiteral",
+                Rule::DoubleLiteral => "DoubleLiteral",
+                Rule::StringLiteral => "StringLiteral",
+                Rule::BooleanLiteral => "BooleanLiteral",
+                Rule::ListLiteral => "ListLiteral",
+                Rule::MapLiteral => "MapLiteral",
+                Rule::Parameter => "Parameter",
+                Rule::Variable => "Variable",
+                Rule::SymbolicName => "SymbolicName",
+                Rule::FunctionInvocation => "FunctionInvocation",
+                Rule::FunctionName => "FunctionName",
+                Rule::Namespace => "Namespace",
+                Rule::ProcedureName => "ProcedureName",
+                Rule::ExplicitProcedureInvocation => "ExplicitProcedureInvocation",
+                Rule::ImplicitProcedureInvocation => "ImplicitProcedureInvocation",
+                Rule::ProcedureResultField => "ProcedureResultField",
+                Rule::CaseExpression => "CaseExpression",
+                Rule::CaseAlternative => "CaseAlternative",
+                Rule::ListComprehension => "ListComprehension",
+                Rule::PatternComprehension => "PatternComprehension",
+                Rule::FilterExpression => "FilterExpression",
+                Rule::IdInColl => "IdInColl",
+                Rule::ParenthesizedExpression => "ParenthesizedExpression",
+                Rule::ExistentialSubquery => "ExistentialSubquery",
+                Rule::PartialComparisonExpression => "PartialComparisonExpression",
+                Rule::ListOperatorExpression => "ListOperatorExpression",
+                Rule::StringOperatorExpression => "StringOperatorExpression",
+                Rule::NullOperatorExpression => "NullOperatorExpression",
+                Rule::PropertyLookup => "PropertyLookup",
+                Rule::PropertyExpression => "PropertyExpression",
+                Rule::PropertyKeyName => "PropertyKeyName",
+                Rule::SchemaName => "SchemaName",
+                Rule::ReservedWord => "ReservedWord",
+                Rule::StringDoubleText => "StringDoubleText",
+                Rule::StringSingleText => "StringSingleText",
+                Rule::StringDoubleTextChar => "StringDoubleTextChar",
+                Rule::StringSingleTextChar => "StringSingleTextChar",
+                Rule::EscapedChar => "EscapedChar",
+                Rule::ALL => "ALL",
+                Rule::ANY_ => "ANY_",
+                Rule::NONE => "NONE",
+                Rule::SINGLE => "SINGLE",
+                Rule::COUNT => "COUNT",
+                Rule::FILTER => "FILTER",
+                Rule::EXTRACT => "EXTRACT",
+                _ => "unknown",
+            },
+        },
+        span: sp,
+        source_label: None,
+        notes: Vec::new(),
+        source: None,
+    }
 }
 
 pub fn build_query(pair: Pair<'_, Rule>) -> Result<Query> {
     assert_eq!(pair.as_rule(), Rule::Cypher);
     let sp = span(&pair);
     let mut inner = pair.into_inner();
-    let statement = inner.next().ok_or_else(|| CypherError::Ast {
-        message: "empty statement".into(),
+    let statement = inner.next().ok_or_else(|| CypherError {
+        kind: ErrorKind::Internal {
+            message: "empty statement".into(),
+        },
         span: sp,
+        source_label: None,
+        notes: Vec::new(),
+        source: None,
     })?;
     build_statement(statement)
 }
 
 fn build_statement(pair: Pair<'_, Rule>) -> Result<Query> {
     assert_eq!(pair.as_rule(), Rule::Statement);
+    let sp = span(&pair);
     let inner = pair.into_inner().next().unwrap();
     match inner.as_rule() {
         Rule::Query => build_query_variant(inner),
-        _ => Err(unsupported(inner.as_rule())),
+        _ => Err(unsupported(inner.as_rule(), sp)),
     }
 }
 
@@ -57,7 +181,7 @@ fn build_query_variant(pair: Pair<'_, Rule>) -> Result<Query> {
                 span: sp,
             })
         }
-        _ => Err(unsupported(inner.as_rule())),
+        _ => Err(unsupported(inner.as_rule(), sp)),
     }
 }
 
@@ -86,7 +210,7 @@ fn build_union(pair: Pair<'_, Rule>) -> Result<Union> {
             Rule::ALL => all = true,
             Rule::SingleQuery => single_query_pair = Some(child),
             Rule::UNION | Rule::SP => {}
-            _ => return Err(unsupported(child.as_rule())),
+            _ => return Err(unsupported(child.as_rule(), sp)),
         }
     }
     let single_query = build_single_query(single_query_pair.unwrap())?;
@@ -99,17 +223,19 @@ fn build_union(pair: Pair<'_, Rule>) -> Result<Union> {
 
 fn build_single_query(pair: Pair<'_, Rule>) -> Result<SingleQuery> {
     assert_eq!(pair.as_rule(), Rule::SingleQuery);
+    let sp = span(&pair);
     let inner = pair.into_inner().next().unwrap();
     let kind = match inner.as_rule() {
         Rule::SinglePartQuery => SingleQueryKind::SinglePart(build_single_part_query(inner)?),
         Rule::MultiPartQuery => SingleQueryKind::MultiPart(build_multi_part_query(inner)?),
-        _ => return Err(unsupported(inner.as_rule())),
+        _ => return Err(unsupported(inner.as_rule(), sp)),
     };
     Ok(SingleQuery { kind })
 }
 
 fn build_single_part_query(pair: Pair<'_, Rule>) -> Result<SinglePartQuery> {
     assert_eq!(pair.as_rule(), Rule::SinglePartQuery);
+    let sp = span(&pair);
     let mut reading_clauses = Vec::new();
     let mut updating_clauses = Vec::new();
     let mut return_clause = None;
@@ -120,7 +246,7 @@ fn build_single_part_query(pair: Pair<'_, Rule>) -> Result<SinglePartQuery> {
             Rule::UpdatingClause => updating_clauses.push(build_updating_clause(child)?),
             Rule::Return => return_clause = Some(build_return(child)?),
             Rule::SP => {}
-            _ => return Err(unsupported(child.as_rule())),
+            _ => return Err(unsupported(child.as_rule(), sp)),
         }
     }
 
@@ -163,13 +289,18 @@ fn build_multi_part_query(pair: Pair<'_, Rule>) -> Result<MultiPartQuery> {
                 final_part = Some(build_single_part_query(child)?);
             }
             Rule::SP => {}
-            _ => return Err(unsupported(child.as_rule())),
+            _ => return Err(unsupported(child.as_rule(), sp)),
         }
     }
 
-    let final_part = final_part.ok_or_else(|| CypherError::Ast {
-        message: "missing final single part query in multi-part query".into(),
+    let final_part = final_part.ok_or_else(|| CypherError {
+        kind: ErrorKind::Internal {
+            message: "missing final single part query".into(),
+        },
         span: sp,
+        source_label: None,
+        notes: Vec::new(),
+        source: None,
     })?;
 
     Ok(MultiPartQuery { parts, final_part })
@@ -177,17 +308,19 @@ fn build_multi_part_query(pair: Pair<'_, Rule>) -> Result<MultiPartQuery> {
 
 fn build_reading_clause(pair: Pair<'_, Rule>) -> Result<ReadingClause> {
     assert_eq!(pair.as_rule(), Rule::ReadingClause);
+    let sp = span(&pair);
     let inner = pair.into_inner().next().unwrap();
     match inner.as_rule() {
         Rule::Match => Ok(ReadingClause::Match(build_match(inner)?)),
         Rule::Unwind => Ok(ReadingClause::Unwind(build_unwind(inner)?)),
         Rule::InQueryCall => Ok(ReadingClause::InQueryCall(build_in_query_call(inner)?)),
-        _ => Err(unsupported(inner.as_rule())),
+        _ => Err(unsupported(inner.as_rule(), sp)),
     }
 }
 
 fn build_updating_clause(pair: Pair<'_, Rule>) -> Result<UpdatingClause> {
     assert_eq!(pair.as_rule(), Rule::UpdatingClause);
+    let sp = span(&pair);
     let inner = pair.into_inner().next().unwrap();
     match inner.as_rule() {
         Rule::Create => Ok(UpdatingClause::Create(build_create(inner)?)),
@@ -195,7 +328,7 @@ fn build_updating_clause(pair: Pair<'_, Rule>) -> Result<UpdatingClause> {
         Rule::Delete => Ok(UpdatingClause::Delete(build_delete(inner)?)),
         Rule::Set => Ok(UpdatingClause::Set(build_set(inner)?)),
         Rule::Remove => Ok(UpdatingClause::Remove(build_remove(inner)?)),
-        _ => Err(unsupported(inner.as_rule())),
+        _ => Err(unsupported(inner.as_rule(), sp)),
     }
 }
 
@@ -212,15 +345,21 @@ fn build_match(pair: Pair<'_, Rule>) -> Result<Match> {
             Rule::MATCH | Rule::SP => {}
             Rule::Pattern => pattern = Some(build_pattern(child)?),
             Rule::Where => where_clause = Some(build_where(child)?),
-            _ => return Err(unsupported(child.as_rule())),
+            _ => return Err(unsupported(child.as_rule(), sp)),
         }
     }
 
     Ok(Match {
         optional,
-        pattern: pattern.ok_or_else(|| CypherError::Ast {
-            message: "missing pattern in MATCH".into(),
+        pattern: pattern.ok_or_else(|| CypherError {
+            kind: ErrorKind::MissingClause {
+                clause: "pattern",
+                after: "MATCH",
+            },
             span: sp,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
         })?,
         where_clause,
         span: sp,
@@ -257,14 +396,20 @@ fn build_merge(pair: Pair<'_, Rule>) -> Result<Merge> {
             Rule::MERGE | Rule::ON | Rule::SP => {}
             Rule::PatternPart => pattern = Some(build_pattern_part(child)?),
             Rule::MergeAction => actions.push(build_merge_action(child)?),
-            _ => return Err(unsupported(child.as_rule())),
+            _ => return Err(unsupported(child.as_rule(), sp)),
         }
     }
 
     Ok(Merge {
-        pattern: pattern.ok_or_else(|| CypherError::Ast {
-            message: "missing pattern in MERGE".into(),
+        pattern: pattern.ok_or_else(|| CypherError {
+            kind: ErrorKind::MissingClause {
+                clause: "pattern",
+                after: "MERGE",
+            },
             span: sp,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
         })?,
         actions,
         span: sp,
@@ -289,7 +434,7 @@ fn build_merge_action(pair: Pair<'_, Rule>) -> Result<MergeAction> {
                     }
                 }
             }
-            _ => return Err(unsupported(child.as_rule())),
+            _ => return Err(unsupported(child.as_rule(), sp)),
         }
     }
 
@@ -309,9 +454,15 @@ fn build_create(pair: Pair<'_, Rule>) -> Result<Create> {
         .find(|p| p.as_rule() == Rule::Pattern)
         .map(build_pattern)
         .transpose()?
-        .ok_or_else(|| CypherError::Ast {
-            message: "missing pattern in CREATE".into(),
+        .ok_or_else(|| CypherError {
+            kind: ErrorKind::MissingClause {
+                clause: "pattern",
+                after: "CREATE",
+            },
             span: sp,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
         })?;
     Ok(Create { pattern, span: sp })
 }
@@ -327,7 +478,7 @@ fn build_delete(pair: Pair<'_, Rule>) -> Result<Delete> {
             Rule::DETACH => detach = true,
             Rule::DELETE | Rule::SP => {}
             Rule::Expression => targets.push(build_expression(child)?),
-            _ => return Err(unsupported(child.as_rule())),
+            _ => return Err(unsupported(child.as_rule(), sp)),
         }
     }
 
@@ -358,9 +509,14 @@ fn build_set_item(pair: Pair<'_, Rule>) -> Result<SetItem> {
         .collect();
 
     if children.is_empty() {
-        return Err(CypherError::Ast {
-            message: "empty set item".into(),
+        return Err(CypherError {
+            kind: ErrorKind::InvalidAssignment {
+                reason: "empty set item",
+            },
             span: sp,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
         });
     }
 
@@ -396,16 +552,21 @@ fn build_set_item(pair: Pair<'_, Rule>) -> Result<SetItem> {
                             labels,
                         })
                     }
-                    _ => Err(unsupported(children[1].as_rule())),
+                    _ => Err(unsupported(children[1].as_rule(), sp)),
                 }
             } else {
-                Err(CypherError::Ast {
-                    message: "unexpected end of set item".into(),
+                Err(CypherError {
+                    kind: ErrorKind::InvalidAssignment {
+                        reason: "unexpected end of set item",
+                    },
                     span: sp,
+                    source_label: None,
+                    notes: Vec::new(),
+                    source: None,
                 })
             }
         }
-        _ => Err(unsupported(children[0].as_rule())),
+        _ => Err(unsupported(children[0].as_rule(), sp)),
     }
 }
 
@@ -429,9 +590,14 @@ fn build_remove_item(pair: Pair<'_, Rule>) -> Result<RemoveItem> {
         .collect();
 
     if children.is_empty() {
-        return Err(CypherError::Ast {
-            message: "empty remove item".into(),
+        return Err(CypherError {
+            kind: ErrorKind::InvalidAssignment {
+                reason: "empty remove item",
+            },
             span: sp,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
         });
     }
 
@@ -466,14 +632,20 @@ fn build_standalone_call(pair: Pair<'_, Rule>) -> Result<StandaloneCall> {
             Rule::YIELD => {}
             Rule::STAR => yield_items = Some(YieldSpec::Star { span: span(&child) }),
             Rule::YieldItems => yield_items = Some(YieldSpec::Items(build_yield_items(child)?)),
-            _ => return Err(unsupported(child.as_rule())),
+            _ => return Err(unsupported(child.as_rule(), sp)),
         }
     }
 
     Ok(StandaloneCall {
-        call: call.ok_or_else(|| CypherError::Ast {
-            message: "missing procedure call".into(),
+        call: call.ok_or_else(|| CypherError {
+            kind: ErrorKind::MissingClause {
+                clause: "procedure call",
+                after: "CALL",
+            },
             span: sp,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
         })?,
         yield_items,
         span: sp,
@@ -554,6 +726,7 @@ fn extract_symbolic_names(pair: Pair<'_, Rule>) -> Vec<SymbolicName> {
 
 fn build_yield_items(pair: Pair<'_, Rule>) -> Result<YieldItems> {
     assert_eq!(pair.as_rule(), Rule::YieldItems);
+    let sp = span(&pair);
     let mut items = Vec::new();
     let mut where_clause = None;
 
@@ -562,7 +735,7 @@ fn build_yield_items(pair: Pair<'_, Rule>) -> Result<YieldItems> {
             Rule::YieldItem => items.push(build_yield_item(child)?),
             Rule::Where => where_clause = Some(build_where(child)?),
             Rule::SP | Rule::YIELD => {}
-            _ => return Err(unsupported(child.as_rule())),
+            _ => return Err(unsupported(child.as_rule(), sp)),
         }
     }
 
@@ -655,6 +828,7 @@ type ProjectionParts = (
 
 fn build_projection_body(pair: Pair<'_, Rule>) -> Result<ProjectionParts> {
     assert_eq!(pair.as_rule(), Rule::ProjectionBody);
+    let sp = span(&pair);
     let mut distinct = false;
     let mut items = Vec::new();
     let mut order = None;
@@ -683,7 +857,7 @@ fn build_projection_body(pair: Pair<'_, Rule>) -> Result<ProjectionParts> {
                 )?)
             }
             Rule::SP => {}
-            _ => return Err(unsupported(child.as_rule())),
+            _ => return Err(unsupported(child.as_rule(), sp)),
         }
     }
 
@@ -775,15 +949,20 @@ fn build_pattern_part(pair: Pair<'_, Rule>) -> Result<PatternPart> {
             Rule::Variable => variable = Some(build_variable(child)?),
             Rule::AnonymousPatternPart => anonymous = Some(build_anonymous_pattern_part(child)?),
             Rule::SP => {}
-            _ => return Err(unsupported(child.as_rule())),
+            _ => return Err(unsupported(child.as_rule(), sp)),
         }
     }
 
     Ok(PatternPart {
         variable,
-        anonymous: anonymous.ok_or_else(|| CypherError::Ast {
-            message: "missing anonymous pattern part".into(),
+        anonymous: anonymous.ok_or_else(|| CypherError {
+            kind: ErrorKind::Internal {
+                message: "missing anonymous pattern part".into(),
+            },
             span: sp,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
         })?,
         span: sp,
     })
@@ -805,9 +984,14 @@ fn build_pattern_element(pair: Pair<'_, Rule>) -> Result<PatternElement> {
         .collect();
 
     if children.is_empty() {
-        return Err(CypherError::Ast {
-            message: "empty pattern element".into(),
+        return Err(CypherError {
+            kind: ErrorKind::Internal {
+                message: "empty pattern element".into(),
+            },
             span: sp,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
         });
     }
 
@@ -838,7 +1022,7 @@ fn build_node_pattern(pair: Pair<'_, Rule>) -> Result<NodePattern> {
             Rule::NodeLabels => labels = build_node_labels(child)?,
             Rule::Properties => properties = Some(build_properties(child)?),
             Rule::SP => {}
-            _ => return Err(unsupported(child.as_rule())),
+            _ => return Err(unsupported(child.as_rule(), sp)),
         }
     }
 
@@ -875,7 +1059,7 @@ fn build_relationship_pattern(pair: Pair<'_, Rule>) -> Result<RelationshipPatter
             Rule::RightArrowHead => has_right = true,
             Rule::Dash | Rule::SP => {}
             Rule::RelationshipDetail => detail = Some(build_relationship_detail(child)?),
-            _ => return Err(unsupported(child.as_rule())),
+            _ => return Err(unsupported(child.as_rule(), sp)),
         }
     }
 
@@ -907,7 +1091,7 @@ fn build_relationship_detail(pair: Pair<'_, Rule>) -> Result<RelationshipDetail>
             Rule::RangeLiteral => range = Some(build_range_literal(child)?),
             Rule::Properties => properties = Some(build_properties(child)?),
             Rule::SP => {}
-            _ => return Err(unsupported(child.as_rule())),
+            _ => return Err(unsupported(child.as_rule(), sp)),
         }
     }
 
@@ -969,11 +1153,12 @@ fn build_node_labels(pair: Pair<'_, Rule>) -> Result<Vec<SymbolicName>> {
 
 fn build_properties(pair: Pair<'_, Rule>) -> Result<Properties> {
     assert_eq!(pair.as_rule(), Rule::Properties);
+    let sp = span(&pair);
     let inner = pair.into_inner().next().unwrap();
     match inner.as_rule() {
         Rule::MapLiteral => Ok(Properties::Map(build_map_literal(inner)?)),
         Rule::Parameter => Ok(Properties::Parameter(build_parameter(inner)?)),
-        _ => Err(unsupported(inner.as_rule())),
+        _ => Err(unsupported(inner.as_rule(), sp)),
     }
 }
 
@@ -1016,9 +1201,14 @@ fn build_expression(pair: Pair<'_, Rule>) -> Result<Expression> {
             let rule = pair.as_rule();
             let sp = span(&pair);
             let mut inner = pair.into_inner();
-            let first = inner.next().ok_or_else(|| CypherError::Ast {
-                message: format!("empty expression rule: {:?}", rule),
+            let first = inner.next().ok_or_else(|| CypherError {
+                kind: ErrorKind::Internal {
+                    message: format!("empty expression rule: {:?}", rule),
+                },
                 span: sp,
+                source_label: None,
+                notes: Vec::new(),
+                source: None,
             })?;
 
             let mut expr = build_expression(first)?;
@@ -1261,7 +1451,7 @@ fn build_expression(pair: Pair<'_, Rule>) -> Result<Expression> {
                                 expr = build_null_op(expr, child)?;
                             }
                             Rule::SP => {}
-                            _ => return Err(unsupported(child.as_rule())),
+                            _ => return Err(unsupported(child.as_rule(), sp)),
                         }
                     }
                 }
@@ -1285,7 +1475,7 @@ fn build_expression(pair: Pair<'_, Rule>) -> Result<Expression> {
                                 };
                             }
                             Rule::SP => {}
-                            _ => return Err(unsupported(child.as_rule())),
+                            _ => return Err(unsupported(child.as_rule(), sp)),
                         }
                     }
                 }
@@ -1305,9 +1495,14 @@ fn build_expression(pair: Pair<'_, Rule>) -> Result<Expression> {
         }
         Rule::ListOperatorExpression
         | Rule::StringOperatorExpression
-        | Rule::NullOperatorExpression => Err(CypherError::Ast {
-            message: "operator expression must be preceded by a base expression".into(),
+        | Rule::NullOperatorExpression => Err(CypherError {
+            kind: ErrorKind::Internal {
+                message: "operator expression must be preceded by a base expression".into(),
+            },
             span: span(&pair),
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
         }),
         Rule::PropertyLookup => {
             let sp = span(&pair);
@@ -1395,7 +1590,7 @@ fn build_expression(pair: Pair<'_, Rule>) -> Result<Expression> {
             let kind = pair.as_rule();
             build_quantified_expression(pair, kind)
         }
-        _ => Err(unsupported(pair.as_rule())),
+        _ => Err(unsupported(pair.as_rule(), span(&pair))),
     }
 }
 
@@ -1418,9 +1613,14 @@ fn build_string_op(lhs: Expression, pair: Pair<'_, Rule>) -> Result<Expression> 
         }
     }
 
-    let rhs = rhs.ok_or_else(|| CypherError::Ast {
-        message: "missing rhs in string operator".into(),
+    let rhs = rhs.ok_or_else(|| CypherError {
+        kind: ErrorKind::Internal {
+            message: "missing rhs in string operator".into(),
+        },
         span: sp,
+        source_label: None,
+        notes: Vec::new(),
+        source: None,
     })?;
 
     Ok(Expression::Comparison {
@@ -1526,7 +1726,7 @@ fn build_property_or_labels_expression(pair: Pair<'_, Rule>) -> Result<Expressio
                 };
             }
             Rule::SP => {}
-            _ => return Err(unsupported(child.as_rule())),
+            _ => return Err(unsupported(child.as_rule(), sp)),
         }
     }
 
@@ -1607,18 +1807,19 @@ fn build_atom(pair: Pair<'_, Rule>) -> Result<Expression> {
             let expr = build_expression(inner)?;
             Ok(Expression::Parenthesized(Box::new(expr)))
         }
-        _ => Err(unsupported(pair.as_rule())),
+        _ => Err(unsupported(pair.as_rule(), span(&pair))),
     }
 }
 
 fn build_quantified_expression(pair: Pair<'_, Rule>, kind: Rule) -> Result<Expression> {
+    let sp = span(&pair);
     let filter = build_filter_expression(pair)?;
     match kind {
         Rule::ALL => Ok(Expression::All(Box::new(filter))),
         Rule::ANY_ => Ok(Expression::Any(Box::new(filter))),
         Rule::NONE => Ok(Expression::None(Box::new(filter))),
         Rule::SINGLE => Ok(Expression::Single(Box::new(filter))),
-        _ => Err(unsupported(kind)),
+        _ => Err(unsupported(kind, sp)),
     }
 }
 
@@ -1645,12 +1846,13 @@ fn build_literal(pair: Pair<'_, Rule>) -> Result<Expression> {
             let lit = build_list_literal(pair)?;
             Ok(Expression::Literal(Literal::List(lit)))
         }
-        _ => Err(unsupported(pair.as_rule())),
+        _ => Err(unsupported(pair.as_rule(), span(&pair))),
     }
 }
 
 fn build_partial_comparison(pair: Pair<'_, Rule>) -> Result<(ComparisonOperator, Box<Expression>)> {
     assert_eq!(pair.as_rule(), Rule::PartialComparisonExpression);
+    let sp = span(&pair);
     let children: Vec<_> = pair
         .into_inner()
         .filter(|p| p.as_rule() != Rule::SP)
@@ -1663,7 +1865,7 @@ fn build_partial_comparison(pair: Pair<'_, Rule>) -> Result<(ComparisonOperator,
         Rule::GT => ComparisonOperator::Gt,
         Rule::LE => ComparisonOperator::Le,
         Rule::GE => ComparisonOperator::Ge,
-        _ => return Err(unsupported(op_pair.as_rule())),
+        _ => return Err(unsupported(op_pair.as_rule(), sp)),
     };
     let rhs = build_expression(children[1].clone())?;
     Ok((op, Box::new(rhs)))
@@ -1671,6 +1873,7 @@ fn build_partial_comparison(pair: Pair<'_, Rule>) -> Result<(ComparisonOperator,
 
 fn build_number_literal(pair: Pair<'_, Rule>) -> Result<NumberLiteral> {
     assert_eq!(pair.as_rule(), Rule::NumberLiteral);
+    let sp = span(&pair);
     let inner = pair.into_inner().next().unwrap();
     match inner.as_rule() {
         Rule::IntegerLiteral => {
@@ -1686,7 +1889,7 @@ fn build_number_literal(pair: Pair<'_, Rule>) -> Result<NumberLiteral> {
             let val = inner.as_str().parse::<f64>().unwrap_or(0.0);
             Ok(NumberLiteral::Float(val))
         }
-        _ => Err(unsupported(inner.as_rule())),
+        _ => Err(unsupported(inner.as_rule(), sp)),
     }
 }
 
@@ -1819,7 +2022,7 @@ fn build_case_expression(pair: Pair<'_, Rule>) -> Result<CaseExpression> {
             }
             Rule::CaseAlternative => alternatives.push(build_case_alternative(child)?),
             Rule::ELSE => {}
-            _ => return Err(unsupported(child.as_rule())),
+            _ => return Err(unsupported(child.as_rule(), sp)),
         }
     }
 
@@ -1880,20 +2083,32 @@ fn build_pattern_comprehension(pair: Pair<'_, Rule>) -> Result<PatternComprehens
             Rule::Where => where_clause = Some(build_where(child)?),
             Rule::Expression => map = Some(build_expression(child)?),
             Rule::SP => {}
-            _ => return Err(unsupported(child.as_rule())),
+            _ => return Err(unsupported(child.as_rule(), sp)),
         }
     }
 
     Ok(PatternComprehension {
         variable,
-        pattern: pattern.ok_or_else(|| CypherError::Ast {
-            message: "missing pattern in pattern comprehension".into(),
+        pattern: pattern.ok_or_else(|| CypherError {
+            kind: ErrorKind::MissingClause {
+                clause: "pattern",
+                after: "[",
+            },
             span: sp,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
         })?,
         where_clause,
-        map: map.ok_or_else(|| CypherError::Ast {
-            message: "missing map expression in pattern comprehension".into(),
+        map: map.ok_or_else(|| CypherError {
+            kind: ErrorKind::MissingClause {
+                clause: "map expression",
+                after: "|",
+            },
             span: sp,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
         })?,
         span: sp,
     })
@@ -1906,9 +2121,14 @@ fn build_filter_expression(pair: Pair<'_, Rule>) -> Result<FilterExpression> {
     let id = pair_clone
         .into_inner()
         .find(|p| p.as_rule() == Rule::IdInColl)
-        .ok_or_else(|| CypherError::Ast {
-            message: "missing IdInColl in FilterExpression".into(),
+        .ok_or_else(|| CypherError {
+            kind: ErrorKind::Internal {
+                message: "missing IdInColl in FilterExpression".into(),
+            },
             span: sp,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
         })?;
     let children: Vec<_> = id
         .into_inner()
@@ -1936,9 +2156,14 @@ fn build_exists_expression(pair: Pair<'_, Rule>) -> Result<ExistsExpression> {
         .into_inner()
         .filter(|p| p.as_rule() != Rule::SP && p.as_rule() != Rule::EXISTS)
         .collect();
-    let body = children.first().ok_or_else(|| CypherError::Ast {
-        message: "missing body in EXISTS".into(),
+    let body = children.first().ok_or_else(|| CypherError {
+        kind: ErrorKind::Internal {
+            message: "missing body in EXISTS".into(),
+        },
         span: sp,
+        source_label: None,
+        notes: Vec::new(),
+        source: None,
     })?;
 
     let inner_val = match body.as_rule() {
@@ -1956,7 +2181,7 @@ fn build_exists_expression(pair: Pair<'_, Rule>) -> Result<ExistsExpression> {
                 .transpose()?;
             ExistsInner::Pattern(pattern, where_clause)
         }
-        _ => return Err(unsupported(body.as_rule())),
+        _ => return Err(unsupported(body.as_rule(), sp)),
     };
 
     Ok(ExistsExpression {
@@ -2017,9 +2242,14 @@ fn build_property_key_name_from_lookup(pair: Pair<'_, Rule>) -> Result<PropertyK
     let key = pair
         .into_inner()
         .find(|p| p.as_rule() == Rule::PropertyKeyName)
-        .ok_or_else(|| CypherError::Ast {
-            message: "missing PropertyKeyName in PropertyLookup".into(),
+        .ok_or_else(|| CypherError {
+            kind: ErrorKind::Internal {
+                message: "missing PropertyKeyName in PropertyLookup".into(),
+            },
             span: sp,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
         })?;
     build_property_key_name(key)
 }
