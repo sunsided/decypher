@@ -120,3 +120,31 @@ pub fn parse_all(input: &str) -> (Option<Query>, Diagnostics) {
         },
     )
 }
+
+#[cfg(test)]
+pub(crate) fn parse_cst(input: &str) -> Result<Query> {
+    use crate::syntax::ast::top_level::SourceFile;
+    use crate::syntax::ast::AstNode;
+
+    if input.trim().is_empty() {
+        return Err(CypherError {
+            kind: ErrorKind::EmptyInput,
+            span: Span::new(0, 0),
+            source_label: None,
+            notes: Vec::new(),
+            source: Some(Arc::from(input)),
+        });
+    }
+
+    let parse = crate::parser::parse(input);
+    let source = SourceFile::cast(parse.tree).ok_or_else(|| CypherError {
+        kind: ErrorKind::Internal {
+            message: "failed to cast to SourceFile".into(),
+        },
+        span: Span::new(0, 0),
+        source_label: None,
+        notes: Vec::new(),
+        source: Some(Arc::from(input)),
+    })?;
+    crate::ast::build_cst::build_source_file(source)
+}
