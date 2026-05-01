@@ -27,3 +27,6 @@ default = []
 low-level = []
 serde = ["dep:serde"]
 miette = ["dep:miette"]
+
+[dev-dependencies]
+assert2 = "0.3"

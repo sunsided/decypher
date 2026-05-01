@@ -7,6 +7,7 @@ pub struct Token {
     pub text_len: usize,
 }
 
+#[derive(Clone, Debug)]
 pub struct Lexer<'a> {
     input: &'a str,
     chars: Chars<'a>,
