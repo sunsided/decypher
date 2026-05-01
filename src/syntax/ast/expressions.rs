@@ -177,6 +177,12 @@ impl BinaryExpr {
             .prev_sibling()
             .and_then(|s| Expression::cast(s))
             .or_else(|| self.0.children().find_map(Expression::cast))
+            .or_else(|| {
+                self.0
+                    .prev_sibling()
+                    .and_then(|s| Variable::cast(s))
+                    .map(|v| Expression::Atom(Atom::Variable(v)))
+            })
     }
 
     pub fn rhs(&self) -> Option<Expression> {
@@ -801,20 +807,31 @@ impl AstNode for CaseAlternative {
 impl CaseAlternative {
     pub fn when_expr(&self) -> Option<Expression> {
         self.0
-            .children()
-            .take_while(|n| n.kind() != SyntaxKind::KW_THEN)
+            .children_with_tokens()
+            .take_while(|n| {
+                n.as_token()
+                    .map_or(true, |t| t.kind() != SyntaxKind::KW_THEN)
+            })
+            .filter_map(|e| e.as_node().cloned())
             .find_map(Expression::cast)
     }
 
     pub fn then_expr(&self) -> Option<Expression> {
         let mut seen_then = false;
-        for child_node in self.0.children() {
-            if child_node.kind() == SyntaxKind::KW_THEN {
+        for child in self.0.children_with_tokens() {
+            if child
+                .as_token()
+                .map_or(false, |t| t.kind() == SyntaxKind::KW_THEN)
+            {
                 seen_then = true;
                 continue;
             }
             if seen_then {
-                return Expression::cast(child_node);
+                if let Some(node) = child.as_node() {
+                    if let Some(expr) = Expression::cast(node.clone()) {
+                        return Some(expr);
+                    }
+                }
             }
         }
         None

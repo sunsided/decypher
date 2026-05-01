@@ -121,8 +121,8 @@ pub fn parse_all(input: &str) -> (Option<Query>, Diagnostics) {
     )
 }
 
-#[cfg(test)]
-pub(crate) fn parse_cst(input: &str) -> Result<Query> {
+#[cfg(any(test, feature = "cst-parser"))]
+pub fn parse_cst(input: &str) -> Result<Query> {
     use crate::syntax::ast::top_level::SourceFile;
     use crate::syntax::ast::AstNode;
 

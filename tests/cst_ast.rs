@@ -748,3 +748,172 @@ fn drop_constraint() {
     let dc = dc.unwrap();
     check!(dc.if_exists() == true);
 }
+
+#[test]
+fn debug_cst_dump_rel() {
+    let result = parse("MATCH (a)-[r]->(b) RETURN a, r, b");
+    let source = result.tree();
+    fn dump(node: &open_cypher::syntax::SyntaxNode, indent: usize) {
+        let prefix = "  ".repeat(indent);
+        let text = node.text().to_string();
+        let text_preview = if text.len() > 60 {
+            format!("{}...", &text[..57])
+        } else {
+            text
+        };
+        if node.children().next().is_none() {
+            println!("{}{:?}: {:?}", prefix, node.kind(), text_preview);
+        } else {
+            println!("{}{:?}", prefix, node.kind());
+            for child in node.children() {
+                dump(&child, indent + 1);
+            }
+        }
+    }
+    dump(source.syntax(), 0);
+}
+
+#[test]
+fn debug_cst_dump_rel2() {
+    let result = parse("MATCH (a)-[r]->(b) RETURN a, r, b");
+    let source = result.tree();
+    for chain in source
+        .syntax()
+        .descendants()
+        .filter_map(|n| open_cypher::cst::PatternElementChain::cast(n))
+    {
+        println!(
+            "PatternElementChain syntax kind: {:?}",
+            chain.syntax().kind()
+        );
+        for child in chain.syntax().children() {
+            println!("  child: {:?}", child.kind());
+        }
+        for token in chain
+            .syntax()
+            .children_with_tokens()
+            .filter_map(|t| t.into_token())
+        {
+            println!("  token: {:?} = {:?}", token.kind(), token.text());
+        }
+        println!("  relationship(): {:?}", chain.relationship());
+        let detail = chain
+            .syntax()
+            .children()
+            .find_map(|n| open_cypher::cst::RelationshipDetail::cast(n));
+        println!(
+            "  detail (direct): {:?}",
+            detail.map(|d| d.syntax().text().to_string())
+        );
+    }
+}
+#[test]
+fn debug_cst_dump_case() {
+    let result = parse("MATCH (n) RETURN CASE WHEN n.active THEN 'yes' ELSE 'no' END");
+    let source = result.tree();
+    fn dump(node: &open_cypher::syntax::SyntaxNode, indent: usize) {
+        let prefix = "  ".repeat(indent);
+        let text = node.text().to_string();
+        let text_preview = if text.len() > 60 {
+            format!("{}...", &text[..57])
+        } else {
+            text
+        };
+        if node.children().next().is_none() {
+            println!("{}{:?}: {:?}", prefix, node.kind(), text_preview);
+        } else {
+            println!("{}{:?}", prefix, node.kind());
+            for child in node.children() {
+                dump(&child, indent + 1);
+            }
+        }
+    }
+    dump(source.syntax(), 0);
+}
+
+#[test]
+fn debug_cst_dump_is_not_null() {
+    let result = parse("RETURN x IS NOT NULL");
+    let source = result.tree();
+    fn dump(node: &open_cypher::syntax::SyntaxNode, indent: usize) {
+        let prefix = "  ".repeat(indent);
+        let text = node.text().to_string();
+        let text_preview = if text.len() > 60 {
+            format!("{}...", &text[..57])
+        } else {
+            text
+        };
+        if node.children().next().is_none() {
+            println!("{}{:?}: {:?}", prefix, node.kind(), text_preview);
+        } else {
+            println!("{}{:?}", prefix, node.kind());
+            for child in node.children() {
+                dump(&child, indent + 1);
+            }
+        }
+    }
+    dump(source.syntax(), 0);
+
+    // Also check the expression type
+    for proj in source
+        .syntax()
+        .descendants()
+        .filter_map(|n| open_cypher::cst::ProjectionItem::cast(n))
+    {
+        if let Some(expr) = proj.expr() {
+            println!("Expression: {:?}", expr);
+            match expr {
+                open_cypher::cst::Expression::BinaryExpr(b) => {
+                    println!("  BinaryExpr op_kind: {:?}", b.op_kind());
+                }
+                other => {
+                    println!("  Other: {:?}", other);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn debug_cst_dump_null() {
+    let result = parse("RETURN null;");
+    let source = result.tree();
+    fn dump(node: &open_cypher::syntax::SyntaxNode, indent: usize) {
+        let prefix = "  ".repeat(indent);
+        let text = node.text().to_string();
+        let text_preview = if text.len() > 60 {
+            format!("{}...", &text[..57])
+        } else {
+            text
+        };
+        if node.children().next().is_none() {
+            println!("{}{:?}: {:?}", prefix, node.kind(), text_preview);
+        } else {
+            println!("{}{:?}", prefix, node.kind());
+            for child in node.children() {
+                dump(&child, indent + 1);
+            }
+        }
+    }
+    dump(source.syntax(), 0);
+
+    // Check what ProjectionItem sees
+    for proj in source
+        .syntax()
+        .descendants()
+        .filter_map(|n| open_cypher::cst::ProjectionItem::cast(n))
+    {
+        println!("ProjectionItem children:");
+        for child in proj.syntax().children() {
+            println!("  node: {:?}", child.kind());
+        }
+        for t in proj
+            .syntax()
+            .children_with_tokens()
+            .filter_map(|t| t.into_token())
+        {
+            println!("  token: {:?} = {:?}", t.kind(), t.text());
+        }
+        println!("  expr(): {:?}", proj.expr());
+    }
+}

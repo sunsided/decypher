@@ -28,6 +28,7 @@ default = []
 low-level = []
 serde = ["dep:serde"]
 miette = ["dep:miette"]
+cst-parser = []
 
 [dev-dependencies]
 assert2 = "0.3"

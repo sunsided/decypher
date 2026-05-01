@@ -165,14 +165,8 @@ fn build_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_c::Single
         .map(|(i, _)| i)
         .collect();
 
-    let is_multipart_with = |idx: usize| -> bool {
-        if idx >= clauses.len() - 1 {
-            false
-        } else {
-            let after = &clauses[idx + 1..];
-            !after.is_empty()
-        }
-    };
+    let total = clauses.len();
+    let is_multipart_with = |idx: usize| -> bool { idx < total - 1 };
 
     if with_indices.is_empty() {
         let mut reading = Vec::new();
@@ -321,7 +315,6 @@ fn build_unwind(c: UnwindClause) -> Result<ast_c::Unwind> {
     let variable = c
         .as_name()
         .map(|v| build_top_variable(v))
-        .transpose()?
         .ok_or_else(|| internal("missing variable in UNWIND", sp))?;
     Ok(ast_c::Unwind {
         expression: expr,
@@ -536,7 +529,6 @@ fn build_foreach(c: ForeachClause) -> Result<ast_c::Foreach> {
     let variable = c
         .variable()
         .map(|v| build_top_variable(v))
-        .transpose()?
         .ok_or_else(|| internal("missing variable in FOREACH", sp))?;
     let list = c
         .list()
@@ -595,12 +587,38 @@ fn build_projection_body(body: ProjectionBody) -> Result<ProjResult> {
 }
 
 fn build_projection_item(item: ProjectionItem) -> Result<ast_c::ProjectionItem> {
-    let expr = item
-        .expr()
-        .map(|e| build_expression(e))
-        .transpose()?
-        .ok_or_else(|| internal("missing expr in projection item", span_of(item.syntax())))?;
-    let alias = item.as_name().map(|v| build_top_variable(v)).transpose()?;
+    let sp = span_of(item.syntax());
+    let expr = if let Some(e) = item.expr() {
+        build_expression(e)?
+    } else if item.syntax().children_with_tokens().any(|t| {
+        t.as_token()
+            .map_or(false, |t| t.kind() == SyntaxKind::NULL_KW)
+    }) {
+        ast_c::Expression::Literal(ast_c::Literal::Null)
+    } else {
+        let int_text = item.syntax().children_with_tokens().find_map(|t| {
+            t.as_token()
+                .filter(|t| t.kind() == SyntaxKind::INTEGER)
+                .map(|t| t.text().to_string())
+        });
+        if let Some(text) = int_text {
+            let val = parse_integer(&text).ok_or_else(|| internal("invalid integer", sp))?;
+            ast_c::Expression::Literal(ast_c::Literal::Number(ast_c::NumberLiteral::Integer(val)))
+        } else {
+            let float_text = item.syntax().children_with_tokens().find_map(|t| {
+                t.as_token()
+                    .filter(|t| t.kind() == SyntaxKind::FLOAT)
+                    .map(|t| t.text().to_string())
+            });
+            if let Some(text) = float_text {
+                let val = parse_double(&text).ok_or_else(|| internal("invalid float", sp))?;
+                ast_c::Expression::Literal(ast_c::Literal::Number(ast_c::NumberLiteral::Float(val)))
+            } else {
+                return Err(internal("missing expr in projection item", sp));
+            }
+        }
+    };
+    let alias = item.as_name().map(|v| build_top_variable(v));
     Ok(ast_c::ProjectionItem {
         expression: expr,
         alias,
@@ -641,7 +659,7 @@ fn build_pattern(p: Pattern) -> Result<ast_c::Pattern> {
 
 fn build_pattern_part(pp: PatternPart) -> Result<ast_c::PatternPart> {
     let sp = span_of(pp.syntax());
-    let variable = pp.variable().map(|v| build_top_variable(v)).transpose()?;
+    let variable = pp.variable().map(|v| build_top_variable(v));
     let anonymous = pp
         .anonymous_part()
         .map(|a| build_anonymous_pattern_part(a))
@@ -658,6 +676,7 @@ fn build_anonymous_pattern_part(app: AnonymousPatternPart) -> Result<ast_c::Anon
     let element = app
         .element()
         .map(|e| build_pattern_element(e))
+        .transpose()?
         .ok_or_else(|| internal("missing element", span_of(app.syntax())))?;
     Ok(ast_c::AnonymousPatternPart { element })
 }
@@ -675,6 +694,7 @@ fn build_pattern_element(pe: PatternElement) -> Result<ast_c::PatternElement> {
     }
     let start = node
         .map(|n| build_node_pattern(n))
+        .transpose()?
         .ok_or_else(|| internal("missing node", span_of(pe.syntax())))?;
     let built: Result<Vec<_>> = chains
         .into_iter()
@@ -688,9 +708,10 @@ fn build_pattern_element(pe: PatternElement) -> Result<ast_c::PatternElement> {
 
 fn build_node_pattern(np: NodePattern) -> Result<ast_c::NodePattern> {
     let sp = span_of(np.syntax());
-    let variable = np.variable().map(|v| build_top_variable(v)).transpose()?;
+    let variable = np.variable().map(|v| build_top_variable(v));
     let labels: Result<Vec<_>> = np
         .labels()
+        .flat_map(|container| container.labels())
         .map(|nl| {
             nl.name()
                 .and_then(|ln| ln.symbolic_name())
@@ -711,13 +732,37 @@ fn build_node_pattern(np: NodePattern) -> Result<ast_c::NodePattern> {
 }
 
 fn build_pattern_element_chain(pec: PatternElementChain) -> Result<ast_c::PatternElementChain> {
-    let relationship = pec
-        .relationship()
-        .map(|r| build_relationship_pattern(r))
-        .ok_or_else(|| internal("missing rel in chain", span_of(pec.syntax())))?;
+    let sp = span_of(pec.syntax());
+    let has_left = pec.syntax().children_with_tokens().any(|t| {
+        t.as_token()
+            .map_or(false, |t| t.kind() == SyntaxKind::ARROW_LEFT)
+    });
+    let has_right = pec.syntax().children_with_tokens().any(|t| {
+        t.as_token().map_or(false, |t| {
+            t.kind() == SyntaxKind::ARROW_RIGHT || t.kind() == SyntaxKind::GT
+        })
+    });
+    let direction = match (has_left, has_right) {
+        (true, true) => ast_c::RelationshipDirection::Both,
+        (true, false) => ast_c::RelationshipDirection::Left,
+        (false, true) => ast_c::RelationshipDirection::Right,
+        (false, false) => ast_c::RelationshipDirection::Undirected,
+    };
+    let detail = pec
+        .syntax()
+        .children()
+        .find_map(|n| RelationshipDetail::cast(n))
+        .map(|d| build_relationship_detail(d))
+        .transpose()?;
+    let relationship = ast_c::RelationshipPattern {
+        direction,
+        detail,
+        span: sp,
+    };
     let node = pec
         .node()
         .map(|n| build_node_pattern(n))
+        .transpose()?
         .ok_or_else(|| internal("missing node in chain", span_of(pec.syntax())))?;
     Ok(ast_c::PatternElementChain { relationship, node })
 }
@@ -744,9 +789,11 @@ fn build_relationship_pattern(rp: RelationshipPattern) -> Result<ast_c::Relation
 
 fn build_relationship_detail(rd: RelationshipDetail) -> Result<ast_c::RelationshipDetail> {
     let sp = span_of(rd.syntax());
-    let variable = rd.variable().map(|v| build_top_variable(v)).transpose()?;
+    let variable = rd.variable().map(|v| build_top_variable(v));
     let types: Result<Vec<_>> = rd
         .types()
+        .into_iter()
+        .flat_map(|container| container.types())
         .map(|t| {
             t.symbolic_name()
                 .map(|s| ast_c::RelTypeName {
@@ -800,6 +847,7 @@ fn build_properties(p: Properties) -> Result<ast_c::Properties> {
                 let value = e
                     .value()
                     .map(|v| build_expression(v))
+                    .transpose()?
                     .ok_or_else(|| internal("missing value", span_of(e.syntax())))?;
                 Ok((key, value))
             })
@@ -833,117 +881,8 @@ fn build_binary_expr(b: BinaryExpr) -> Result<ast_c::Expression> {
         .map(|e| build_expression(e))
         .transpose()?
         .ok_or_else(|| internal("missing lhs", sp))?;
-    let rhs = b
-        .rhs()
-        .map(|e| build_expression(e))
-        .transpose()?
-        .ok_or_else(|| internal("missing rhs", sp))?;
 
     match b.op_kind() {
-        Some(BinOp::Or) => Ok(ast_c::Expression::BinaryOp {
-            op: ast_c::BinaryOperator::Or,
-            lhs: Box::new(lhs),
-            rhs: Box::new(rhs),
-            span: sp,
-        }),
-        Some(BinOp::Xor) => Ok(ast_c::Expression::BinaryOp {
-            op: ast_c::BinaryOperator::Xor,
-            lhs: Box::new(lhs),
-            rhs: Box::new(rhs),
-            span: sp,
-        }),
-        Some(BinOp::And) => Ok(ast_c::Expression::BinaryOp {
-            op: ast_c::BinaryOperator::And,
-            lhs: Box::new(lhs),
-            rhs: Box::new(rhs),
-            span: sp,
-        }),
-        Some(BinOp::Eq) => Ok(ast_c::Expression::Comparison {
-            lhs: Box::new(lhs),
-            operators: vec![(ast_c::ComparisonOperator::Eq, Box::new(rhs))],
-            span: sp,
-        }),
-        Some(BinOp::Ne) => Ok(ast_c::Expression::Comparison {
-            lhs: Box::new(lhs),
-            operators: vec![(ast_c::ComparisonOperator::Ne, Box::new(rhs))],
-            span: sp,
-        }),
-        Some(BinOp::Lt) => Ok(ast_c::Expression::Comparison {
-            lhs: Box::new(lhs),
-            operators: vec![(ast_c::ComparisonOperator::Lt, Box::new(rhs))],
-            span: sp,
-        }),
-        Some(BinOp::Gt) => Ok(ast_c::Expression::Comparison {
-            lhs: Box::new(lhs),
-            operators: vec![(ast_c::ComparisonOperator::Gt, Box::new(rhs))],
-            span: sp,
-        }),
-        Some(BinOp::Le) => Ok(ast_c::Expression::Comparison {
-            lhs: Box::new(lhs),
-            operators: vec![(ast_c::ComparisonOperator::Le, Box::new(rhs))],
-            span: sp,
-        }),
-        Some(BinOp::Ge) => Ok(ast_c::Expression::Comparison {
-            lhs: Box::new(lhs),
-            operators: vec![(ast_c::ComparisonOperator::Ge, Box::new(rhs))],
-            span: sp,
-        }),
-        Some(BinOp::Add) => Ok(ast_c::Expression::BinaryOp {
-            op: ast_c::BinaryOperator::Add,
-            lhs: Box::new(lhs),
-            rhs: Box::new(rhs),
-            span: sp,
-        }),
-        Some(BinOp::Sub) => Ok(ast_c::Expression::BinaryOp {
-            op: ast_c::BinaryOperator::Subtract,
-            lhs: Box::new(lhs),
-            rhs: Box::new(rhs),
-            span: sp,
-        }),
-        Some(BinOp::Mul) => Ok(ast_c::Expression::BinaryOp {
-            op: ast_c::BinaryOperator::Multiply,
-            lhs: Box::new(lhs),
-            rhs: Box::new(rhs),
-            span: sp,
-        }),
-        Some(BinOp::Div) => Ok(ast_c::Expression::BinaryOp {
-            op: ast_c::BinaryOperator::Divide,
-            lhs: Box::new(lhs),
-            rhs: Box::new(rhs),
-            span: sp,
-        }),
-        Some(BinOp::Mod) => Ok(ast_c::Expression::BinaryOp {
-            op: ast_c::BinaryOperator::Modulo,
-            lhs: Box::new(lhs),
-            rhs: Box::new(rhs),
-            span: sp,
-        }),
-        Some(BinOp::Power) => Ok(ast_c::Expression::BinaryOp {
-            op: ast_c::BinaryOperator::Power,
-            lhs: Box::new(lhs),
-            rhs: Box::new(rhs),
-            span: sp,
-        }),
-        Some(BinOp::StartsWith) => Ok(ast_c::Expression::Comparison {
-            lhs: Box::new(lhs),
-            operators: vec![(ast_c::ComparisonOperator::StartsWith, Box::new(rhs))],
-            span: sp,
-        }),
-        Some(BinOp::EndsWith) => Ok(ast_c::Expression::Comparison {
-            lhs: Box::new(lhs),
-            operators: vec![(ast_c::ComparisonOperator::EndsWith, Box::new(rhs))],
-            span: sp,
-        }),
-        Some(BinOp::Contains) => Ok(ast_c::Expression::Comparison {
-            lhs: Box::new(lhs),
-            operators: vec![(ast_c::ComparisonOperator::Contains, Box::new(rhs))],
-            span: sp,
-        }),
-        Some(BinOp::In) => Ok(ast_c::Expression::In {
-            lhs: Box::new(lhs),
-            rhs: Box::new(rhs),
-            span: sp,
-        }),
         Some(BinOp::IsNull) => Ok(ast_c::Expression::IsNull {
             operand: Box::new(lhs),
             negated: false,
@@ -954,25 +893,140 @@ fn build_binary_expr(b: BinaryExpr) -> Result<ast_c::Expression> {
             negated: true,
             span: sp,
         }),
-        Some(BinOp::Index) => Ok(ast_c::Expression::ListIndex {
-            list: Box::new(lhs),
-            index: Box::new(rhs),
-            span: sp,
-        }),
-        Some(BinOp::PropertyLookup) => Ok(ast_c::Expression::PropertyLookup {
-            base: Box::new(lhs),
-            property: extract_property_key(&rhs)?,
-            span: sp,
-        }),
-        Some(BinOp::HasLabel) => {
-            let labels = extract_labels(&rhs)?;
-            Ok(ast_c::Expression::NodeLabels {
-                base: Box::new(lhs),
-                labels,
-                span: sp,
-            })
+        _ => {
+            let rhs = b
+                .rhs()
+                .map(|e| build_expression(e))
+                .transpose()?
+                .ok_or_else(|| internal("missing rhs", sp))?;
+
+            match b.op_kind() {
+                Some(BinOp::Or) => Ok(ast_c::Expression::BinaryOp {
+                    op: ast_c::BinaryOperator::Or,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                    span: sp,
+                }),
+                Some(BinOp::Xor) => Ok(ast_c::Expression::BinaryOp {
+                    op: ast_c::BinaryOperator::Xor,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                    span: sp,
+                }),
+                Some(BinOp::And) => Ok(ast_c::Expression::BinaryOp {
+                    op: ast_c::BinaryOperator::And,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                    span: sp,
+                }),
+                Some(BinOp::Eq) => Ok(ast_c::Expression::Comparison {
+                    lhs: Box::new(lhs),
+                    operators: vec![(ast_c::ComparisonOperator::Eq, Box::new(rhs))],
+                    span: sp,
+                }),
+                Some(BinOp::Ne) => Ok(ast_c::Expression::Comparison {
+                    lhs: Box::new(lhs),
+                    operators: vec![(ast_c::ComparisonOperator::Ne, Box::new(rhs))],
+                    span: sp,
+                }),
+                Some(BinOp::Lt) => Ok(ast_c::Expression::Comparison {
+                    lhs: Box::new(lhs),
+                    operators: vec![(ast_c::ComparisonOperator::Lt, Box::new(rhs))],
+                    span: sp,
+                }),
+                Some(BinOp::Gt) => Ok(ast_c::Expression::Comparison {
+                    lhs: Box::new(lhs),
+                    operators: vec![(ast_c::ComparisonOperator::Gt, Box::new(rhs))],
+                    span: sp,
+                }),
+                Some(BinOp::Le) => Ok(ast_c::Expression::Comparison {
+                    lhs: Box::new(lhs),
+                    operators: vec![(ast_c::ComparisonOperator::Le, Box::new(rhs))],
+                    span: sp,
+                }),
+                Some(BinOp::Ge) => Ok(ast_c::Expression::Comparison {
+                    lhs: Box::new(lhs),
+                    operators: vec![(ast_c::ComparisonOperator::Ge, Box::new(rhs))],
+                    span: sp,
+                }),
+                Some(BinOp::Add) => Ok(ast_c::Expression::BinaryOp {
+                    op: ast_c::BinaryOperator::Add,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                    span: sp,
+                }),
+                Some(BinOp::Sub) => Ok(ast_c::Expression::BinaryOp {
+                    op: ast_c::BinaryOperator::Subtract,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                    span: sp,
+                }),
+                Some(BinOp::Mul) => Ok(ast_c::Expression::BinaryOp {
+                    op: ast_c::BinaryOperator::Multiply,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                    span: sp,
+                }),
+                Some(BinOp::Div) => Ok(ast_c::Expression::BinaryOp {
+                    op: ast_c::BinaryOperator::Divide,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                    span: sp,
+                }),
+                Some(BinOp::Mod) => Ok(ast_c::Expression::BinaryOp {
+                    op: ast_c::BinaryOperator::Modulo,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                    span: sp,
+                }),
+                Some(BinOp::Power) => Ok(ast_c::Expression::BinaryOp {
+                    op: ast_c::BinaryOperator::Power,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                    span: sp,
+                }),
+                Some(BinOp::StartsWith) => Ok(ast_c::Expression::Comparison {
+                    lhs: Box::new(lhs),
+                    operators: vec![(ast_c::ComparisonOperator::StartsWith, Box::new(rhs))],
+                    span: sp,
+                }),
+                Some(BinOp::EndsWith) => Ok(ast_c::Expression::Comparison {
+                    lhs: Box::new(lhs),
+                    operators: vec![(ast_c::ComparisonOperator::EndsWith, Box::new(rhs))],
+                    span: sp,
+                }),
+                Some(BinOp::Contains) => Ok(ast_c::Expression::Comparison {
+                    lhs: Box::new(lhs),
+                    operators: vec![(ast_c::ComparisonOperator::Contains, Box::new(rhs))],
+                    span: sp,
+                }),
+                Some(BinOp::In) => Ok(ast_c::Expression::In {
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                    span: sp,
+                }),
+                Some(BinOp::Index) => Ok(ast_c::Expression::ListIndex {
+                    list: Box::new(lhs),
+                    index: Box::new(rhs),
+                    span: sp,
+                }),
+                Some(BinOp::PropertyLookup) => Ok(ast_c::Expression::PropertyLookup {
+                    base: Box::new(lhs),
+                    property: extract_property_key(&rhs)?,
+                    span: sp,
+                }),
+                Some(BinOp::HasLabel) => {
+                    let labels = extract_labels(&rhs)?;
+                    Ok(ast_c::Expression::NodeLabels {
+                        base: Box::new(lhs),
+                        labels,
+                        span: sp,
+                    })
+                }
+                None => Err(internal("unknown binary op", sp)),
+                _ => Err(internal("unexpected binary op", sp)),
+            }
         }
-        None => Err(internal("unknown binary op", sp)),
     }
 }
 
@@ -1042,7 +1096,10 @@ fn build_atom(a: Atom) -> Result<ast_c::Expression> {
         Atom::FilterExpression(fe) => build_filter_expression(fe),
         Atom::ExistsSubquery(es) => build_exists_subquery(es),
         Atom::MapProjection(mp) => build_map_projection(mp),
-        Atom::ImplicitProcedureInvocation(ipi) => build_implicit_procedure_invocation(ipi),
+        Atom::ImplicitProcedureInvocation(ipi) => {
+            let proc = build_implicit_procedure_invocation(ipi)?;
+            Ok(ast_c::Expression::FunctionCall(proc.name))
+        }
     }
 }
 
@@ -1130,6 +1187,7 @@ fn build_function_invocation(f: FunctionInvocation) -> Result<ast_c::Expression>
     let distinct = f.distinct_token().is_some();
     let star = f.star_token().is_some();
     let args: Result<Vec<_>> = f.arguments().map(|e| build_expression(e)).collect();
+    let args = args?;
 
     if star
         && args.is_empty()
@@ -1142,7 +1200,7 @@ fn build_function_invocation(f: FunctionInvocation) -> Result<ast_c::Expression>
     Ok(ast_c::Expression::FunctionCall(ast_c::FunctionInvocation {
         name: name_parts,
         distinct,
-        arguments: args?,
+        arguments: args,
         span: sp,
     }))
 }
@@ -1151,6 +1209,7 @@ fn build_parenthesized(pe: ParenthesizedExpr) -> Result<ast_c::Expression> {
     let inner = pe
         .expr()
         .map(|e| build_expression(e))
+        .transpose()?
         .ok_or_else(|| internal("missing expr in parens", span_of(pe.syntax())))?;
     Ok(ast_c::Expression::Parenthesized(Box::new(inner)))
 }
@@ -1164,10 +1223,12 @@ fn build_case(c: CaseExpr) -> Result<ast_c::Expression> {
             let when = a
                 .when_expr()
                 .map(|e| build_expression(e))
+                .transpose()?
                 .ok_or_else(|| internal("missing when", span_of(a.syntax())))?;
             let then = a
                 .then_expr()
                 .map(|e| build_expression(e))
+                .transpose()?
                 .ok_or_else(|| internal("missing then", span_of(a.syntax())))?;
             Ok(ast_c::CaseAlternative { when, then })
         })
@@ -1214,6 +1275,7 @@ fn build_map_literal(ml: MapLiteral) -> Result<ast_c::Expression> {
             let value = e
                 .value()
                 .map(|v| build_expression(v))
+                .transpose()?
                 .ok_or_else(|| internal("missing value", span_of(e.syntax())))?;
             Ok((key, value))
         })
@@ -1270,6 +1332,7 @@ fn build_pattern_comprehension(pc: PatternComprehension) -> Result<ast_c::Expres
     let map = pc
         .body()
         .map(|e| build_expression(e))
+        .transpose()?
         .ok_or_else(|| internal("missing body in pattern comp", sp))?;
     let placeholder = ast_c::RelationshipsPattern {
         start: ast_c::NodePattern {
@@ -1304,6 +1367,7 @@ fn build_filter_expression(fe: FilterExpression) -> Result<ast_c::Expression> {
     let coll = id
         .collection()
         .map(|e| build_expression(e))
+        .transpose()?
         .ok_or_else(|| internal("missing collection", sp))?;
     let pred = fe
         .where_clause()
@@ -1312,8 +1376,8 @@ fn build_filter_expression(fe: FilterExpression) -> Result<ast_c::Expression> {
         .transpose()?;
     Ok(ast_c::Expression::Any(Box::new(ast_c::FilterExpression {
         variable: var,
-        collection: coll,
-        predicate: pred,
+        collection: Box::new(coll),
+        predicate: pred.map(Box::new),
         span: sp,
     })))
 }
@@ -1373,14 +1437,15 @@ fn build_map_projection_item(mi: MapProjectionItem) -> Result<ast_c::MapProjecti
                 .ok_or_else(|| internal("missing prop key", sp))?,
         };
         if let Some(expr) = mi.expression() {
-            if let ast_c::Expression::Atom(Atom::Variable(v)) = &expr {
+            let expr_ast = build_expression(expr)?;
+            if let ast_c::Expression::Variable(v) = &expr_ast {
                 if v.name.name == pk.name.name {
                     return Ok(ast_c::MapProjectionItem::PropertyLookup { property: pk });
                 }
             }
             return Ok(ast_c::MapProjectionItem::Literal {
                 key: pk,
-                value: expr,
+                value: expr_ast,
             });
         }
         return Ok(ast_c::MapProjectionItem::PropertyLookup { property: pk });
@@ -1501,7 +1566,7 @@ fn build_in_query_call(c: InQueryCall) -> Result<ast_c::InQueryCall> {
             },
             span: sp,
         },
-        yield_items: yield_items?,
+        yield_items,
         span: sp,
     })
 }
@@ -1515,7 +1580,7 @@ fn build_yield_item(yi: YieldItem) -> Result<ast_c::YieldItem> {
             span: span_of(s.syntax()),
         })
         .ok_or_else(|| internal("missing proc field", span_of(yi.syntax())))?;
-    let alias = yi.alias().map(|v| build_variable(v));
+    let alias = yi.alias().map(|v| build_top_variable(v));
     Ok(ast_c::YieldItem {
         procedure_field: pf,
         alias,
@@ -1604,7 +1669,7 @@ fn build_create_index(c: cst_c::schema_cst::CreateIndex) -> Result<ast_c::Create
     let target = c
         .label()
         .and_then(|l| l.variable())
-        .map(|v| build_variable(v))
+        .map(|v| build_top_variable(v))
         .map(|v| v.name)
         .ok_or_else(|| internal("missing index target", sp))?;
     Ok(ast_c::CreateIndex {
@@ -1639,6 +1704,7 @@ fn build_map_literal_cst(m: MapLiteral) -> Result<ast_c::MapLiteral> {
             let value = e
                 .value()
                 .map(|v| build_expression(v))
+                .transpose()?
                 .ok_or_else(|| internal("missing value", span_of(e.syntax())))?;
             Ok((key, value))
         })
@@ -1731,6 +1797,7 @@ fn build_show(c: ShowClause) -> Result<ast_c::Show> {
     let kind = c
         .kind()
         .map(|k| build_show_kind(k))
+        .transpose()?
         .ok_or_else(|| internal("missing SHOW kind", sp))?;
     let yield_items = c
         .show_return()
@@ -1751,7 +1818,7 @@ fn build_show(c: ShowClause) -> Result<ast_c::Show> {
                                 span: span_of(s.syntax()),
                             })
                             .ok_or_else(|| internal("missing proc field", span_of(yi.syntax())))?;
-                        let alias = yi.alias().map(|v| build_variable(v));
+                        let alias = yi.alias().map(|v| build_top_variable(v));
                         Ok(ast_c::ShowYieldItem {
                             procedure_field: pf,
                             alias,
@@ -1763,9 +1830,8 @@ fn build_show(c: ShowClause) -> Result<ast_c::Show> {
         })
         .transpose()?;
     let where_clause = c
-        .return_clause()
-        .and_then(|rc| rc.where_clause())
-        .and_then(|w| w.expr())
+        .show_return()
+        .and_then(|sr| sr.where_expr())
         .map(|e| build_expression(e))
         .transpose()?;
     let ret_clause = c
