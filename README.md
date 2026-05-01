@@ -28,6 +28,22 @@ println!("{:#?}", query);
 - **Cypher emission** — The `ToCypher` trait renders any AST node back into valid openCypher text, enabling round-trips (`parse → ast → to_cypher → parse`).
 - **`serde` support** — Optional `serde` feature for `Serialize`/`Deserialize` derives on all AST nodes.
 - **Low-level escape hatch** — The `low-level` feature re-exports the raw pest `Rule` and `Pairs` types for advanced use.
+- **Typed CST (unstable)** — A rust-analyzer-style typed wrapper layer over a lossless rowan CST, available under `open_cypher::cst`. Each CST node (`SourceFile`, `MatchClause`, `Expression`, …) exposes typed accessor methods instead of raw `SyntaxKind` matches. Pest remains the oracle for the public `parse()` API; the CST is provided for tooling and incremental migration.
+
+### Typed CST example
+
+```rust
+use open_cypher::cst::{parse, AstNode, BinOp, Expression};
+
+let result = parse("MATCH (n:Person) WHERE n.age > 18 RETURN n.name");
+let source = result.tree();
+
+for stmt in source.statements() {
+    for clause in stmt.clauses() {
+        // use pattern matching on the Clause enum
+    }
+}
+```
 
 ## Emitting Cypher
 

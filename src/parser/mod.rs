@@ -14,8 +14,8 @@
 //! Phase 2: diagnostics implemented. Typed AstNode wrappers and wiring the
 //! rowan parser into the public `parse()` are deferred.
 
-pub mod lexer;
 pub mod grammar;
+pub mod lexer;
 
 use crate::error::{CypherError, ErrorKind, Expected, Span};
 use crate::syntax::{CypherLang, SyntaxKind, SyntaxNode};
@@ -25,6 +25,16 @@ use rowan::{GreenNodeBuilder, Language};
 pub struct Parse {
     pub tree: SyntaxNode,
     pub errors: Vec<CypherError>,
+}
+
+impl Parse {
+    /// Returns the typed `SourceFile` wrapper for the CST.
+    /// Always succeeds because the grammar guarantees the root is `SOURCE_FILE`.
+    pub fn tree(&self) -> crate::syntax::ast::top_level::SourceFile {
+        use crate::syntax::ast::AstNode;
+        crate::syntax::ast::top_level::SourceFile::cast(self.tree.clone())
+            .expect("root node is always SOURCE_FILE")
+    }
 }
 
 /// Parse a Cypher query string into a CST using the hand-written parser.
@@ -77,7 +87,8 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_statement(&mut self) {
-        self.builder.start_node(CypherLang::kind_to_raw(SyntaxKind::STATEMENT));
+        self.builder
+            .start_node(CypherLang::kind_to_raw(SyntaxKind::STATEMENT));
 
         // For now, parse a simple query body: clauses followed by optional semicolon
         let mut has_clause = false;
@@ -132,6 +143,7 @@ impl<'a> Parser<'a> {
                 | SyntaxKind::KW_CALL
                 | SyntaxKind::KW_FOREACH
                 | SyntaxKind::KW_OPTIONAL
+                | SyntaxKind::KW_DETACH
         )
     }
 
@@ -223,7 +235,10 @@ impl<'a> Parser<'a> {
         let start = self.byte_pos;
 
         if len > 0 {
-            self.builder.token(CypherLang::kind_to_raw(kind), &self.input[start..start + len]);
+            self.builder.token(
+                CypherLang::kind_to_raw(kind),
+                &self.input[start..start + len],
+            );
         }
 
         self.byte_pos += len;
@@ -241,8 +256,7 @@ impl<'a> Parser<'a> {
 
     /// Starts a new node and pushes it onto the builder's stack.
     pub(crate) fn start_node(&mut self, kind: SyntaxKind) {
-        self.builder
-            .start_node(CypherLang::kind_to_raw(kind));
+        self.builder.start_node(CypherLang::kind_to_raw(kind));
     }
 
     /// Returns a checkpoint for conditional node wrapping.
@@ -252,7 +266,8 @@ impl<'a> Parser<'a> {
 
     /// Starts a node at a previously recorded checkpoint.
     pub(crate) fn start_node_at(&mut self, checkpoint: rowan::Checkpoint, kind: SyntaxKind) {
-        self.builder.start_node_at(checkpoint, CypherLang::kind_to_raw(kind));
+        self.builder
+            .start_node_at(checkpoint, CypherLang::kind_to_raw(kind));
     }
 
     /// Peeks the next non-trivia token kind without consuming it.
@@ -378,12 +393,12 @@ pub(crate) fn tree_has_error_node(tree: &SyntaxNode) -> bool {
 
 /// Re-exported for integration tests.
 #[cfg(test)]
-pub use tree_has_error_node as has_errors;
+pub(crate) use tree_has_error_node as has_errors;
 
 #[cfg(test)]
 mod tests {
-    use assert2::check;
     use super::*;
+    use assert2::check;
 
     #[test]
     fn test_flat_token_tree() {

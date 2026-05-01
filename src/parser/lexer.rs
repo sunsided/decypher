@@ -240,7 +240,8 @@ impl<'a> Lexer<'a> {
                 }
 
                 /* Dash variants */
-                '\u{00AD}' | '‐' | '‑' | '‒' | '–' | '—' | '―' | '−' | '﹘' | '﹣' | '－' => {
+                '\u{00AD}' | '‐' | '‑' | '‒' | '–' | '—' | '―' | '−' | '﹘' | '﹣' | '－' =>
+                {
                     self.bump();
                     return Some(self.make_token(SyntaxKind::DASH, start));
                 }

@@ -9,6 +9,46 @@ mod recover;
 pub mod sema;
 pub mod syntax;
 
+/// Typed CST/AST wrappers over the lossless rowan CST.
+///
+/// This module provides rust-analyzer-style typed newtypes (`SourceFile`,
+/// `MatchClause`, `NodePattern`, `Expression`, …) that wrap the raw
+/// `SyntaxNode`/`SyntaxToken` produced by the rowan parser. Each wrapper
+/// exposes accessor methods for semantically meaningful children instead of
+/// requiring raw `SyntaxKind` matches.
+///
+/// # Stability
+///
+/// This API is **unstable** and may change before the rowan parser is wired
+/// into the public [`parse`] function.
+///
+/// # Example
+///
+/// ```ignore
+/// use open_cypher::cst::{parse, AstNode};
+///
+/// let result = parse("MATCH (n:Person) RETURN n.name");
+/// let source = result.tree();
+/// for stmt in source.statements() {
+///     for clause in stmt.clauses() {
+///         // …
+///     }
+/// }
+/// ```
+pub mod cst {
+    pub use crate::parser::{parse, Parse};
+    pub use crate::syntax::ast::clauses::*;
+    pub use crate::syntax::ast::expressions::*;
+    pub use crate::syntax::ast::patterns::*;
+    pub use crate::syntax::ast::projection::*;
+    pub use crate::syntax::ast::support::{
+        child, child_token, child_tokens, children, AstChildren,
+    };
+    pub use crate::syntax::ast::tokens::*;
+    pub use crate::syntax::ast::top_level::*;
+    pub use crate::syntax::ast::{AstNode, AstToken};
+}
+
 #[cfg(feature = "low-level")]
 pub mod low_level {
     pub use crate::pest_parser::{CypherParser, Rule};

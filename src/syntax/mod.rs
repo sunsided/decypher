@@ -298,3 +298,5 @@ pub type SyntaxNodeChildren = rowan::SyntaxNodeChildren<CypherLang>;
 pub type SyntaxElementChildren = rowan::SyntaxElementChildren<CypherLang>;
 pub type Preorder = rowan::api::Preorder<CypherLang>;
 pub type PreorderWithTokens = rowan::api::PreorderWithTokens<CypherLang>;
+
+pub mod ast;

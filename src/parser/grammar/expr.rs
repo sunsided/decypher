@@ -101,8 +101,12 @@ fn infix_op_bp(p: &Parser) -> Option<(Prec, ())> {
         SyntaxKind::KW_OR => Some((Prec::OR, ())),
         SyntaxKind::KW_XOR => Some((Prec::XOR, ())),
         SyntaxKind::KW_AND => Some((Prec::AND, ())),
-        SyntaxKind::EQ | SyntaxKind::NE | SyntaxKind::LT
-        | SyntaxKind::GT | SyntaxKind::LE | SyntaxKind::GE => Some((Prec::COMPARISON, ())),
+        SyntaxKind::EQ
+        | SyntaxKind::NE
+        | SyntaxKind::LT
+        | SyntaxKind::GT
+        | SyntaxKind::LE
+        | SyntaxKind::GE => Some((Prec::COMPARISON, ())),
         SyntaxKind::PLUS | SyntaxKind::MINUS => Some((Prec::ADD_SUB, ())),
         SyntaxKind::STAR | SyntaxKind::SLASH | SyntaxKind::PERCENT => Some((Prec::MUL_DIV_MOD, ())),
         SyntaxKind::POW => Some((Prec::POWER, ())),
@@ -116,8 +120,12 @@ fn parse_infix_tail(p: &mut Parser, bp: Prec) {
         SyntaxKind::KW_OR => SyntaxKind::OR_EXPR,
         SyntaxKind::KW_XOR => SyntaxKind::XOR_EXPR,
         SyntaxKind::KW_AND => SyntaxKind::AND_EXPR,
-        SyntaxKind::EQ | SyntaxKind::NE | SyntaxKind::LT
-        | SyntaxKind::GT | SyntaxKind::LE | SyntaxKind::GE => SyntaxKind::COMPARISON_EXPR,
+        SyntaxKind::EQ
+        | SyntaxKind::NE
+        | SyntaxKind::LT
+        | SyntaxKind::GT
+        | SyntaxKind::LE
+        | SyntaxKind::GE => SyntaxKind::COMPARISON_EXPR,
         SyntaxKind::PLUS | SyntaxKind::MINUS => SyntaxKind::ADD_SUB_EXPR,
         SyntaxKind::STAR | SyntaxKind::SLASH | SyntaxKind::PERCENT => SyntaxKind::MUL_DIV_MOD_EXPR,
         SyntaxKind::POW => SyntaxKind::POWER_EXPR,
@@ -129,8 +137,8 @@ fn parse_infix_tail(p: &mut Parser, bp: Prec) {
     p.skip_trivia();
 
     let rhs_bp = match op {
-        SyntaxKind::POW => bp,       // right-associative
-        _ => Prec(bp.0 + 1),          // left-associative
+        SyntaxKind::POW => bp, // right-associative
+        _ => Prec(bp.0 + 1),   // left-associative
     };
     expr_bp(p, rhs_bp);
     p.builder.finish_node();
@@ -311,7 +319,10 @@ fn parse_atom(p: &mut Parser) {
             p.start_node(SyntaxKind::PARAMETER);
             p.bump();
             p.skip_trivia();
-            if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) || p.at(SyntaxKind::INTEGER) {
+            if p.at(SyntaxKind::IDENT)
+                || p.at(SyntaxKind::ESCAPED_IDENT)
+                || p.at(SyntaxKind::INTEGER)
+            {
                 p.bump();
             }
             p.builder.finish_node();
@@ -319,8 +330,12 @@ fn parse_atom(p: &mut Parser) {
         SyntaxKind::KW_CASE => {
             parse_case_expr(p);
         }
-        SyntaxKind::KW_ALL | SyntaxKind::KW_ANY | SyntaxKind::KW_NONE | SyntaxKind::KW_SINGLE
-        | SyntaxKind::KW_FILTER | SyntaxKind::KW_EXTRACT => {
+        SyntaxKind::KW_ALL
+        | SyntaxKind::KW_ANY
+        | SyntaxKind::KW_NONE
+        | SyntaxKind::KW_SINGLE
+        | SyntaxKind::KW_FILTER
+        | SyntaxKind::KW_EXTRACT => {
             if p.peek_next_non_trivia() == Some(SyntaxKind::L_PAREN) {
                 p.start_node(SyntaxKind::FUNCTION_INVOCATION);
                 p.start_node(SyntaxKind::FUNCTION_NAME);
@@ -462,7 +477,7 @@ pub fn parse_clause(p: &mut Parser) {
         SyntaxKind::KW_UNWIND => parse_unwind_clause(p),
         SyntaxKind::KW_CREATE => parse_create_clause(p),
         SyntaxKind::KW_MERGE => parse_merge_clause(p),
-        SyntaxKind::KW_DELETE => parse_delete_clause(p),
+        SyntaxKind::KW_DELETE | SyntaxKind::KW_DETACH => parse_delete_clause(p),
         SyntaxKind::KW_SET => parse_set_clause(p),
         SyntaxKind::KW_REMOVE => parse_remove_clause(p),
         _ => {}
@@ -883,6 +898,7 @@ fn parse_node_pattern(p: &mut Parser) {
             p.bump();
             p.builder.finish_node();
             p.builder.finish_node();
+            p.builder.finish_node();
         }
         p.builder.finish_node();
         p.skip_trivia();
@@ -999,8 +1015,10 @@ fn parse_sort_item(p: &mut Parser) {
     p.start_node(SyntaxKind::SORT_ITEM);
     expr_bp(p, Prec::MIN);
     p.skip_trivia();
-    if p.at(SyntaxKind::KW_ASCENDING) || p.at(SyntaxKind::KW_ASC)
-        || p.at(SyntaxKind::KW_DESCENDING) || p.at(SyntaxKind::KW_DESC)
+    if p.at(SyntaxKind::KW_ASCENDING)
+        || p.at(SyntaxKind::KW_ASC)
+        || p.at(SyntaxKind::KW_DESCENDING)
+        || p.at(SyntaxKind::KW_DESC)
     {
         p.bump();
     }
@@ -1010,7 +1028,11 @@ fn parse_sort_item(p: &mut Parser) {
 fn is_relationship_chain_start(p: &Parser) -> bool {
     matches!(
         p.current_kind(),
-        SyntaxKind::LT | SyntaxKind::GT | SyntaxKind::ARROW_LEFT
-            | SyntaxKind::ARROW_RIGHT | SyntaxKind::MINUS | SyntaxKind::DASH
+        SyntaxKind::LT
+            | SyntaxKind::GT
+            | SyntaxKind::ARROW_LEFT
+            | SyntaxKind::ARROW_RIGHT
+            | SyntaxKind::MINUS
+            | SyntaxKind::DASH
     )
 }
