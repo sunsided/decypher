@@ -41,6 +41,7 @@ pub mod cst {
     pub use crate::syntax::ast::expressions::*;
     pub use crate::syntax::ast::patterns::*;
     pub use crate::syntax::ast::projection::*;
+    pub use crate::syntax::ast::schema::*;
     pub use crate::syntax::ast::support::{
         child, child_token, child_tokens, children, AstChildren,
     };

@@ -1,9 +1,11 @@
 use crate::syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 
-use super::expressions::Expression;
+use super::expressions::{
+    ExplicitProcedureInvocation, Expression, ImplicitProcedureInvocation, NumberLiteral,
+};
 use super::patterns::Pattern;
 use super::projection::ProjectionBody;
-use super::support::{child, child_token, children, AstChildren};
+use super::support::{child, child_token, child_tokens, children, AstChildren};
 use super::traits::AstNode;
 
 #[derive(Clone, Debug)]
@@ -18,6 +20,12 @@ pub enum Clause {
     Delete(DeleteClause),
     Remove(RemoveClause),
     Where(WhereClause),
+    Foreach(ForeachClause),
+    StandaloneCall(StandaloneCall),
+    InQueryCall(InQueryCall),
+    CallSubquery(CallSubqueryClause),
+    Show(ShowClause),
+    Use(UseClause),
 }
 
 impl AstNode for Clause {
@@ -32,6 +40,12 @@ impl AstNode for Clause {
             || DeleteClause::can_cast(kind)
             || RemoveClause::can_cast(kind)
             || WhereClause::can_cast(kind)
+            || ForeachClause::can_cast(kind)
+            || StandaloneCall::can_cast(kind)
+            || InQueryCall::can_cast(kind)
+            || CallSubqueryClause::can_cast(kind)
+            || ShowClause::can_cast(kind)
+            || UseClause::can_cast(kind)
     }
 
     fn cast(syntax: SyntaxNode) -> Option<Self> {
@@ -65,6 +79,24 @@ impl AstNode for Clause {
         if WhereClause::can_cast(syntax.kind()) {
             return WhereClause::cast(syntax).map(Clause::Where);
         }
+        if ForeachClause::can_cast(syntax.kind()) {
+            return ForeachClause::cast(syntax).map(Clause::Foreach);
+        }
+        if StandaloneCall::can_cast(syntax.kind()) {
+            return StandaloneCall::cast(syntax).map(Clause::StandaloneCall);
+        }
+        if InQueryCall::can_cast(syntax.kind()) {
+            return InQueryCall::cast(syntax).map(Clause::InQueryCall);
+        }
+        if CallSubqueryClause::can_cast(syntax.kind()) {
+            return CallSubqueryClause::cast(syntax).map(Clause::CallSubquery);
+        }
+        if ShowClause::can_cast(syntax.kind()) {
+            return ShowClause::cast(syntax).map(Clause::Show);
+        }
+        if UseClause::can_cast(syntax.kind()) {
+            return UseClause::cast(syntax).map(Clause::Use);
+        }
         None
     }
 
@@ -80,6 +112,12 @@ impl AstNode for Clause {
             Clause::Delete(it) => it.syntax(),
             Clause::Remove(it) => it.syntax(),
             Clause::Where(it) => it.syntax(),
+            Clause::Foreach(it) => it.syntax(),
+            Clause::StandaloneCall(it) => it.syntax(),
+            Clause::InQueryCall(it) => it.syntax(),
+            Clause::CallSubquery(it) => it.syntax(),
+            Clause::Show(it) => it.syntax(),
+            Clause::Use(it) => it.syntax(),
         }
     }
 }
@@ -519,6 +557,477 @@ impl AstNode for WhereClause {
 
 impl WhereClause {
     pub fn expr(&self) -> Option<Expression> {
+        child(&self.0)
+    }
+}
+
+// ============================================================
+// ForeachClause
+// ============================================================
+
+#[derive(Clone, Debug)]
+pub struct ForeachClause(SyntaxNode);
+
+impl AstNode for ForeachClause {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::FOREACH_CLAUSE
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(ForeachClause(syntax))
+        } else {
+            None
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.0
+    }
+}
+
+impl ForeachClause {
+    pub fn variable(&self) -> Option<super::top_level::Variable> {
+        child(&self.0)
+    }
+
+    pub fn list(&self) -> Option<Expression> {
+        self.0
+            .children()
+            .filter(|n| n.kind() != SyntaxKind::VARIABLE && n.kind() != SyntaxKind::SYMBOLIC_NAME)
+            .take_while(|n| n.kind() != SyntaxKind::PIPE)
+            .find_map(Expression::cast)
+    }
+
+    pub fn clauses(&self) -> AstChildren<Clause> {
+        children(&self.0)
+    }
+}
+
+// ============================================================
+// StandaloneCall — CALL proc() [YIELD ...]
+// ============================================================
+
+#[derive(Clone, Debug)]
+pub struct StandaloneCall(SyntaxNode);
+
+impl AstNode for StandaloneCall {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::STANDALONE_CALL
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(StandaloneCall(syntax))
+        } else {
+            None
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.0
+    }
+}
+
+impl StandaloneCall {
+    pub fn explicit_invocation(&self) -> Option<super::expressions::ExplicitProcedureInvocation> {
+        self.0.children().find_map(|n| {
+            if n.kind() == SyntaxKind::EXPLICIT_PROCEDURE_INVOCATION {
+                super::expressions::ExplicitProcedureInvocation::cast(n)
+            } else {
+                None
+            }
+        })
+    }
+
+    pub fn implicit_invocation(&self) -> Option<super::expressions::ImplicitProcedureInvocation> {
+        self.0.children().find_map(|n| {
+            if n.kind() == SyntaxKind::IMPLICIT_PROCEDURE_INVOCATION {
+                super::expressions::ImplicitProcedureInvocation::cast(n)
+            } else {
+                None
+            }
+        })
+    }
+
+    pub fn yield_items(&self) -> Option<YieldItems> {
+        child(&self.0)
+    }
+}
+
+// ============================================================
+// InQueryCall — standalone YIELD (in-query call variant)
+// ============================================================
+
+#[derive(Clone, Debug)]
+pub struct InQueryCall(SyntaxNode);
+
+impl AstNode for InQueryCall {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::IN_QUERY_CALL
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(InQueryCall(syntax))
+        } else {
+            None
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.0
+    }
+}
+
+impl InQueryCall {
+    pub fn yield_items(&self) -> Option<YieldItems> {
+        child(&self.0)
+    }
+}
+
+// ============================================================
+// YieldItems — YIELD * or YIELD field1, field2 [WHERE ...]
+// ============================================================
+
+#[derive(Clone, Debug)]
+pub struct YieldItems(SyntaxNode);
+
+impl AstNode for YieldItems {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::YIELD_ITEMS
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(YieldItems(syntax))
+        } else {
+            None
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.0
+    }
+}
+
+impl YieldItems {
+    pub fn star_token(&self) -> Option<SyntaxToken> {
+        child_token(&self.0, SyntaxKind::STAR)
+    }
+
+    pub fn items(&self) -> AstChildren<YieldItem> {
+        children(&self.0)
+    }
+
+    pub fn where_expr(&self) -> Option<Expression> {
+        self.0
+            .children_with_tokens()
+            .skip_while(|el| !matches!(el.as_token().map(|t| t.kind()), Some(SyntaxKind::KW_WHERE)))
+            .filter_map(|el| el.into_node())
+            .find_map(Expression::cast)
+    }
+}
+
+// ============================================================
+// YieldItem — a single yield field [AS alias]
+// ============================================================
+
+#[derive(Clone, Debug)]
+pub struct YieldItem(SyntaxNode);
+
+impl AstNode for YieldItem {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::YIELD_ITEM
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(YieldItem(syntax))
+        } else {
+            None
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.0
+    }
+}
+
+impl YieldItem {
+    pub fn field_name(&self) -> Option<ProcedureResultField> {
+        child(&self.0)
+    }
+
+    pub fn alias(&self) -> Option<super::top_level::Variable> {
+        child(&self.0)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ProcedureResultField(SyntaxNode);
+
+impl AstNode for ProcedureResultField {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::PROCEDURE_RESULT_FIELD
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(ProcedureResultField(syntax))
+        } else {
+            None
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.0
+    }
+}
+
+impl ProcedureResultField {
+    pub fn symbolic_name(&self) -> Option<super::top_level::SymbolicName> {
+        child(&self.0)
+    }
+}
+
+// ============================================================
+// CallSubqueryClause — CALL { ... } [IN TRANSACTIONS ...]
+// ============================================================
+
+#[derive(Clone, Debug)]
+pub struct CallSubqueryClause(SyntaxNode);
+
+impl AstNode for CallSubqueryClause {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::CALL_SUBQUERY_CLAUSE
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(CallSubqueryClause(syntax))
+        } else {
+            None
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.0
+    }
+}
+
+impl CallSubqueryClause {
+    pub fn in_transactions(&self) -> Option<InTransactions> {
+        child(&self.0)
+    }
+
+    pub fn inner_clauses(&self) -> impl Iterator<Item = Clause> {
+        self.0.children().filter_map(Clause::cast)
+    }
+
+    pub fn inner_unions(&self) -> AstChildren<super::top_level::Union> {
+        children(&self.0)
+    }
+}
+
+// ============================================================
+// InTransactions — IN TRANSACTIONS [OF n ROWS] [ON ERROR ...]
+// ============================================================
+
+#[derive(Clone, Debug)]
+pub struct InTransactions(SyntaxNode);
+
+impl AstNode for InTransactions {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::IN_TRANSACTIONS
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(InTransactions(syntax))
+        } else {
+            None
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.0
+    }
+}
+
+impl InTransactions {
+    pub fn rows_expr(&self) -> Option<super::expressions::NumberLiteral> {
+        child(&self.0)
+    }
+
+    pub fn on_error_action(&self) -> Option<SyntaxToken> {
+        child_token(&self.0, SyntaxKind::KW_CONTINUE)
+            .or_else(|| child_token(&self.0, SyntaxKind::KW_BREAK))
+            .or_else(|| child_token(&self.0, SyntaxKind::KW_FAIL))
+    }
+}
+
+// ============================================================
+// ShowClause — SHOW <kind> [YIELD ...] [RETURN ...]
+// ============================================================
+
+#[derive(Clone, Debug)]
+pub struct ShowClause(SyntaxNode);
+
+impl AstNode for ShowClause {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::SHOW_CLAUSE
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(ShowClause(syntax))
+        } else {
+            None
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.0
+    }
+}
+
+impl ShowClause {
+    pub fn kind(&self) -> Option<ShowKind> {
+        child(&self.0)
+    }
+
+    pub fn show_return(&self) -> Option<ShowReturn> {
+        child(&self.0)
+    }
+
+    pub fn return_clause(&self) -> Option<ReturnClause> {
+        child(&self.0)
+    }
+}
+
+// ============================================================
+// ShowKind — wraps the SHOW target keyword
+// ============================================================
+
+#[derive(Clone, Debug)]
+pub struct ShowKind(SyntaxNode);
+
+impl AstNode for ShowKind {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::SHOW_KIND
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(ShowKind(syntax))
+        } else {
+            None
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.0
+    }
+}
+
+// ============================================================
+// ShowReturn — SHOW's YIELD section (star or fields + optional WHERE)
+// ============================================================
+
+#[derive(Clone, Debug)]
+pub struct ShowReturn(SyntaxNode);
+
+impl AstNode for ShowReturn {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::SHOW_RETURN
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(ShowReturn(syntax))
+        } else {
+            None
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.0
+    }
+}
+
+impl ShowReturn {
+    pub fn star_token(&self) -> Option<SyntaxToken> {
+        child_token(&self.0, SyntaxKind::STAR)
+    }
+
+    pub fn yield_items(&self) -> AstChildren<YieldItem> {
+        children(&self.0)
+    }
+
+    pub fn where_expr(&self) -> Option<Expression> {
+        self.0
+            .children_with_tokens()
+            .skip_while(|el| !matches!(el.as_token().map(|t| t.kind()), Some(SyntaxKind::KW_WHERE)))
+            .filter_map(|el| el.into_node())
+            .find_map(Expression::cast)
+    }
+}
+
+// ============================================================
+// UseClause — USE <graph_name>
+// ============================================================
+
+#[derive(Clone, Debug)]
+pub struct UseClause(SyntaxNode);
+
+impl AstNode for UseClause {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::USE_CLAUSE
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(UseClause(syntax))
+        } else {
+            None
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.0
+    }
+}
+
+impl UseClause {
+    pub fn schema_name(&self) -> Option<SchemaName> {
+        child(&self.0)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct SchemaName(SyntaxNode);
+
+impl AstNode for SchemaName {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::SCHEMA_NAME
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(SchemaName(syntax))
+        } else {
+            None
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.0
+    }
+}
+
+impl SchemaName {
+    pub fn symbolic_name(&self) -> Option<super::top_level::SymbolicName> {
         child(&self.0)
     }
 }

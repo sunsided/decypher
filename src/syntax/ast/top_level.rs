@@ -1,7 +1,7 @@
-use crate::syntax::{SyntaxKind, SyntaxNode};
+use crate::syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 
 use super::clauses::Clause;
-use super::support::{child, children, AstChildren};
+use super::support::{child, child_token, children, AstChildren};
 use super::traits::AstNode;
 
 #[derive(Clone, Debug)]
@@ -28,6 +28,12 @@ impl AstNode for SourceFile {
 impl SourceFile {
     pub fn statements(&self) -> AstChildren<Statement> {
         children(&self.0)
+    }
+
+    pub fn schema_commands(&self) -> impl Iterator<Item = super::schema::SchemaCommand> {
+        self.0
+            .children()
+            .filter_map(super::schema::SchemaCommand::cast)
     }
 }
 
@@ -134,6 +140,45 @@ impl AstNode for Parameter {
 
     fn syntax(&self) -> &SyntaxNode {
         &self.0
+    }
+}
+
+// ============================================================
+// Union — UNION [ALL] RegularQuery
+// ============================================================
+
+#[derive(Clone, Debug)]
+pub struct Union(SyntaxNode);
+
+impl AstNode for Union {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::UNION
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(Union(syntax))
+        } else {
+            None
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.0
+    }
+}
+
+impl Union {
+    pub fn all_token(&self) -> Option<SyntaxToken> {
+        child_token(&self.0, SyntaxKind::KW_ALL)
+    }
+
+    pub fn clauses(&self) -> impl Iterator<Item = Clause> {
+        self.0.children().filter_map(Clause::cast)
+    }
+
+    pub fn inner_unions(&self) -> AstChildren<Union> {
+        children(&self.0)
     }
 }
 

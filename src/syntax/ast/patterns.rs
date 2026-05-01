@@ -449,6 +449,41 @@ impl Properties {
     }
 }
 
+// ============================================================
+// RelationshipsPattern — pattern-as-atom in WHERE/RETURN
+// ============================================================
+
+#[derive(Clone, Debug)]
+pub struct RelationshipsPattern(SyntaxNode);
+
+impl AstNode for RelationshipsPattern {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::RELATIONSHIPS_PATTERN
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(RelationshipsPattern(syntax))
+        } else {
+            None
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.0
+    }
+}
+
+impl RelationshipsPattern {
+    pub fn node_pattern(&self) -> Option<NodePattern> {
+        child(&self.0)
+    }
+
+    pub fn chains(&self) -> AstChildren<PatternElementChain> {
+        children(&self.0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

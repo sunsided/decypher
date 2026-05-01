@@ -447,3 +447,304 @@ fn remove_clause() {
     let items: Vec<_> = remove.items().collect();
     check!(items.len() == 1);
 }
+
+// ── New Phase B wrapper tests ────────────────────────────────────
+
+fn find_foreach_clause(
+    source: &open_cypher::cst::SourceFile,
+) -> Option<open_cypher::cst::ForeachClause> {
+    for clause in source.statements().next()?.clauses() {
+        if let open_cypher::cst::Clause::Foreach(f) = clause {
+            return Some(f);
+        }
+    }
+    None
+}
+
+fn find_standalone_call(
+    source: &open_cypher::cst::SourceFile,
+) -> Option<open_cypher::cst::StandaloneCall> {
+    for clause in source.statements().next()?.clauses() {
+        if let open_cypher::cst::Clause::StandaloneCall(c) = clause {
+            return Some(c);
+        }
+    }
+    None
+}
+
+fn find_in_query_call(
+    source: &open_cypher::cst::SourceFile,
+) -> Option<open_cypher::cst::InQueryCall> {
+    for clause in source.statements().next()?.clauses() {
+        if let open_cypher::cst::Clause::InQueryCall(c) = clause {
+            return Some(c);
+        }
+    }
+    None
+}
+
+fn find_call_subquery(
+    source: &open_cypher::cst::SourceFile,
+) -> Option<open_cypher::cst::CallSubqueryClause> {
+    for clause in source.statements().next()?.clauses() {
+        if let open_cypher::cst::Clause::CallSubquery(c) = clause {
+            return Some(c);
+        }
+    }
+    None
+}
+
+fn find_show_clause(source: &open_cypher::cst::SourceFile) -> Option<open_cypher::cst::ShowClause> {
+    for clause in source.statements().next()?.clauses() {
+        if let open_cypher::cst::Clause::Show(c) = clause {
+            return Some(c);
+        }
+    }
+    None
+}
+
+fn find_use_clause(source: &open_cypher::cst::SourceFile) -> Option<open_cypher::cst::UseClause> {
+    for clause in source.statements().next()?.clauses() {
+        if let open_cypher::cst::Clause::Use(c) = clause {
+            return Some(c);
+        }
+    }
+    None
+}
+
+#[test]
+fn foreach_clause() {
+    let result = parse("MATCH (n) FOREACH (x IN [1,2,3] | SET n.val = x) RETURN n");
+    let source = result.tree();
+    let foreach = find_foreach_clause(&source).unwrap();
+    check!(foreach.variable().is_some());
+    check!(foreach.list().is_some());
+    let clauses: Vec<_> = foreach.clauses().collect();
+    check!(clauses.len() >= 1);
+}
+
+#[test]
+fn debug_cst_dump() {
+    let result = parse("MATCH (n) WHERE EXISTS { (n)-->(m) } RETURN n");
+    let source = result.tree();
+    fn dump(node: &open_cypher::syntax::SyntaxNode, indent: usize) {
+        let prefix = "  ".repeat(indent);
+        let text = node.text().to_string();
+        let text_preview = if text.len() > 60 {
+            format!("{}...", &text[..57])
+        } else {
+            text
+        };
+        if node.children().next().is_none() {
+            println!("{}{:?}: {:?}", prefix, node.kind(), text_preview);
+        } else {
+            println!("{}{:?}", prefix, node.kind());
+            for child in node.children() {
+                dump(&child, indent + 1);
+            }
+        }
+    }
+    dump(source.syntax(), 0);
+}
+
+#[test]
+fn relationships_pattern_can_cast() {
+    use open_cypher::syntax::SyntaxKind;
+    check!(open_cypher::cst::RelationshipsPattern::can_cast(
+        SyntaxKind::RELATIONSHIPS_PATTERN
+    ));
+    check!(!open_cypher::cst::RelationshipsPattern::can_cast(
+        SyntaxKind::PATTERN
+    ));
+    check!(!open_cypher::cst::RelationshipsPattern::can_cast(
+        SyntaxKind::NODE_PATTERN
+    ));
+}
+
+#[test]
+fn yield_items_star() {
+    let result = parse("MATCH (n) CALL apoc.load.json('url') YIELD value RETURN value");
+    let source = result.tree();
+    let yield_items = source
+        .syntax()
+        .descendants()
+        .find_map(|n| open_cypher::cst::YieldItems::cast(n));
+    let yield_items = yield_items.expect("YieldItems found");
+    let items: Vec<_> = yield_items.items().collect();
+    check!(!items.is_empty());
+}
+
+#[test]
+fn yield_item_with_alias() {
+    let result = parse("MATCH (n) CALL apoc.load.json('url') YIELD value AS v RETURN v");
+    let source = result.tree();
+    let item = source
+        .syntax()
+        .descendants()
+        .find_map(|n| open_cypher::cst::YieldItem::cast(n));
+    check!(item.is_some(), "YieldItem found");
+    let item = item.unwrap();
+    check!(item.field_name().is_some());
+}
+
+#[test]
+fn standalone_call_with_yield() {
+    let result = parse("MATCH (n) CALL db.labels() YIELD label RETURN label");
+    let source = result.tree();
+    let call = find_standalone_call(&source).unwrap();
+    check!(call.implicit_invocation().is_some());
+}
+
+#[test]
+fn implicit_procedure_invocation() {
+    let result = parse("CALL db.labels");
+    let source = result.tree();
+    let call = find_standalone_call(&source).unwrap();
+    check!(call.implicit_invocation().is_some());
+    let implicit = call.implicit_invocation().unwrap();
+    check!(implicit.procedure_name().is_some());
+}
+
+#[test]
+fn in_query_call() {
+    let result = parse("MATCH (n) YIELD foo RETURN n");
+    let source = result.tree();
+    let in_query = find_in_query_call(&source).unwrap();
+    check!(in_query.yield_items().is_some());
+}
+
+#[test]
+fn call_subquery_with_in_transactions() {
+    let result = parse("MATCH (n) CALL { RETURN n } IN TRANSACTIONS OF 1000 ROWS");
+    let source = result.tree();
+    let call_subquery = find_call_subquery(&source).unwrap();
+    check!(call_subquery.in_transactions().is_some());
+    let in_tx = call_subquery.in_transactions().unwrap();
+    check!(in_tx.rows_expr().is_some());
+}
+
+#[test]
+fn call_subquery_with_on_error_continue() {
+    let result = parse("MATCH (n) CALL { RETURN n } IN TRANSACTIONS ON ERROR CONTINUE");
+    let source = result.tree();
+    let call_subquery = find_call_subquery(&source).unwrap();
+    let in_tx = call_subquery.in_transactions().unwrap();
+    check!(in_tx.on_error_action().is_some());
+    let action = in_tx.on_error_action().unwrap();
+    check!(action.text() == "CONTINUE");
+}
+
+#[test]
+fn show_clause_with_kind() {
+    let result = parse("SHOW INDEXES");
+    let source = result.tree();
+    let show = source
+        .syntax()
+        .descendants()
+        .find_map(|n| open_cypher::cst::ShowClause::cast(n))
+        .unwrap();
+    check!(show.kind().is_some());
+}
+
+#[test]
+fn use_clause() {
+    let result = parse("USE mydb");
+    let source = result.tree();
+    let use_clause = source
+        .syntax()
+        .descendants()
+        .find_map(|n| open_cypher::cst::UseClause::cast(n))
+        .unwrap();
+    check!(use_clause.schema_name().is_some());
+    let schema_name = use_clause.schema_name().unwrap();
+    check!(schema_name.symbolic_name().is_some());
+}
+
+#[test]
+fn union_all() {
+    let result = parse("MATCH (n:Person) RETURN n.name UNION ALL MATCH (m:Company) RETURN m.name");
+    let source = result.tree();
+    let union = source
+        .syntax()
+        .descendants()
+        .find_map(|n| open_cypher::cst::Union::cast(n));
+    check!(union.is_some(), "Union found");
+    let union = union.unwrap();
+    check!(union.all_token().is_some());
+}
+
+#[test]
+fn create_index() {
+    let result = parse("CREATE INDEX my_index FOR (n:Person) ON (n.name)");
+    let source = result.tree();
+    let create_index = source
+        .syntax()
+        .descendants()
+        .find_map(|n| open_cypher::cst::CreateIndex::cast(n));
+    check!(create_index.is_some(), "CreateIndex found");
+    let ci = create_index.unwrap();
+    check!(ci.if_not_exists() == false);
+    check!(ci.name().is_some());
+}
+
+#[test]
+fn create_index_if_not_exists() {
+    let result = parse("CREATE INDEX IF NOT EXISTS my_index FOR (n:Person) ON (n.name)");
+    let source = result.tree();
+    let ci = source
+        .syntax()
+        .descendants()
+        .find_map(|n| open_cypher::cst::CreateIndex::cast(n))
+        .unwrap();
+    check!(ci.if_not_exists() == true);
+}
+
+#[test]
+fn drop_index() {
+    let result = parse("DROP INDEX my_index");
+    let source = result.tree();
+    let drop_idx = source
+        .syntax()
+        .descendants()
+        .find_map(|n| open_cypher::cst::DropIndex::cast(n));
+    check!(drop_idx.is_some(), "DropIndex found");
+    let di = drop_idx.unwrap();
+    check!(di.name().is_some());
+    check!(di.if_exists() == false);
+}
+
+#[test]
+fn drop_index_if_exists() {
+    let result = parse("DROP INDEX my_index IF EXISTS");
+    let source = result.tree();
+    let di = source
+        .syntax()
+        .descendants()
+        .find_map(|n| open_cypher::cst::DropIndex::cast(n))
+        .unwrap();
+    check!(di.if_exists() == true);
+}
+
+#[test]
+fn create_constraint() {
+    let result = parse("CREATE CONSTRAINT my_constraint FOR (n:Person) REQUIRE n.name IS UNIQUE");
+    let source = result.tree();
+    let cc = source
+        .syntax()
+        .descendants()
+        .find_map(|n| open_cypher::cst::CreateConstraint::cast(n));
+    check!(cc.is_some(), "CreateConstraint found");
+}
+
+#[test]
+fn drop_constraint() {
+    let result = parse("DROP CONSTRAINT my_constraint IF EXISTS");
+    let source = result.tree();
+    let dc = source
+        .syntax()
+        .descendants()
+        .find_map(|n| open_cypher::cst::DropConstraint::cast(n));
+    check!(dc.is_some(), "DropConstraint found");
+    let dc = dc.unwrap();
+    check!(dc.if_exists() == true);
+}

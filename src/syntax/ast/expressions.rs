@@ -285,6 +285,7 @@ pub enum Atom {
     FilterExpression(FilterExpression),
     ExistsSubquery(ExistsSubquery),
     MapProjection(MapProjection),
+    ImplicitProcedureInvocation(ImplicitProcedureInvocation),
 }
 
 impl AstNode for Atom {
@@ -307,6 +308,7 @@ impl AstNode for Atom {
                 | SyntaxKind::FILTER_EXPRESSION
                 | SyntaxKind::EXISTS_SUBQUERY
                 | SyntaxKind::MAP_PROJECTION
+                | SyntaxKind::IMPLICIT_PROCEDURE_INVOCATION
         )
     }
 
@@ -338,6 +340,9 @@ impl AstNode for Atom {
             }
             SyntaxKind::EXISTS_SUBQUERY => ExistsSubquery::cast(syntax).map(Atom::ExistsSubquery),
             SyntaxKind::MAP_PROJECTION => MapProjection::cast(syntax).map(Atom::MapProjection),
+            SyntaxKind::IMPLICIT_PROCEDURE_INVOCATION => {
+                ImplicitProcedureInvocation::cast(syntax).map(Atom::ImplicitProcedureInvocation)
+            }
             _ => None,
         }
     }
@@ -357,6 +362,7 @@ impl AstNode for Atom {
             Atom::FilterExpression(it) => it.syntax(),
             Atom::ExistsSubquery(it) => it.syntax(),
             Atom::MapProjection(it) => it.syntax(),
+            Atom::ImplicitProcedureInvocation(it) => it.syntax(),
         }
     }
 }
@@ -1290,6 +1296,121 @@ impl AstNode for PropertyExpression {
 
     fn syntax(&self) -> &SyntaxNode {
         &self.0
+    }
+}
+
+// ============================================================
+// ProcedureName — namespace + name for procedure calls
+// ============================================================
+
+#[derive(Clone, Debug)]
+pub struct ProcedureName(SyntaxNode);
+
+impl AstNode for ProcedureName {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::PROCEDURE_NAME
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(ProcedureName(syntax))
+        } else {
+            None
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.0
+    }
+}
+
+impl ProcedureName {
+    pub fn namespace(&self) -> Option<Namespace> {
+        let names: Vec<_> = self
+            .0
+            .children()
+            .filter(|n| n.kind() == SyntaxKind::SYMBOLIC_NAME)
+            .collect();
+        if names.len() > 1 {
+            names.first().cloned().map(|n| Namespace(n.clone()))
+        } else {
+            None
+        }
+    }
+
+    pub fn symbolic_names(&self) -> impl Iterator<Item = super::top_level::SymbolicName> {
+        self.0
+            .children()
+            .filter_map(super::top_level::SymbolicName::cast)
+    }
+}
+
+// ============================================================
+// ImplicitProcedureInvocation — CALL procName without parens
+// ============================================================
+
+#[derive(Clone, Debug)]
+pub struct ImplicitProcedureInvocation(SyntaxNode);
+
+impl AstNode for ImplicitProcedureInvocation {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::IMPLICIT_PROCEDURE_INVOCATION
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(ImplicitProcedureInvocation(syntax))
+        } else {
+            None
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.0
+    }
+}
+
+impl ImplicitProcedureInvocation {
+    pub fn procedure_name(&self) -> Option<ProcedureName> {
+        child(&self.0)
+    }
+}
+
+// ============================================================
+// ExplicitProcedureInvocation — CALL procName(args)
+// ============================================================
+
+#[derive(Clone, Debug)]
+pub struct ExplicitProcedureInvocation(SyntaxNode);
+
+impl AstNode for ExplicitProcedureInvocation {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::EXPLICIT_PROCEDURE_INVOCATION
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(ExplicitProcedureInvocation(syntax))
+        } else {
+            None
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.0
+    }
+}
+
+impl ExplicitProcedureInvocation {
+    pub fn procedure_name(&self) -> Option<ProcedureName> {
+        child(&self.0)
+    }
+
+    pub fn arguments(&self) -> impl Iterator<Item = Expression> {
+        self.0
+            .children()
+            .filter(|n| n.kind() != SyntaxKind::PROCEDURE_NAME && n.kind() != SyntaxKind::NAMESPACE)
+            .filter_map(Expression::cast)
     }
 }
 

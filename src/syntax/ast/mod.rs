@@ -4,6 +4,7 @@ pub mod clauses;
 pub mod expressions;
 pub mod patterns;
 pub mod projection;
+pub mod schema;
 pub mod support;
 pub mod tokens;
 pub mod top_level;
