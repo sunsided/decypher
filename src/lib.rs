@@ -4,6 +4,8 @@
 pub mod ast;
 pub mod error;
 mod parser;
+mod recover;
+pub mod sema;
 
 #[cfg(feature = "low-level")]
 pub mod low_level {
@@ -13,6 +15,7 @@ pub mod low_level {
 
 pub use crate::ast::query::Query;
 pub use crate::error::{CypherError, Diagnostics, ErrorKind, Expected, Note, Result, Span};
+pub use crate::recover::{parse_with_options, ParseOptions};
 
 use std::sync::Arc;
 
@@ -65,12 +68,12 @@ pub fn parse_with_label(input: &str, label: impl Into<Arc<str>>) -> Result<Query
 }
 
 /// Parse a Cypher query string, returning all diagnostics found.
-///
-/// Currently returns at most one error, but the signature is stable to allow
-/// multi-error recovery in future versions.
 pub fn parse_all(input: &str) -> (Option<Query>, Diagnostics) {
-    match parse(input) {
-        Ok(query) => (Some(query), Diagnostics { errors: Vec::new() }),
-        Err(err) => (None, Diagnostics { errors: vec![err] }),
-    }
+    parse_with_options(
+        input,
+        ParseOptions {
+            recover: true,
+            ..Default::default()
+        },
+    )
 }

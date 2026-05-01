@@ -21,6 +21,7 @@ pub enum NumberLiteral {
 pub struct StringLiteral {
     pub value: String,
     pub span: Span,
+    pub raw: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -107,6 +108,7 @@ pub enum Expression {
     Parenthesized(Box<Expression>),
     Pattern(super::pattern::RelationshipsPattern),
     Exists(Box<ExistsExpression>),
+    MapProjection(Box<MapProjection>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -199,4 +201,25 @@ pub struct ExistsExpression {
 pub enum ExistsInner {
     Pattern(super::pattern::Pattern, Option<Box<Expression>>),
     RegularQuery(Box<super::query::RegularQuery>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MapProjection {
+    pub base: Variable,
+    pub items: Vec<MapProjectionItem>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum MapProjectionItem {
+    AllProperties {
+        span: Span,
+    },
+    PropertyLookup {
+        property: PropertyKeyName,
+    },
+    Literal {
+        key: PropertyKeyName,
+        value: Expression,
+    },
 }

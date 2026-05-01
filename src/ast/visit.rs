@@ -31,6 +31,7 @@ use crate::ast::names::*;
 use crate::ast::pattern::*;
 use crate::ast::procedure::*;
 use crate::ast::query::*;
+use crate::ast::schema::*;
 
 /// Immutable AST visitor trait.
 ///
@@ -367,6 +368,107 @@ pub trait Visit<'ast> {
     {
         walk_property_key_name(self, node)
     }
+    // New visit methods for Parsing 1.0 nodes
+    fn visit_foreach(&mut self, node: &'ast Foreach)
+    where
+        Self: Sized,
+    {
+        walk_foreach(self, node)
+    }
+    fn visit_foreach_update(&mut self, node: &'ast ForeachUpdate)
+    where
+        Self: Sized,
+    {
+        walk_foreach_update(self, node)
+    }
+    fn visit_call_subquery(&mut self, node: &'ast CallSubquery)
+    where
+        Self: Sized,
+    {
+        walk_call_subquery(self, node)
+    }
+    fn visit_in_transactions(&mut self, node: &'ast InTransactions)
+    where
+        Self: Sized,
+    {
+        walk_in_transactions(self, node)
+    }
+    fn visit_on_error_behavior(&mut self, _node: &'ast OnErrorBehavior) {}
+    fn visit_schema_command(&mut self, node: &'ast SchemaCommand)
+    where
+        Self: Sized,
+    {
+        walk_schema_command(self, node)
+    }
+    fn visit_create_index(&mut self, node: &'ast CreateIndex)
+    where
+        Self: Sized,
+    {
+        walk_create_index(self, node)
+    }
+    fn visit_drop_index(&mut self, node: &'ast DropIndex)
+    where
+        Self: Sized,
+    {
+        walk_drop_index(self, node)
+    }
+    fn visit_create_constraint(&mut self, node: &'ast CreateConstraint)
+    where
+        Self: Sized,
+    {
+        walk_create_constraint(self, node)
+    }
+    fn visit_drop_constraint(&mut self, node: &'ast DropConstraint)
+    where
+        Self: Sized,
+    {
+        walk_drop_constraint(self, node)
+    }
+    fn visit_index_kind(&mut self, _node: &'ast IndexKind) {}
+    fn visit_constraint_kind(&mut self, _node: &'ast ConstraintKind) {}
+    fn visit_show(&mut self, node: &'ast Show)
+    where
+        Self: Sized,
+    {
+        walk_show(self, node)
+    }
+    fn visit_show_kind(&mut self, _node: &'ast ShowKind) {}
+    fn visit_return_body(&mut self, node: &'ast ReturnBody)
+    where
+        Self: Sized,
+    {
+        walk_return_body(self, node)
+    }
+    fn visit_use(&mut self, node: &'ast Use)
+    where
+        Self: Sized,
+    {
+        walk_use(self, node)
+    }
+    fn visit_show_yield_spec(&mut self, node: &'ast ShowYieldSpec)
+    where
+        Self: Sized,
+    {
+        walk_show_yield_spec(self, node)
+    }
+    fn visit_show_yield_item(&mut self, node: &'ast ShowYieldItem)
+    where
+        Self: Sized,
+    {
+        walk_show_yield_item(self, node)
+    }
+    fn visit_map_projection(&mut self, node: &'ast MapProjection)
+    where
+        Self: Sized,
+    {
+        walk_map_projection(self, node)
+    }
+    fn visit_map_projection_item(&mut self, node: &'ast MapProjectionItem)
+    where
+        Self: Sized,
+    {
+        walk_map_projection_item(self, node)
+    }
 }
 
 /// Mutable AST visitor trait for rewriting.
@@ -695,6 +797,104 @@ pub trait VisitMut {
     {
         walk_property_key_name_mut(self, node)
     }
+    // New visit mut methods for Parsing 1.0 nodes
+    fn visit_foreach_mut(&mut self, node: &mut Foreach)
+    where
+        Self: Sized,
+    {
+        walk_foreach_mut(self, node)
+    }
+    fn visit_foreach_update_mut(&mut self, node: &mut ForeachUpdate)
+    where
+        Self: Sized,
+    {
+        walk_foreach_update_mut(self, node)
+    }
+    fn visit_call_subquery_mut(&mut self, node: &mut CallSubquery)
+    where
+        Self: Sized,
+    {
+        walk_call_subquery_mut(self, node)
+    }
+    fn visit_in_transactions_mut(&mut self, node: &mut InTransactions)
+    where
+        Self: Sized,
+    {
+        walk_in_transactions_mut(self, node)
+    }
+    fn visit_on_error_behavior_mut(&mut self, _node: &mut OnErrorBehavior) {}
+    fn visit_schema_command_mut(&mut self, node: &mut SchemaCommand)
+    where
+        Self: Sized,
+    {
+        walk_schema_command_mut(self, node)
+    }
+    fn visit_create_index_mut(&mut self, node: &mut CreateIndex)
+    where
+        Self: Sized,
+    {
+        walk_create_index_mut(self, node)
+    }
+    fn visit_drop_index_mut(&mut self, node: &mut DropIndex)
+    where
+        Self: Sized,
+    {
+        walk_drop_index_mut(self, node)
+    }
+    fn visit_create_constraint_mut(&mut self, node: &mut CreateConstraint)
+    where
+        Self: Sized,
+    {
+        walk_create_constraint_mut(self, node)
+    }
+    fn visit_drop_constraint_mut(&mut self, node: &mut DropConstraint)
+    where
+        Self: Sized,
+    {
+        walk_drop_constraint_mut(self, node)
+    }
+    fn visit_show_mut(&mut self, node: &mut Show)
+    where
+        Self: Sized,
+    {
+        walk_show_mut(self, node)
+    }
+    fn visit_return_body_mut(&mut self, node: &mut ReturnBody)
+    where
+        Self: Sized,
+    {
+        walk_return_body_mut(self, node)
+    }
+    fn visit_use_mut(&mut self, node: &mut Use)
+    where
+        Self: Sized,
+    {
+        walk_use_mut(self, node)
+    }
+    fn visit_show_yield_spec_mut(&mut self, node: &mut ShowYieldSpec)
+    where
+        Self: Sized,
+    {
+        walk_show_yield_spec_mut(self, node)
+    }
+    fn visit_show_yield_item_mut(&mut self, node: &mut ShowYieldItem)
+    where
+        Self: Sized,
+    {
+        walk_show_yield_item_mut(self, node)
+    }
+    fn visit_map_projection_mut(&mut self, node: &mut MapProjection)
+    where
+        Self: Sized,
+    {
+        walk_map_projection_mut(self, node)
+    }
+    fn visit_map_projection_item_mut(&mut self, node: &mut MapProjectionItem)
+    where
+        Self: Sized,
+    {
+        walk_map_projection_item_mut(self, node)
+    }
 }
 
 // ── Free walk functions (immutable) ─────────────────────────────────
@@ -704,6 +904,9 @@ pub fn walk_query<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Query) {
         match stmt {
             QueryBody::SingleQuery(sq) => v.visit_single_query(sq),
             QueryBody::Standalone(sc) => v.visit_standalone_call(sc),
+            QueryBody::SchemaCommand(sc) => v.visit_schema_command(sc),
+            QueryBody::Show(s) => v.visit_show(s),
+            QueryBody::Use(u) => v.visit_use(u),
         }
     }
 }
@@ -716,6 +919,7 @@ pub fn walk_single_query<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast SingleQuer
                     ReadingClause::Match(m) => v.visit_match(m),
                     ReadingClause::Unwind(u) => v.visit_unwind(u),
                     ReadingClause::InQueryCall(i) => v.visit_in_query_call(i),
+                    ReadingClause::CallSubquery(c) => v.visit_call_subquery(c),
                 }
             }
             match &sp.body {
@@ -731,6 +935,7 @@ pub fn walk_single_query<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast SingleQuer
                             UpdatingClause::Delete(d) => v.visit_delete(d),
                             UpdatingClause::Set(s) => v.visit_set(s),
                             UpdatingClause::Remove(r) => v.visit_remove(r),
+                            UpdatingClause::Foreach(f) => v.visit_foreach(f),
                         }
                     }
                     if let Some(ret) = return_clause {
@@ -746,6 +951,7 @@ pub fn walk_single_query<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast SingleQuer
                         ReadingClause::Match(m) => v.visit_match(m),
                         ReadingClause::Unwind(u) => v.visit_unwind(u),
                         ReadingClause::InQueryCall(i) => v.visit_in_query_call(i),
+                        ReadingClause::CallSubquery(c) => v.visit_call_subquery(c),
                     }
                 }
                 for uc in &part.updating_clauses {
@@ -755,6 +961,7 @@ pub fn walk_single_query<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast SingleQuer
                         UpdatingClause::Delete(d) => v.visit_delete(d),
                         UpdatingClause::Set(s) => v.visit_set(s),
                         UpdatingClause::Remove(r) => v.visit_remove(r),
+                        UpdatingClause::Foreach(f) => v.visit_foreach(f),
                     }
                 }
                 v.visit_with(&part.with);
@@ -765,6 +972,7 @@ pub fn walk_single_query<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast SingleQuer
                     ReadingClause::Match(m) => v.visit_match(m),
                     ReadingClause::Unwind(u) => v.visit_unwind(u),
                     ReadingClause::InQueryCall(i) => v.visit_in_query_call(i),
+                    ReadingClause::CallSubquery(c) => v.visit_call_subquery(c),
                 }
             }
             match &mp.final_part.body {
@@ -780,6 +988,7 @@ pub fn walk_single_query<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast SingleQuer
                             UpdatingClause::Delete(d) => v.visit_delete(d),
                             UpdatingClause::Set(s) => v.visit_set(s),
                             UpdatingClause::Remove(r) => v.visit_remove(r),
+                            UpdatingClause::Foreach(f) => v.visit_foreach(f),
                         }
                     }
                     if let Some(ret) = return_clause {
@@ -840,9 +1049,14 @@ pub fn walk_set<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Set) {
 
 pub fn walk_set_item<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast SetItem) {
     match node {
-        SetItem::Property { property, value } => {
+        SetItem::Property {
+            property,
+            value,
+            operator,
+        } => {
             v.visit_expression(property);
             v.visit_expression(value);
+            v.visit_set_operator(operator);
         }
         SetItem::Variable {
             variable,
@@ -1128,6 +1342,7 @@ pub fn walk_expression<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Expression) 
         Expression::Parenthesized(inner) => v.visit_expression(inner),
         Expression::Pattern(rp) => v.visit_relationships_pattern(rp),
         Expression::Exists(exists) => v.visit_exists_expression(exists),
+        Expression::MapProjection(mp) => v.visit_map_projection(mp),
     }
 }
 
@@ -1270,6 +1485,9 @@ pub fn walk_query_mut<V: VisitMut>(v: &mut V, node: &mut Query) {
         match stmt {
             QueryBody::SingleQuery(sq) => v.visit_single_query(sq),
             QueryBody::Standalone(sc) => v.visit_standalone_call(sc),
+            QueryBody::SchemaCommand(sc) => v.visit_schema_command_mut(sc),
+            QueryBody::Show(s) => v.visit_show_mut(s),
+            QueryBody::Use(u) => v.visit_use_mut(u),
         }
     }
 }
@@ -1282,6 +1500,7 @@ pub fn walk_single_query_mut<V: VisitMut>(v: &mut V, node: &mut SingleQuery) {
                     ReadingClause::Match(m) => v.visit_match(m),
                     ReadingClause::Unwind(u) => v.visit_unwind(u),
                     ReadingClause::InQueryCall(i) => v.visit_in_query_call(i),
+                    ReadingClause::CallSubquery(c) => v.visit_call_subquery_mut(c),
                 }
             }
             match &mut sp.body {
@@ -1297,6 +1516,7 @@ pub fn walk_single_query_mut<V: VisitMut>(v: &mut V, node: &mut SingleQuery) {
                             UpdatingClause::Delete(d) => v.visit_delete(d),
                             UpdatingClause::Set(s) => v.visit_set(s),
                             UpdatingClause::Remove(r) => v.visit_remove(r),
+                            UpdatingClause::Foreach(f) => v.visit_foreach_mut(f),
                         }
                     }
                     if let Some(ret) = return_clause {
@@ -1312,6 +1532,7 @@ pub fn walk_single_query_mut<V: VisitMut>(v: &mut V, node: &mut SingleQuery) {
                         ReadingClause::Match(m) => v.visit_match(m),
                         ReadingClause::Unwind(u) => v.visit_unwind(u),
                         ReadingClause::InQueryCall(i) => v.visit_in_query_call(i),
+                        ReadingClause::CallSubquery(c) => v.visit_call_subquery_mut(c),
                     }
                 }
                 for uc in &mut part.updating_clauses {
@@ -1321,6 +1542,7 @@ pub fn walk_single_query_mut<V: VisitMut>(v: &mut V, node: &mut SingleQuery) {
                         UpdatingClause::Delete(d) => v.visit_delete(d),
                         UpdatingClause::Set(s) => v.visit_set(s),
                         UpdatingClause::Remove(r) => v.visit_remove(r),
+                        UpdatingClause::Foreach(f) => v.visit_foreach_mut(f),
                     }
                 }
                 v.visit_with(&mut part.with);
@@ -1382,7 +1604,9 @@ pub fn walk_set_mut<V: VisitMut>(v: &mut V, node: &mut Set) {
 
 pub fn walk_set_item_mut<V: VisitMut>(v: &mut V, node: &mut SetItem) {
     match node {
-        SetItem::Property { property, value } => {
+        SetItem::Property {
+            property, value, ..
+        } => {
             v.visit_expression(property);
             v.visit_expression(value);
         }
@@ -1651,6 +1875,7 @@ pub fn walk_expression_mut<V: VisitMut>(v: &mut V, node: &mut Expression) {
         Expression::Parenthesized(inner) => v.visit_expression(inner),
         Expression::Pattern(rp) => v.visit_relationships_pattern(rp),
         Expression::Exists(exists) => v.visit_exists_expression(exists),
+        Expression::MapProjection(mp) => v.visit_map_projection_mut(mp),
     }
 }
 
@@ -1776,4 +2001,289 @@ pub fn walk_rel_type_name_mut<V: VisitMut>(v: &mut V, node: &mut RelTypeName) {
 
 pub fn walk_property_key_name_mut<V: VisitMut>(v: &mut V, node: &mut PropertyKeyName) {
     v.visit_symbolic_name(&mut node.name);
+}
+
+// ── New walk functions for Parsing 1.0 (immutable) ──────────────────
+
+pub fn walk_foreach<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Foreach) {
+    v.visit_variable(&node.variable);
+    v.visit_expression(&node.list);
+    for u in &node.updates {
+        v.visit_foreach_update(u);
+    }
+}
+
+pub fn walk_foreach_update<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast ForeachUpdate) {
+    match node {
+        ForeachUpdate::Create(c) => v.visit_create(c),
+        ForeachUpdate::Merge(m) => v.visit_merge(m),
+        ForeachUpdate::Delete(d) => v.visit_delete(d),
+        ForeachUpdate::Set(s) => v.visit_set(s),
+        ForeachUpdate::Remove(r) => v.visit_remove(r),
+        ForeachUpdate::Foreach(f) => v.visit_foreach(f),
+    }
+}
+
+pub fn walk_call_subquery<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast CallSubquery) {
+    v.visit_regular_query(&node.query);
+    if let Some(it) = &node.in_transactions {
+        v.visit_in_transactions(it);
+    }
+}
+
+pub fn walk_in_transactions<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast InTransactions) {
+    if let Some(of_rows) = &node.of_rows {
+        v.visit_expression(of_rows);
+    }
+    if let Some(on_err) = &node.on_error {
+        v.visit_on_error_behavior(on_err);
+    }
+}
+
+pub fn walk_schema_command<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast SchemaCommand) {
+    match node {
+        SchemaCommand::CreateIndex(ci) => v.visit_create_index(ci),
+        SchemaCommand::DropIndex(di) => v.visit_drop_index(di),
+        SchemaCommand::CreateConstraint(cc) => v.visit_create_constraint(cc),
+        SchemaCommand::DropConstraint(dc) => v.visit_drop_constraint(dc),
+    }
+}
+
+pub fn walk_create_index<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast CreateIndex) {
+    if let Some(kind) = &node.kind {
+        v.visit_index_kind(kind);
+    }
+    if let Some(name) = &node.name {
+        v.visit_symbolic_name(name);
+    }
+    v.visit_symbolic_name(&node.target);
+    if let Some(opts) = &node.options {
+        v.visit_map_literal(opts);
+    }
+}
+
+pub fn walk_drop_index<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast DropIndex) {
+    v.visit_symbolic_name(&node.name);
+}
+
+pub fn walk_create_constraint<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast CreateConstraint) {
+    if let Some(name) = &node.name {
+        v.visit_symbolic_name(name);
+    }
+    v.visit_variable(&node.variable);
+    v.visit_constraint_kind(&node.kind);
+}
+
+pub fn walk_drop_constraint<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast DropConstraint) {
+    v.visit_symbolic_name(&node.name);
+}
+
+pub fn walk_show<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Show) {
+    v.visit_show_kind(&node.kind);
+    if let Some(ys) = &node.yield_items {
+        v.visit_show_yield_spec(ys);
+    }
+    if let Some(wc) = &node.where_clause {
+        v.visit_expression(wc);
+    }
+    if let Some(ret) = &node.return_clause {
+        v.visit_return_body(ret);
+    }
+}
+
+pub fn walk_return_body<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast ReturnBody) {
+    for item in &node.items {
+        v.visit_projection_item(item);
+    }
+    if let Some(order) = &node.order {
+        v.visit_order(order);
+    }
+    if let Some(skip) = &node.skip {
+        v.visit_expression(skip);
+    }
+    if let Some(limit) = &node.limit {
+        v.visit_expression(limit);
+    }
+}
+
+pub fn walk_use<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Use) {
+    v.visit_symbolic_name(&node.graph);
+}
+
+pub fn walk_show_yield_spec<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast ShowYieldSpec) {
+    match node {
+        ShowYieldSpec::Star { .. } => {}
+        ShowYieldSpec::Items(items) => {
+            for item in items {
+                v.visit_show_yield_item(item);
+            }
+        }
+    }
+}
+
+pub fn walk_show_yield_item<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast ShowYieldItem) {
+    v.visit_symbolic_name(&node.procedure_field);
+    if let Some(alias) = &node.alias {
+        v.visit_variable(alias);
+    }
+}
+
+pub fn walk_map_projection<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast MapProjection) {
+    v.visit_variable(&node.base);
+    for item in &node.items {
+        v.visit_map_projection_item(item);
+    }
+}
+
+pub fn walk_map_projection_item<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast MapProjectionItem) {
+    match node {
+        MapProjectionItem::AllProperties { .. } => {}
+        MapProjectionItem::PropertyLookup { property } => {
+            v.visit_property_key_name(property);
+        }
+        MapProjectionItem::Literal { key, value } => {
+            v.visit_property_key_name(key);
+            v.visit_expression(value);
+        }
+    }
+}
+
+// ── New walk functions for Parsing 1.0 (mutable) ────────────────────
+
+pub fn walk_foreach_mut<V: VisitMut>(v: &mut V, node: &mut Foreach) {
+    v.visit_variable(&mut node.variable);
+    v.visit_expression(&mut node.list);
+    for u in &mut node.updates {
+        v.visit_foreach_update_mut(u);
+    }
+}
+
+pub fn walk_foreach_update_mut<V: VisitMut>(v: &mut V, node: &mut ForeachUpdate) {
+    match node {
+        ForeachUpdate::Create(c) => v.visit_create(c),
+        ForeachUpdate::Merge(m) => v.visit_merge(m),
+        ForeachUpdate::Delete(d) => v.visit_delete(d),
+        ForeachUpdate::Set(s) => v.visit_set(s),
+        ForeachUpdate::Remove(r) => v.visit_remove(r),
+        ForeachUpdate::Foreach(f) => v.visit_foreach_mut(f),
+    }
+}
+
+pub fn walk_call_subquery_mut<V: VisitMut>(v: &mut V, node: &mut CallSubquery) {
+    v.visit_regular_query(&mut node.query);
+    if let Some(it) = &mut node.in_transactions {
+        v.visit_in_transactions_mut(it);
+    }
+}
+
+pub fn walk_in_transactions_mut<V: VisitMut>(v: &mut V, node: &mut InTransactions) {
+    if let Some(of_rows) = &mut node.of_rows {
+        v.visit_expression(of_rows);
+    }
+    if let Some(on_err) = &mut node.on_error {
+        v.visit_on_error_behavior_mut(on_err);
+    }
+}
+
+pub fn walk_schema_command_mut<V: VisitMut>(v: &mut V, node: &mut SchemaCommand) {
+    match node {
+        SchemaCommand::CreateIndex(ci) => v.visit_create_index_mut(ci),
+        SchemaCommand::DropIndex(di) => v.visit_drop_index_mut(di),
+        SchemaCommand::CreateConstraint(cc) => v.visit_create_constraint_mut(cc),
+        SchemaCommand::DropConstraint(dc) => v.visit_drop_constraint_mut(dc),
+    }
+}
+
+pub fn walk_create_index_mut<V: VisitMut>(v: &mut V, node: &mut CreateIndex) {
+    if let Some(name) = &mut node.name {
+        v.visit_symbolic_name(name);
+    }
+    v.visit_symbolic_name(&mut node.target);
+    if let Some(opts) = &mut node.options {
+        v.visit_map_literal(opts);
+    }
+}
+
+pub fn walk_drop_index_mut<V: VisitMut>(v: &mut V, node: &mut DropIndex) {
+    v.visit_symbolic_name(&mut node.name);
+}
+
+pub fn walk_create_constraint_mut<V: VisitMut>(v: &mut V, node: &mut CreateConstraint) {
+    if let Some(name) = &mut node.name {
+        v.visit_symbolic_name(name);
+    }
+    v.visit_variable(&mut node.variable);
+}
+
+pub fn walk_drop_constraint_mut<V: VisitMut>(v: &mut V, node: &mut DropConstraint) {
+    v.visit_symbolic_name(&mut node.name);
+}
+
+pub fn walk_show_mut<V: VisitMut>(v: &mut V, node: &mut Show) {
+    if let Some(ys) = &mut node.yield_items {
+        v.visit_show_yield_spec_mut(ys);
+    }
+    if let Some(wc) = &mut node.where_clause {
+        v.visit_expression(wc);
+    }
+    if let Some(ret) = &mut node.return_clause {
+        v.visit_return_body_mut(ret);
+    }
+}
+
+pub fn walk_return_body_mut<V: VisitMut>(v: &mut V, node: &mut ReturnBody) {
+    for item in &mut node.items {
+        v.visit_projection_item(item);
+    }
+    if let Some(order) = &mut node.order {
+        v.visit_order(order);
+    }
+    if let Some(skip) = &mut node.skip {
+        v.visit_expression(skip);
+    }
+    if let Some(limit) = &mut node.limit {
+        v.visit_expression(limit);
+    }
+}
+
+pub fn walk_use_mut<V: VisitMut>(v: &mut V, node: &mut Use) {
+    v.visit_symbolic_name(&mut node.graph);
+}
+
+pub fn walk_show_yield_spec_mut<V: VisitMut>(v: &mut V, node: &mut ShowYieldSpec) {
+    match node {
+        ShowYieldSpec::Star { .. } => {}
+        ShowYieldSpec::Items(items) => {
+            for item in items {
+                v.visit_show_yield_item_mut(item);
+            }
+        }
+    }
+}
+
+pub fn walk_show_yield_item_mut<V: VisitMut>(v: &mut V, node: &mut ShowYieldItem) {
+    v.visit_symbolic_name(&mut node.procedure_field);
+    if let Some(alias) = &mut node.alias {
+        v.visit_variable(alias);
+    }
+}
+
+pub fn walk_map_projection_mut<V: VisitMut>(v: &mut V, node: &mut MapProjection) {
+    v.visit_variable(&mut node.base);
+    for item in &mut node.items {
+        v.visit_map_projection_item_mut(item);
+    }
+}
+
+pub fn walk_map_projection_item_mut<V: VisitMut>(v: &mut V, node: &mut MapProjectionItem) {
+    match node {
+        MapProjectionItem::AllProperties { .. } => {}
+        MapProjectionItem::PropertyLookup { property } => {
+            v.visit_property_key_name(property);
+        }
+        MapProjectionItem::Literal { key, value } => {
+            v.visit_property_key_name(key);
+            v.visit_expression(value);
+        }
+    }
 }

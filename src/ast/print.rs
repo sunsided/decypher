@@ -32,6 +32,7 @@ use crate::ast::names::*;
 use crate::ast::pattern::*;
 use crate::ast::procedure::*;
 use crate::ast::query::*;
+use crate::ast::schema::*;
 
 pub trait ToCypher {
     fn to_cypher(&self) -> String {
@@ -112,6 +113,9 @@ impl ToCypher for QueryBody {
         match self {
             QueryBody::SingleQuery(sq) => sq.write_cypher(w),
             QueryBody::Standalone(sc) => sc.write_cypher(w),
+            QueryBody::SchemaCommand(sc) => sc.write_cypher(w),
+            QueryBody::Show(s) => s.write_cypher(w),
+            QueryBody::Use(u) => u.write_cypher(w),
         }
     }
 }
@@ -193,6 +197,7 @@ impl ToCypher for ReadingClause {
             ReadingClause::Match(m) => m.write_cypher(w),
             ReadingClause::Unwind(u) => u.write_cypher(w),
             ReadingClause::InQueryCall(i) => i.write_cypher(w),
+            ReadingClause::CallSubquery(c) => c.write_cypher(w),
         }
     }
 }
@@ -205,6 +210,7 @@ impl ToCypher for UpdatingClause {
             UpdatingClause::Delete(d) => d.write_cypher(w),
             UpdatingClause::Set(s) => s.write_cypher(w),
             UpdatingClause::Remove(r) => r.write_cypher(w),
+            UpdatingClause::Foreach(f) => f.write_cypher(w),
         }
     }
 }
@@ -236,6 +242,9 @@ impl ToCypher for Statement {
         match self {
             Statement::Query(q) => q.write_cypher(w),
             Statement::StandaloneCall(sc) => sc.write_cypher(w),
+            Statement::SchemaCommand(sc) => sc.write_cypher(w),
+            Statement::Show(s) => s.write_cypher(w),
+            Statement::Use(u) => u.write_cypher(w),
         }
     }
 }
@@ -326,9 +335,15 @@ impl ToCypher for Set {
 impl ToCypher for SetItem {
     fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
         match self {
-            SetItem::Property { property, value } => {
+            SetItem::Property {
+                property,
+                value,
+                operator,
+            } => {
                 property.write_cypher(w)?;
-                write!(w, " = ")?;
+                write!(w, " ")?;
+                operator.write_cypher(w)?;
+                write!(w, " ")?;
                 value.write_cypher(w)
             }
             SetItem::Variable {
@@ -790,6 +805,7 @@ impl ToCypher for Expression {
             }
             Expression::Pattern(p) => p.write_cypher(w),
             Expression::Exists(ex) => ex.write_cypher(w),
+            Expression::MapProjection(mp) => mp.write_cypher(w),
         }
     }
 }
@@ -830,7 +846,15 @@ impl ToCypher for NumberLiteral {
 
 impl ToCypher for StringLiteral {
     fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
-        write!(w, "'{}'", self.value)
+        if let Some(raw) = &self.raw {
+            write!(w, "{}", raw)
+        } else {
+            write!(
+                w,
+                "'{}'",
+                self.value.replace('\\', "\\\\").replace('\'', "\\'")
+            )
+        }
     }
 }
 
@@ -1189,4 +1213,305 @@ fn is_safe_bare_identifier(name: &str) -> bool {
         return false;
     }
     name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+// ── ToCypher implementations for new AST types (Parsing 1.0) ──
+
+impl ToCypher for Foreach {
+    fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        write!(w, "FOREACH (")?;
+        self.variable.write_cypher(w)?;
+        write!(w, " IN ")?;
+        self.list.write_cypher(w)?;
+        write!(w, " | ")?;
+        for (i, update) in self.updates.iter().enumerate() {
+            if i > 0 {
+                write!(w, " ")?;
+            }
+            update.write_cypher(w)?;
+        }
+        write!(w, ")")
+    }
+}
+
+impl ToCypher for ForeachUpdate {
+    fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        match self {
+            ForeachUpdate::Create(c) => c.write_cypher(w),
+            ForeachUpdate::Merge(m) => m.write_cypher(w),
+            ForeachUpdate::Delete(d) => d.write_cypher(w),
+            ForeachUpdate::Set(s) => s.write_cypher(w),
+            ForeachUpdate::Remove(r) => r.write_cypher(w),
+            ForeachUpdate::Foreach(f) => f.write_cypher(w),
+        }
+    }
+}
+
+impl ToCypher for CallSubquery {
+    fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        write!(w, "CALL {{ ")?;
+        self.query.write_cypher(w)?;
+        write!(w, " }}")?;
+        if let Some(it) = &self.in_transactions {
+            write!(w, " IN TRANSACTIONS")?;
+            if let Some(rows) = &it.of_rows {
+                write!(w, " OF ")?;
+                rows.write_cypher(w)?;
+                write!(w, " ROWS")?;
+            }
+            if let Some(on_err) = &it.on_error {
+                write!(w, " ON ERROR ")?;
+                on_err.write_cypher(w)?;
+            }
+        }
+        Ok(())
+    }
+}
+
+impl ToCypher for OnErrorBehavior {
+    fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        match self {
+            OnErrorBehavior::Continue => write!(w, "CONTINUE"),
+            OnErrorBehavior::Break => write!(w, "BREAK"),
+            OnErrorBehavior::Fail => write!(w, "FAIL"),
+        }
+    }
+}
+
+impl ToCypher for SchemaCommand {
+    fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        match self {
+            SchemaCommand::CreateIndex(ci) => ci.write_cypher(w),
+            SchemaCommand::DropIndex(di) => di.write_cypher(w),
+            SchemaCommand::CreateConstraint(cc) => cc.write_cypher(w),
+            SchemaCommand::DropConstraint(dc) => dc.write_cypher(w),
+        }
+    }
+}
+
+impl ToCypher for CreateIndex {
+    fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        write!(w, "CREATE ")?;
+        if let Some(kind) = &self.kind {
+            kind.write_cypher(w)?;
+            write!(w, " ")?;
+        }
+        write!(w, "INDEX ")?;
+        if self.if_not_exists {
+            write!(w, "IF NOT EXISTS ")?;
+        }
+        if let Some(name) = &self.name {
+            name.write_cypher(w)?;
+            write!(w, " ")?;
+        }
+        write!(w, "FOR ")?;
+        self.target.write_cypher(w)?;
+        if let Some(opts) = &self.options {
+            write!(w, " OPTIONS ")?;
+            opts.write_cypher(w)?;
+        }
+        Ok(())
+    }
+}
+
+impl ToCypher for IndexKind {
+    fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        match self {
+            IndexKind::Range => write!(w, "RANGE"),
+            IndexKind::Text => write!(w, "TEXT"),
+            IndexKind::Point => write!(w, "POINT"),
+            IndexKind::Lookup => write!(w, "LOOKUP"),
+            IndexKind::Fulltext => write!(w, "FULLTEXT"),
+        }
+    }
+}
+
+impl ToCypher for DropIndex {
+    fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        write!(w, "DROP INDEX ")?;
+        if self.if_exists {
+            write!(w, "IF EXISTS ")?;
+        }
+        self.name.write_cypher(w)
+    }
+}
+
+impl ToCypher for CreateConstraint {
+    fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        write!(w, "CREATE CONSTRAINT ")?;
+        if let Some(name) = &self.name {
+            name.write_cypher(w)?;
+            write!(w, " ")?;
+        }
+        write!(w, "FOR (")?;
+        self.variable.write_cypher(w)?;
+        write!(w, ") ")?;
+        self.kind.write_cypher(w)
+    }
+}
+
+impl ToCypher for ConstraintKind {
+    fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        match self {
+            ConstraintKind::Unique => write!(w, "IS UNIQUE"),
+            ConstraintKind::NodeKey { properties } => {
+                write!(w, "NODE KEY IS UNIQUE")?;
+                if !properties.is_empty() {
+                    write!(w, " (")?;
+                    for (i, p) in properties.iter().enumerate() {
+                        if i > 0 {
+                            write!(w, ", ")?;
+                        }
+                        p.write_cypher(w)?;
+                    }
+                    write!(w, ")")?;
+                }
+                Ok(())
+            }
+            ConstraintKind::NotNull => write!(w, "IS NOT NULL"),
+            ConstraintKind::PropertyType { types } => {
+                write!(w, "PROPERTY TYPE IS (")?;
+                for (i, t) in types.iter().enumerate() {
+                    if i > 0 {
+                        write!(w, " | ")?;
+                    }
+                    t.write_cypher(w)?;
+                }
+                write!(w, ")")
+            }
+        }
+    }
+}
+
+impl ToCypher for DropConstraint {
+    fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        write!(w, "DROP CONSTRAINT ")?;
+        if self.if_exists {
+            write!(w, "IF EXISTS ")?;
+        }
+        self.name.write_cypher(w)
+    }
+}
+
+impl ToCypher for Show {
+    fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        write!(w, "SHOW ")?;
+        self.kind.write_cypher(w)?;
+        if let Some(yield_spec) = &self.yield_items {
+            write!(w, " YIELD ")?;
+            match yield_spec {
+                ShowYieldSpec::Star { .. } => write!(w, "*")?,
+                ShowYieldSpec::Items(items) => {
+                    for (i, item) in items.iter().enumerate() {
+                        if i > 0 {
+                            write!(w, ", ")?;
+                        }
+                        item.write_cypher(w)?;
+                    }
+                }
+            }
+        }
+        if let Some(wc) = &self.where_clause {
+            write!(w, " WHERE ")?;
+            wc.write_cypher(w)?;
+        }
+        if let Some(ret) = &self.return_clause {
+            write!(w, " ")?;
+            ret.write_cypher(w)?;
+        }
+        Ok(())
+    }
+}
+
+impl ToCypher for ShowKind {
+    fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        match self {
+            ShowKind::Indexes => write!(w, "INDEXES"),
+            ShowKind::Constraints => write!(w, "CONSTRAINTS"),
+            ShowKind::Functions => write!(w, "FUNCTIONS"),
+            ShowKind::Procedures => write!(w, "PROCEDURES"),
+            ShowKind::Databases => write!(w, "DATABASES"),
+            ShowKind::Database(name) => {
+                write!(w, "DATABASE ")?;
+                name.write_cypher(w)
+            }
+        }
+    }
+}
+
+impl ToCypher for ReturnBody {
+    fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        write!(w, "RETURN ")?;
+        if self.distinct {
+            write!(w, "DISTINCT ")?;
+        }
+        for (i, item) in self.items.iter().enumerate() {
+            if i > 0 {
+                write!(w, ", ")?;
+            }
+            item.write_cypher(w)?;
+        }
+        if let Some(order) = &self.order {
+            write!(w, " ")?;
+            order.write_cypher(w)?;
+        }
+        if let Some(skip) = &self.skip {
+            write!(w, " SKIP ")?;
+            skip.write_cypher(w)?;
+        }
+        if let Some(limit) = &self.limit {
+            write!(w, " LIMIT ")?;
+            limit.write_cypher(w)?;
+        }
+        Ok(())
+    }
+}
+
+impl ToCypher for Use {
+    fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        write!(w, "USE ")?;
+        self.graph.write_cypher(w)
+    }
+}
+
+impl ToCypher for ShowYieldItem {
+    fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        self.procedure_field.write_cypher(w)?;
+        if let Some(alias) = &self.alias {
+            write!(w, " AS ")?;
+            alias.write_cypher(w)?;
+        }
+        Ok(())
+    }
+}
+
+impl ToCypher for MapProjection {
+    fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        self.base.write_cypher(w)?;
+        write!(w, "{{")?;
+        for (i, item) in self.items.iter().enumerate() {
+            if i > 0 {
+                write!(w, ", ")?;
+            }
+            item.write_cypher(w)?;
+        }
+        write!(w, "}}")
+    }
+}
+
+impl ToCypher for MapProjectionItem {
+    fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        match self {
+            MapProjectionItem::AllProperties { .. } => write!(w, ".*"),
+            MapProjectionItem::PropertyLookup { property } => {
+                write!(w, ".")?;
+                property.write_cypher(w)
+            }
+            MapProjectionItem::Literal { key, value } => {
+                key.write_cypher(w)?;
+                write!(w, ": ")?;
+                value.write_cypher(w)
+            }
+        }
+    }
 }

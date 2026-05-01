@@ -49,6 +49,7 @@ pub enum SetItem {
     Property {
         property: Expression,
         value: Expression,
+        operator: SetOperator,
     },
     Variable {
         variable: Variable,
@@ -131,4 +132,23 @@ pub struct Unwind {
     pub expression: Expression,
     pub variable: Variable,
     pub span: Span,
+}
+
+/// FOREACH (x IN list | updating_clauses)
+#[derive(Debug, Clone, PartialEq)]
+pub struct Foreach {
+    pub variable: Variable,
+    pub list: Expression,
+    pub updates: Vec<ForeachUpdate>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ForeachUpdate {
+    Create(Create),
+    Merge(Merge),
+    Delete(Delete),
+    Set(Set),
+    Remove(Remove),
+    Foreach(Foreach),
 }

@@ -169,6 +169,16 @@ pub enum ErrorKind {
     Unsupported { production: &'static str },
     /// An internal error — last-resort fallback.
     Internal { message: String },
+    /// A variable was referenced but never bound in scope (semantic).
+    UnresolvedVariable { name: String },
+    /// A variable was redeclared in the same scope (semantic).
+    RedeclaredVariable { name: String, first_span: Span },
+    /// WITH/RETURN mixes aggregates and non-grouping expressions (semantic).
+    AggregationMix { non_grouping: Vec<String> },
+    /// DISTINCT used where it is not allowed (semantic).
+    DistinctNotAllowed,
+    /// Invalid reference in ORDER BY / WHERE after WITH (semantic).
+    InvalidReference { name: String, reason: &'static str },
 }
 
 impl fmt::Display for ErrorKind {
@@ -205,6 +215,29 @@ impl fmt::Display for ErrorKind {
             }
             ErrorKind::Internal { message } => {
                 write!(f, "internal error: {}", message)
+            }
+            ErrorKind::UnresolvedVariable { name } => {
+                write!(f, "unresolved variable `{}`", name)
+            }
+            ErrorKind::RedeclaredVariable { name, first_span } => {
+                write!(
+                    f,
+                    "variable `{}` redeclared (first declared at {:?})",
+                    name, first_span
+                )
+            }
+            ErrorKind::AggregationMix { non_grouping } => {
+                write!(
+                    f,
+                    "mixing aggregate and non-aggregate expressions: non-grouping keys: {:?}",
+                    non_grouping
+                )
+            }
+            ErrorKind::DistinctNotAllowed => {
+                write!(f, "DISTINCT is not allowed in this context")
+            }
+            ErrorKind::InvalidReference { name, reason } => {
+                write!(f, "invalid reference to `{}`: {}", name, reason)
             }
         }
     }

@@ -256,6 +256,50 @@ fn rule_to_expected(rule: &Rule) -> Expected {
 
         Rule::SP | Rule::whitespace | Rule::EOI | Rule::Comment => Expected::Category("whitespace"),
 
+        Rule::Foreach => Expected::Keyword("FOREACH"),
+        Rule::CallSubquery => Expected::Keyword("CALL"),
+        Rule::InTransactions => Expected::Keyword("TRANSACTIONS"),
+        Rule::MapProjection => Expected::Category("map projection"),
+        Rule::MapProjectionItem => Expected::Category("map projection item"),
+        Rule::CreateIndex => Expected::Keyword("CREATE INDEX"),
+        Rule::DropIndex => Expected::Keyword("DROP INDEX"),
+        Rule::CreateConstraint => Expected::Keyword("CREATE CONSTRAINT"),
+        Rule::DropConstraint => Expected::Keyword("DROP CONSTRAINT"),
+        Rule::SchemaCommand => Expected::Category("schema command"),
+        Rule::IndexKind => Expected::Category("index kind"),
+        Rule::ConstraintKind => Expected::Category("constraint kind"),
+        Rule::Options => Expected::Keyword("OPTIONS"),
+        Rule::Show => Expected::Keyword("SHOW"),
+        Rule::ShowKind => Expected::Category("show kind"),
+        Rule::Use => Expected::Keyword("USE"),
+        Rule::FOR => Expected::Keyword("FOR"),
+        Rule::INDEX => Expected::Keyword("INDEX"),
+        Rule::KEY => Expected::Keyword("KEY"),
+        Rule::RANGE => Expected::Keyword("RANGE"),
+        Rule::TEXT => Expected::Keyword("TEXT"),
+        Rule::POINT => Expected::Keyword("POINT"),
+        Rule::LOOKUP => Expected::Keyword("LOOKUP"),
+        Rule::FULLTEXT => Expected::Keyword("FULLTEXT"),
+        Rule::PROPERTY => Expected::Keyword("PROPERTY"),
+        Rule::TYPE => Expected::Keyword("TYPE"),
+        Rule::IF => Expected::Keyword("IF"),
+        Rule::SHOW => Expected::Keyword("SHOW"),
+        Rule::USE => Expected::Keyword("USE"),
+        Rule::INDEXES => Expected::Keyword("INDEXES"),
+        Rule::CONSTRAINTS => Expected::Keyword("CONSTRAINTS"),
+        Rule::FUNCTIONS => Expected::Keyword("FUNCTIONS"),
+        Rule::PROCEDURES => Expected::Keyword("PROCEDURES"),
+        Rule::DATABASES => Expected::Keyword("DATABASES"),
+        Rule::DATABASE => Expected::Keyword("DATABASE"),
+        Rule::NODE => Expected::Keyword("NODE"),
+        Rule::FOREACH => Expected::Keyword("FOREACH"),
+        Rule::TRANSACTIONS => Expected::Keyword("TRANSACTIONS"),
+        Rule::ROWS => Expected::Keyword("ROWS"),
+        Rule::ERROR => Expected::Keyword("ERROR"),
+        Rule::CONTINUE => Expected::Keyword("CONTINUE"),
+        Rule::BREAK => Expected::Keyword("BREAK"),
+        Rule::FAIL => Expected::Keyword("FAIL"),
+
         _ => Expected::Category("syntax"),
     }
 }
@@ -364,14 +408,15 @@ fn detect_empty_return(err: &mut CypherError, after: &str, pos: usize, source_le
         && matches!(
             &err.kind,
             ErrorKind::UnexpectedToken { .. } | ErrorKind::UnexpectedEof { .. }
-        ) {
-            err.kind = ErrorKind::MissingClause {
-                clause: "projection",
-                after: "RETURN",
-            };
-            let semi_pos = pos + (after.len() - after.trim_start().len());
-            err.span = Span::new(semi_pos, (semi_pos + 1).min(source_len));
-        }
+        )
+    {
+        err.kind = ErrorKind::MissingClause {
+            clause: "projection",
+            after: "RETURN",
+        };
+        let semi_pos = pos + (after.len() - after.trim_start().len());
+        err.span = Span::new(semi_pos, (semi_pos + 1).min(source_len));
+    }
 }
 
 fn detect_match_without_paren(err: &mut CypherError, after: &str) {

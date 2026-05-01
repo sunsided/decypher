@@ -4,6 +4,75 @@ Cypher = {
 
 Statement = {
     Query
+    | SchemaCommand
+    | Show
+    | Use
+}
+
+// Schema commands (Neo4j 5 extensions)
+SchemaCommand = {
+    CreateIndex
+    | DropIndex
+    | CreateConstraint
+    | DropConstraint
+}
+
+// CREATE [RANGE|TEXT|POINT|LOOKUP|FULLTEXT] INDEX [IF NOT EXISTS] [index_name] [ON] ...
+CreateIndex = {
+    CREATE ~ SP? ~ IndexKind? ~ SP? ~ INDEX ~ SP? ~ (IF ~ SP ~ NOT ~ SP ~ EXISTS ~ SP?)? ~ (SymbolicName ~ SP?)? ~ "(" ~ SP? ~ SchemaName ~ SP? ~ ")" ~ (SP? ~ Options)?
+}
+
+// DROP INDEX [IF EXISTS] index_name
+DropIndex = {
+    DROP_ ~ SP ~ INDEX ~ SP? ~ (IF ~ SP ~ EXISTS ~ SP?)? ~ SP? ~ SymbolicName
+}
+
+// CREATE [CONSTRAINT [constraint_name]] ON ...
+CreateConstraint = {
+    CREATE ~ SP? ~ CONSTRAINT ~ SP? ~ (SymbolicName ~ SP?)? ~ FOR ~ SP? ~ "(" ~ SP? ~ Variable ~ SP? ~ ")" ~ SP ~ ConstraintKind
+}
+
+// DROP CONSTRAINT [IF EXISTS] constraint_name
+DropConstraint = {
+    DROP_ ~ SP ~ CONSTRAINT ~ SP? ~ (IF ~ SP ~ EXISTS ~ SP?)? ~ SP? ~ SymbolicName
+}
+
+IndexKind = {
+    RANGE | TEXT | POINT | LOOKUP | FULLTEXT
+}
+
+ConstraintKind = {
+    (IS ~ SP ~ UNIQUE)
+    | (NODE ~ SP ~ KEY ~ SP ~ IS ~ SP ~ UNIQUE)
+    | (IS ~ SP ~ NOT ~ SP ~ NULL)
+    | (PROPERTY ~ SP ~ TYPE ~ SP ~ IS ~ SP ~ "(" ~ SP? ~ SymbolicName ~ (SP? ~ "|" ~ SP? ~ SymbolicName)* ~ SP? ~ ")")
+}
+
+Options = {
+    OPTIONS ~ SP? ~ MapLiteral
+}
+
+// SHOW {INDEXES|CONSTRAINTS|FUNCTIONS|PROCEDURES|DATABASES|DATABASE name} [YIELD ...] [WHERE ...] [RETURN ...]
+Show = {
+    SHOW ~ SP ~ ShowKind ~ (SP ~ YIELD ~ SP ~ (STAR | YieldItems))? ~ (SP? ~ Where)? ~ (SP? ~ ShowReturn)?
+}
+
+ShowKind = {
+    INDEXES
+    | CONSTRAINTS
+    | FUNCTIONS
+    | PROCEDURES
+    | DATABASES
+    | (DATABASE ~ SP? ~ SymbolicName)
+}
+
+ShowReturn = {
+    RETURN ~ ProjectionBody
+}
+
+// USE <graph>
+Use = {
+    USE ~ SP? ~ SymbolicName
 }
 
 Query = {
@@ -32,11 +101,11 @@ MultiPartQuery = {
 }
 
 UpdatingClause = {
-    Create | Merge | Delete | Set | Remove
+    Create | Merge | Delete | Set | Remove | Foreach
 }
 
 ReadingClause = {
-    Match | Unwind | InQueryCall
+    Match | Unwind | InQueryCall | CallSubquery
 }
 
 Match = {
@@ -65,6 +134,7 @@ Set = {
 
 SetItem = {
     (PropertyExpression ~ SP? ~ "=" ~ SP? ~ Expression)
+    | (PropertyExpression ~ SP? ~ "+=" ~ SP? ~ Expression)
     | (Variable ~ SP? ~ "=" ~ SP? ~ Expression)
     | (Variable ~ SP? ~ "+=" ~ SP? ~ Expression)
     | (Variable ~ SP? ~ NodeLabels)
@@ -83,8 +153,24 @@ RemoveItem = {
     | PropertyExpression
 }
 
+// openCypher 9: FOREACH for list-based updates (see assets/cypher.ebnf)
+Foreach = {
+    FOREACH ~ SP? ~ "(" ~ SP? ~ Variable ~ SP ~ IN ~ SP ~ Expression ~ SP? ~ "|" ~ SP? ~ (UpdatingClause ~ SP?)+ ~ ")"
+}
+
+// Neo4j 5 extension: CALL { subquery } [IN TRANSACTIONS]
+// Used as a ReadingClause in-query
+CallSubquery = {
+    CALL ~ SP? ~ "{" ~ SP? ~ RegularQuery ~ SP? ~ "}" ~ (SP? ~ InTransactions)?
+}
+
+// IN TRANSACTIONS [OF n ROWS] [ON ERROR {CONTINUE|BREAK|FAIL}]
+InTransactions = {
+    IN ~ SP ~ TRANSACTIONS ~ (SP ~ OF ~ SP ~ Expression ~ SP ~ ROWS)? ~ (SP ~ ON ~ SP ~ ERROR ~ SP ~ (CONTINUE | BREAK | FAIL))?
+}
+
 InQueryCall = {
-    CALL ~ SP ~ ExplicitProcedureInvocation ~ (SP? ~ YIELD ~ SP ~ YieldItems)?
+    CALL ~ SP ~ ExplicitProcedureInvocation ~ (SP? ~ YIELD ~ SP ~ (STAR | YieldItems))?
 }
 
 StandaloneCall = {
@@ -288,7 +374,20 @@ Atom = {
     | ParenthesizedExpression
     | FunctionInvocation
     | ExistentialSubquery
+    | MapProjection
     | Variable
+}
+
+// Map projection: n{.*, .prop, alias: expr} (Neo4j 5 extension)
+// Must come before Variable in Atom so PEG sees { before treating n as variable
+MapProjection = {
+    Variable ~ SP? ~ "{" ~ SP? ~ MapProjectionItem ~ (SP? ~ "," ~ SP? ~ MapProjectionItem)* ~ SP? ~ "}"
+}
+
+MapProjectionItem = {
+    ("." ~ STAR)
+    | (PropertyKeyName ~ SP? ~ ":" ~ SP? ~ Expression)
+    | PropertyLookup
 }
 
 Literal = {
@@ -578,6 +677,35 @@ ReservedWord = {
     | OF
     | ADD
     | DROP_
+    | INDEX
+    | KEY
+    | OPTIONS
+    | RANGE
+    | TEXT
+    | POINT
+    | LOOKUP
+    | FULLTEXT
+    | PROPERTY
+    | TYPE
+    | IF
+    | SHOW
+    | USE
+    | INDEXES
+    | CONSTRAINTS
+    | FUNCTIONS
+    | PROCEDURES
+    | DATABASES
+    | DATABASE
+    | NODE
+    | FOREACH
+    | TRANSACTIONS
+    | ROWS
+    | ERROR
+    | CONTINUE
+    | BREAK
+    | FAIL
+    | CALL
+    | YIELD
 }
 
 SymbolicName = {
@@ -773,3 +901,32 @@ YIELD = @{ ^"YIELD" }
 // ALL = @{ ^"ALL" }
 FILTER = @{ ^"FILTER" }
 EXTRACT = @{ ^"EXTRACT" }
+
+// New keywords for Parsing 1.0 (Steps 1-2)
+INDEX = @{ ^"INDEX" }
+KEY = @{ ^"KEY" }
+OPTIONS = @{ ^"OPTIONS" }
+RANGE = @{ ^"RANGE" }
+TEXT = @{ ^"TEXT" }
+POINT = @{ ^"POINT" }
+LOOKUP = @{ ^"LOOKUP" }
+FULLTEXT = @{ ^"FULLTEXT" }
+PROPERTY = @{ ^"PROPERTY" }
+TYPE = @{ ^"TYPE" }
+IF = @{ ^"IF" }
+SHOW = @{ ^"SHOW" }
+USE = @{ ^"USE" }
+INDEXES = @{ ^"INDEXES" }
+CONSTRAINTS = @{ ^"CONSTRAINTS" }
+FUNCTIONS = @{ ^"FUNCTIONS" }
+PROCEDURES = @{ ^"PROCEDURES" }
+DATABASES = @{ ^"DATABASES" }
+DATABASE = @{ ^"DATABASE" }
+NODE = @{ ^"NODE" }
+FOREACH = @{ ^"FOREACH" }
+TRANSACTIONS = @{ ^"TRANSACTIONS" }
+ROWS = @{ ^"ROWS" }
+ERROR = @{ ^"ERROR" }
+CONTINUE = @{ ^"CONTINUE" }
+BREAK = @{ ^"BREAK" }
+FAIL = @{ ^"FAIL" }

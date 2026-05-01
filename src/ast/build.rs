@@ -6,6 +6,7 @@ use crate::ast::names::*;
 use crate::ast::pattern::*;
 use crate::ast::procedure::*;
 use crate::ast::query::*;
+use crate::ast::schema::*;
 use crate::error::{CypherError, ErrorKind, Result, Span};
 use crate::parser::Rule;
 
@@ -126,6 +127,50 @@ fn unsupported(rule: Rule, sp: Span) -> CypherError {
                 Rule::COUNT => "COUNT",
                 Rule::FILTER => "FILTER",
                 Rule::EXTRACT => "EXTRACT",
+                Rule::Foreach => "Foreach",
+                Rule::CallSubquery => "CallSubquery",
+                Rule::InTransactions => "InTransactions",
+                Rule::MapProjection => "MapProjection",
+                Rule::MapProjectionItem => "MapProjectionItem",
+                Rule::CreateIndex => "CreateIndex",
+                Rule::DropIndex => "DropIndex",
+                Rule::CreateConstraint => "CreateConstraint",
+                Rule::DropConstraint => "DropConstraint",
+                Rule::SchemaCommand => "SchemaCommand",
+                Rule::IndexKind => "IndexKind",
+                Rule::ConstraintKind => "ConstraintKind",
+                Rule::Options => "Options",
+                Rule::Show => "Show",
+                Rule::ShowKind => "ShowKind",
+                Rule::Use => "Use",
+                Rule::INDEX => "INDEX",
+                Rule::KEY => "KEY",
+                Rule::OPTIONS => "OPTIONS",
+                Rule::RANGE => "RANGE",
+                Rule::TEXT => "TEXT",
+                Rule::POINT => "POINT",
+                Rule::LOOKUP => "LOOKUP",
+                Rule::FULLTEXT => "FULLTEXT",
+                Rule::PROPERTY => "PROPERTY",
+                Rule::TYPE => "TYPE",
+                Rule::IF => "IF",
+                Rule::SHOW => "SHOW",
+                Rule::USE => "USE",
+                Rule::INDEXES => "INDEXES",
+                Rule::CONSTRAINTS => "CONSTRAINTS",
+                Rule::FUNCTIONS => "FUNCTIONS",
+                Rule::PROCEDURES => "PROCEDURES",
+                Rule::DATABASES => "DATABASES",
+                Rule::DATABASE => "DATABASE",
+                Rule::NODE => "NODE",
+                Rule::FOREACH => "FOREACH",
+                Rule::TRANSACTIONS => "TRANSACTIONS",
+                Rule::ROWS => "ROWS",
+                Rule::ERROR => "ERROR",
+                Rule::CONTINUE => "CONTINUE",
+                Rule::BREAK => "BREAK",
+                Rule::FAIL => "FAIL",
+                Rule::FOR => "FOR",
                 _ => "unknown",
             },
         },
@@ -158,6 +203,27 @@ fn build_statement(pair: Pair<'_, Rule>) -> Result<Query> {
     let inner = pair.into_inner().next().unwrap();
     match inner.as_rule() {
         Rule::Query => build_query_variant(inner),
+        Rule::SchemaCommand => {
+            let cmd = build_schema_command(inner)?;
+            Ok(Query {
+                statements: vec![QueryBody::SchemaCommand(cmd)],
+                span: sp,
+            })
+        }
+        Rule::Show => {
+            let show = build_show(inner)?;
+            Ok(Query {
+                statements: vec![QueryBody::Show(show)],
+                span: sp,
+            })
+        }
+        Rule::Use => {
+            let use_stmt = build_use(inner)?;
+            Ok(Query {
+                statements: vec![QueryBody::Use(use_stmt)],
+                span: sp,
+            })
+        }
         _ => Err(unsupported(inner.as_rule(), sp)),
     }
 }
@@ -314,6 +380,7 @@ fn build_reading_clause(pair: Pair<'_, Rule>) -> Result<ReadingClause> {
         Rule::Match => Ok(ReadingClause::Match(build_match(inner)?)),
         Rule::Unwind => Ok(ReadingClause::Unwind(build_unwind(inner)?)),
         Rule::InQueryCall => Ok(ReadingClause::InQueryCall(build_in_query_call(inner)?)),
+        Rule::CallSubquery => Ok(ReadingClause::CallSubquery(build_call_subquery(inner)?)),
         _ => Err(unsupported(inner.as_rule(), sp)),
     }
 }
@@ -328,6 +395,7 @@ fn build_updating_clause(pair: Pair<'_, Rule>) -> Result<UpdatingClause> {
         Rule::Delete => Ok(UpdatingClause::Delete(build_delete(inner)?)),
         Rule::Set => Ok(UpdatingClause::Set(build_set(inner)?)),
         Rule::Remove => Ok(UpdatingClause::Remove(build_remove(inner)?)),
+        Rule::Foreach => Ok(UpdatingClause::Foreach(build_foreach(inner)?)),
         _ => Err(unsupported(inner.as_rule(), sp)),
     }
 }
@@ -523,6 +591,14 @@ fn build_set_item(pair: Pair<'_, Rule>) -> Result<SetItem> {
     match children[0].as_rule() {
         Rule::PropertyExpression => {
             let prop = build_property_expression(children[0].clone())?;
+            let has_add = children
+                .iter()
+                .any(|p| p.as_rule() == Rule::ADD || p.as_rule() == Rule::PLUS);
+            let operator = if has_add {
+                SetOperator::Add
+            } else {
+                SetOperator::Assign
+            };
             let value_expr = children
                 .iter()
                 .find(|p| p.as_rule() == Rule::Expression)
@@ -531,18 +607,27 @@ fn build_set_item(pair: Pair<'_, Rule>) -> Result<SetItem> {
             Ok(SetItem::Property {
                 property: prop,
                 value,
+                operator,
             })
         }
         Rule::Variable => {
             let var = build_variable(children[0].clone())?;
             if children.len() >= 2 {
+                let has_add = children
+                    .iter()
+                    .any(|p| p.as_rule() == Rule::ADD || p.as_rule() == Rule::PLUS);
                 match children[1].as_rule() {
                     Rule::Expression => {
                         let value = build_expression(children[1].clone())?;
+                        let operator = if has_add {
+                            SetOperator::Add
+                        } else {
+                            SetOperator::Assign
+                        };
                         Ok(SetItem::Variable {
                             variable: var,
                             value,
-                            operator: SetOperator::Assign,
+                            operator,
                         })
                     }
                     Rule::NodeLabels => {
@@ -1807,6 +1892,10 @@ fn build_atom(pair: Pair<'_, Rule>) -> Result<Expression> {
             let expr = build_expression(inner)?;
             Ok(Expression::Parenthesized(Box::new(expr)))
         }
+        Rule::MapProjection => {
+            let mp = build_map_projection(pair)?;
+            Ok(Expression::MapProjection(Box::new(mp)))
+        }
         _ => Err(unsupported(pair.as_rule(), span(&pair))),
     }
 }
@@ -1874,19 +1963,72 @@ fn build_partial_comparison(pair: Pair<'_, Rule>) -> Result<(ComparisonOperator,
 fn build_number_literal(pair: Pair<'_, Rule>) -> Result<NumberLiteral> {
     assert_eq!(pair.as_rule(), Rule::NumberLiteral);
     let sp = span(&pair);
-    let inner = pair.into_inner().next().unwrap();
+    let inner = pair.clone().into_inner().next().unwrap();
     match inner.as_rule() {
         Rule::IntegerLiteral => {
             let s = inner.as_str();
+            let raw = s.to_string();
             let val = if s.starts_with("0x") || s.starts_with("0X") {
-                i64::from_str_radix(&s[2..], 16).unwrap_or(0)
+                i64::from_str_radix(&s[2..], 16).map_err(|_| CypherError {
+                    kind: ErrorKind::InvalidNumber {
+                        raw,
+                        reason: crate::error::NumberReason::Overflow,
+                    },
+                    span: sp,
+                    source_label: None,
+                    notes: Vec::new(),
+                    source: None,
+                })?
+            } else if s.starts_with('0') && s.len() > 1 && s.chars().all(|c| c.is_ascii_digit()) {
+                i64::from_str_radix(s, 8).map_err(|_| CypherError {
+                    kind: ErrorKind::InvalidNumber {
+                        raw,
+                        reason: crate::error::NumberReason::Overflow,
+                    },
+                    span: sp,
+                    source_label: None,
+                    notes: Vec::new(),
+                    source: None,
+                })?
             } else {
-                s.parse::<i64>().unwrap_or(0)
+                s.parse::<i64>().map_err(|_| CypherError {
+                    kind: ErrorKind::InvalidNumber {
+                        raw,
+                        reason: crate::error::NumberReason::Overflow,
+                    },
+                    span: sp,
+                    source_label: None,
+                    notes: Vec::new(),
+                    source: None,
+                })?
             };
             Ok(NumberLiteral::Integer(val))
         }
         Rule::DoubleLiteral => {
-            let val = inner.as_str().parse::<f64>().unwrap_or(0.0);
+            let s = inner.as_str();
+            let raw = s.to_string();
+            let val = s.parse::<f64>().map_err(|_| CypherError {
+                kind: ErrorKind::InvalidNumber {
+                    raw: raw.clone(),
+                    reason: crate::error::NumberReason::Other,
+                },
+                span: sp,
+                source_label: None,
+                notes: Vec::new(),
+                source: None,
+            })?;
+            if val.is_nan() || val.is_infinite() {
+                return Err(CypherError {
+                    kind: ErrorKind::InvalidNumber {
+                        raw,
+                        reason: crate::error::NumberReason::Other,
+                    },
+                    span: sp,
+                    source_label: None,
+                    notes: Vec::new(),
+                    source: None,
+                });
+            }
             Ok(NumberLiteral::Float(val))
         }
         _ => Err(unsupported(inner.as_rule(), sp)),
@@ -1896,15 +2038,100 @@ fn build_number_literal(pair: Pair<'_, Rule>) -> Result<NumberLiteral> {
 fn build_string_literal(pair: Pair<'_, Rule>) -> Result<StringLiteral> {
     assert_eq!(pair.as_rule(), Rule::StringLiteral);
     let sp = span(&pair);
-    let raw = pair.as_str();
-    let value = if (raw.starts_with('"') && raw.ends_with('"'))
+    let raw = pair.as_str().to_string();
+    let content = if (raw.starts_with('"') && raw.ends_with('"'))
         || (raw.starts_with('\'') && raw.ends_with('\''))
     {
-        raw[1..raw.len() - 1].to_string()
+        &raw[1..raw.len() - 1]
     } else {
-        raw.to_string()
+        raw.as_str()
     };
-    Ok(StringLiteral { value, span: sp })
+    let (value, decode_err) = decode_string_content(content, sp);
+    if let Some(err) = decode_err {
+        return Err(err);
+    }
+    Ok(StringLiteral {
+        value,
+        span: sp,
+        raw: Some(raw),
+    })
+}
+
+fn decode_string_content(content: &str, span: Span) -> (String, Option<CypherError>) {
+    let mut result = String::with_capacity(content.len());
+    let mut chars = content.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            match chars.next() {
+                Some('\\') => result.push('\\'),
+                Some('\'') => result.push('\''),
+                Some('"') => result.push('"'),
+                Some('b') | Some('B') => result.push('\u{0008}'),
+                Some('f') | Some('F') => result.push('\u{000C}'),
+                Some('n') | Some('N') => result.push('\n'),
+                Some('r') | Some('R') => result.push('\r'),
+                Some('t') | Some('T') => result.push('\t'),
+                Some('u') | Some('U') => {
+                    let mut hex = String::new();
+                    let mut count = 0;
+                    while count < 8 && chars.peek().is_some() {
+                        let next = *chars.peek().unwrap();
+                        if next.is_ascii_hexdigit() {
+                            hex.push(chars.next().unwrap());
+                            count += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    if count == 4 || count == 8 {
+                        if let Ok(codepoint) = u32::from_str_radix(&hex, 16) {
+                            if let Some(c) = char::from_u32(codepoint) {
+                                result.push(c);
+                            } else {
+                                let err_sp = Span::new(span.start, span.end);
+                                return (
+                                    result,
+                                    Some(CypherError {
+                                        kind: ErrorKind::InvalidEscape {
+                                            sequence: format!("\\u{}", hex),
+                                        },
+                                        span: err_sp,
+                                        source_label: None,
+                                        notes: Vec::new(),
+                                        source: None,
+                                    }),
+                                );
+                            }
+                        }
+                    } else {
+                        let err_sp = Span::new(span.start, span.end);
+                        return (
+                            result,
+                            Some(CypherError {
+                                kind: ErrorKind::InvalidEscape {
+                                    sequence: format!("\\u{}", hex),
+                                },
+                                span: err_sp,
+                                source_label: None,
+                                notes: Vec::new(),
+                                source: None,
+                            }),
+                        );
+                    }
+                }
+                Some(other) => {
+                    result.push('\\');
+                    result.push(other);
+                }
+                None => {
+                    result.push('\\');
+                }
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    (result, None)
 }
 
 fn build_list_literal(pair: Pair<'_, Rule>) -> Result<ListLiteral> {
@@ -2266,4 +2493,679 @@ fn build_schema_name(pair: Pair<'_, Rule>) -> Result<SymbolicName> {
         }),
         _ => build_symbolic_name(inner),
     }
+}
+
+// ── New builder functions for Parsing 1.0 ───────────────────────────
+
+fn build_foreach(pair: Pair<'_, Rule>) -> Result<Foreach> {
+    assert_eq!(pair.as_rule(), Rule::Foreach);
+    let sp = span(&pair);
+    let mut variable = None;
+    let mut list = None;
+    let mut updates = Vec::new();
+
+    for child in pair.into_inner() {
+        match child.as_rule() {
+            Rule::Variable => variable = Some(build_variable(child)?),
+            Rule::Expression => list = Some(build_expression(child)?),
+            Rule::UpdatingClause => updates.push(build_updating_clause(child)?),
+            Rule::FOREACH | Rule::IN | Rule::SP => {}
+            _ => return Err(unsupported(child.as_rule(), sp)),
+        }
+    }
+
+    Ok(Foreach {
+        variable: variable.ok_or_else(|| CypherError {
+            kind: ErrorKind::Internal {
+                message: "missing variable in FOREACH".into(),
+            },
+            span: sp,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
+        })?,
+        list: list.ok_or_else(|| CypherError {
+            kind: ErrorKind::Internal {
+                message: "missing list expression in FOREACH".into(),
+            },
+            span: sp,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
+        })?,
+        updates: updates
+            .into_iter()
+            .map(ForeachUpdate::from_updating_clause)
+            .collect(),
+        span: sp,
+    })
+}
+
+impl ForeachUpdate {
+    fn from_updating_clause(uc: UpdatingClause) -> Self {
+        match uc {
+            UpdatingClause::Create(c) => ForeachUpdate::Create(c),
+            UpdatingClause::Merge(m) => ForeachUpdate::Merge(m),
+            UpdatingClause::Delete(d) => ForeachUpdate::Delete(d),
+            UpdatingClause::Set(s) => ForeachUpdate::Set(s),
+            UpdatingClause::Remove(r) => ForeachUpdate::Remove(r),
+            UpdatingClause::Foreach(f) => ForeachUpdate::Foreach(f),
+        }
+    }
+}
+
+fn build_call_subquery(pair: Pair<'_, Rule>) -> Result<CallSubquery> {
+    assert_eq!(pair.as_rule(), Rule::CallSubquery);
+    let sp = span(&pair);
+    let mut query = None;
+    let mut in_transactions = None;
+
+    for child in pair.into_inner() {
+        match child.as_rule() {
+            Rule::RegularQuery => query = Some(build_regular_query(child)?),
+            Rule::InTransactions => in_transactions = Some(build_in_transactions(child)?),
+            Rule::CALL | Rule::SP => {}
+            _ => return Err(unsupported(child.as_rule(), sp)),
+        }
+    }
+
+    Ok(CallSubquery {
+        query: query.ok_or_else(|| CypherError {
+            kind: ErrorKind::Internal {
+                message: "missing subquery body".into(),
+            },
+            span: sp,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
+        })?,
+        in_transactions,
+        span: sp,
+    })
+}
+
+fn build_in_transactions(pair: Pair<'_, Rule>) -> Result<InTransactions> {
+    assert_eq!(pair.as_rule(), Rule::InTransactions);
+    let sp = span(&pair);
+    let mut of_rows = None;
+    let mut on_error = None;
+    let mut expr_collected = false;
+
+    for child in pair.into_inner() {
+        match child.as_rule() {
+            Rule::Expression => {
+                if !expr_collected {
+                    of_rows = Some(build_expression(child)?);
+                    expr_collected = true;
+                }
+            }
+            Rule::CONTINUE => on_error = Some(OnErrorBehavior::Continue),
+            Rule::BREAK => on_error = Some(OnErrorBehavior::Break),
+            Rule::FAIL => on_error = Some(OnErrorBehavior::Fail),
+            Rule::IN
+            | Rule::TRANSACTIONS
+            | Rule::OF
+            | Rule::ROWS
+            | Rule::ON
+            | Rule::ERROR
+            | Rule::SP => {}
+            _ => return Err(unsupported(child.as_rule(), sp)),
+        }
+    }
+
+    Ok(InTransactions {
+        of_rows,
+        on_error,
+        span: sp,
+    })
+}
+
+fn build_map_projection(pair: Pair<'_, Rule>) -> Result<MapProjection> {
+    assert_eq!(pair.as_rule(), Rule::MapProjection);
+    let sp = span(&pair);
+    let mut base = None;
+    let mut items = Vec::new();
+
+    for child in pair.into_inner() {
+        match child.as_rule() {
+            Rule::Variable => base = Some(build_variable(child)?),
+            Rule::MapProjectionItem => items.push(build_map_projection_item(child)?),
+            Rule::SP => {}
+            _ => return Err(unsupported(child.as_rule(), sp)),
+        }
+    }
+
+    Ok(MapProjection {
+        base: base.ok_or_else(|| CypherError {
+            kind: ErrorKind::Internal {
+                message: "missing base variable in map projection".into(),
+            },
+            span: sp,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
+        })?,
+        items,
+        span: sp,
+    })
+}
+
+fn build_map_projection_item(pair: Pair<'_, Rule>) -> Result<MapProjectionItem> {
+    assert_eq!(pair.as_rule(), Rule::MapProjectionItem);
+    let sp = span(&pair);
+    let children: Vec<_> = pair
+        .clone()
+        .into_inner()
+        .filter(|p| p.as_rule() != Rule::SP)
+        .collect();
+    if children.is_empty() {
+        return Err(unsupported(pair.as_rule(), sp));
+    }
+    match children[0].as_rule() {
+        Rule::STAR => Ok(MapProjectionItem::AllProperties { span: sp }),
+        Rule::PropertyKeyName => {
+            let key = build_property_key_name(children[0].clone())?;
+            let value = children
+                .iter()
+                .find(|p| p.as_rule() == Rule::Expression)
+                .map(|p| build_expression(p.clone()))
+                .transpose()?
+                .ok_or_else(|| CypherError {
+                    kind: ErrorKind::Internal {
+                        message: "missing value in map projection item".into(),
+                    },
+                    span: sp,
+                    source_label: None,
+                    notes: Vec::new(),
+                    source: None,
+                })?;
+            Ok(MapProjectionItem::Literal { key, value })
+        }
+        Rule::PropertyLookup => {
+            let prop = build_property_key_name_from_lookup(children[0].clone())?;
+            Ok(MapProjectionItem::PropertyLookup { property: prop })
+        }
+        _ => Err(unsupported(children[0].as_rule(), sp)),
+    }
+}
+
+fn build_schema_command(pair: Pair<'_, Rule>) -> Result<SchemaCommand> {
+    assert_eq!(pair.as_rule(), Rule::SchemaCommand);
+    let sp = span(&pair);
+    let inner = pair.clone().into_inner().next().unwrap();
+    match inner.as_rule() {
+        Rule::CreateIndex => Ok(SchemaCommand::CreateIndex(build_create_index(inner)?)),
+        Rule::DropIndex => Ok(SchemaCommand::DropIndex(build_drop_index(inner)?)),
+        Rule::CreateConstraint => Ok(SchemaCommand::CreateConstraint(build_create_constraint(
+            inner,
+        )?)),
+        Rule::DropConstraint => Ok(SchemaCommand::DropConstraint(build_drop_constraint(inner)?)),
+        _ => Err(unsupported(inner.as_rule(), sp)),
+    }
+}
+
+fn build_create_index(pair: Pair<'_, Rule>) -> Result<CreateIndex> {
+    assert_eq!(pair.as_rule(), Rule::CreateIndex);
+    let sp = span(&pair);
+    let mut kind = None;
+    let mut if_not_exists = false;
+    let mut name = None;
+    let mut target = None;
+    let mut options = None;
+    let mut saw_if = false;
+
+    for child in pair.into_inner() {
+        match child.as_rule() {
+            Rule::IndexKind => kind = Some(build_index_kind(child)?),
+            Rule::INDEX | Rule::CREATE | Rule::SP => {}
+            Rule::IF => saw_if = true,
+            Rule::NOT => {}
+            Rule::EXISTS => {
+                if saw_if {
+                    if_not_exists = true;
+                    saw_if = false;
+                }
+            }
+            Rule::SymbolicName => {
+                if target.is_none() {
+                    name = Some(build_symbolic_name(child.clone())?);
+                } else {
+                    // shouldn't happen
+                }
+            }
+            Rule::SchemaName => {
+                target = Some(build_schema_name(child)?);
+            }
+            Rule::Options => options = Some(build_options(child)?),
+            _ => {}
+        }
+    }
+
+    // If name and target are the same (only one SymbolicName), check if it's the name or target
+    // The grammar: CREATE ~ IndexKind? ~ INDEX ~ (IF NOT EXISTS)? ~ SymbolicName? ~ "(" ~ SchemaName ~ ")"
+    // The SymbolicName before "(" is the name, SchemaName inside "(" is the target
+    let (actual_name, actual_target) = if let Some(t) = target {
+        (name, t)
+    } else if let Some(n) = name {
+        // No separate target — the SymbolicName is the target
+        (None, n)
+    } else {
+        return Err(CypherError {
+            kind: ErrorKind::Internal {
+                message: "missing index target".into(),
+            },
+            span: sp,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
+        });
+    };
+
+    Ok(CreateIndex {
+        kind,
+        if_not_exists,
+        name: actual_name,
+        target: actual_target,
+        options,
+        span: sp,
+    })
+}
+
+fn build_index_kind(pair: Pair<'_, Rule>) -> Result<IndexKind> {
+    assert_eq!(pair.as_rule(), Rule::IndexKind);
+    let sp = span(&pair);
+    let inner = pair.clone().into_inner().next().unwrap();
+    match inner.as_rule() {
+        Rule::RANGE => Ok(IndexKind::Range),
+        Rule::TEXT => Ok(IndexKind::Text),
+        Rule::POINT => Ok(IndexKind::Point),
+        Rule::LOOKUP => Ok(IndexKind::Lookup),
+        Rule::FULLTEXT => Ok(IndexKind::Fulltext),
+        _ => Err(unsupported(inner.as_rule(), sp)),
+    }
+}
+
+fn build_options(pair: Pair<'_, Rule>) -> Result<MapLiteral> {
+    assert_eq!(pair.as_rule(), Rule::Options);
+    let sp = span(&pair);
+    let inner = pair
+        .clone()
+        .into_inner()
+        .filter(|p| p.as_rule() != Rule::SP && p.as_rule() != Rule::OPTIONS)
+        .next();
+    match inner {
+        Some(map_pair) if map_pair.as_rule() == Rule::MapLiteral => build_map_literal(map_pair),
+        _ => Err(CypherError {
+            kind: ErrorKind::Internal {
+                message: "missing map literal in OPTIONS".into(),
+            },
+            span: sp,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
+        }),
+    }
+}
+
+fn build_drop_index(pair: Pair<'_, Rule>) -> Result<DropIndex> {
+    assert_eq!(pair.as_rule(), Rule::DropIndex);
+    let sp = span(&pair);
+    let mut if_exists = false;
+    let mut name = None;
+    let mut saw_if = false;
+
+    for child in pair.into_inner() {
+        match child.as_rule() {
+            Rule::IF => saw_if = true,
+            Rule::EXISTS => {
+                if saw_if {
+                    if_exists = true;
+                    saw_if = false;
+                }
+            }
+            Rule::SymbolicName => name = Some(build_symbolic_name(child)?),
+            Rule::DROP_ | Rule::INDEX | Rule::SP => {}
+            _ => return Err(unsupported(child.as_rule(), sp)),
+        }
+    }
+
+    Ok(DropIndex {
+        if_exists,
+        name: name.ok_or_else(|| CypherError {
+            kind: ErrorKind::Internal {
+                message: "missing index name".into(),
+            },
+            span: sp,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
+        })?,
+        span: sp,
+    })
+}
+
+fn build_create_constraint(pair: Pair<'_, Rule>) -> Result<CreateConstraint> {
+    assert_eq!(pair.as_rule(), Rule::CreateConstraint);
+    let sp = span(&pair);
+    let mut name = None;
+    let mut variable = None;
+    let mut kind = None;
+    let mut name_slot_open = true;
+
+    for child in pair.into_inner() {
+        match child.as_rule() {
+            Rule::SymbolicName => {
+                if name_slot_open && variable.is_none() {
+                    name = Some(build_symbolic_name(child.clone())?);
+                } else {
+                    name_slot_open = false;
+                }
+            }
+            Rule::Variable => variable = Some(build_variable(child)?),
+            Rule::ConstraintKind => kind = Some(build_constraint_kind(child)?),
+            Rule::CREATE | Rule::CONSTRAINT | Rule::FOR | Rule::SP => {
+                if child.as_rule() == Rule::FOR {
+                    name_slot_open = false;
+                }
+            }
+            _ => return Err(unsupported(child.as_rule(), sp)),
+        }
+    }
+
+    Ok(CreateConstraint {
+        name,
+        variable: variable.ok_or_else(|| CypherError {
+            kind: ErrorKind::Internal {
+                message: "missing constraint variable".into(),
+            },
+            span: sp,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
+        })?,
+        kind: kind.ok_or_else(|| CypherError {
+            kind: ErrorKind::Internal {
+                message: "missing constraint kind".into(),
+            },
+            span: sp,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
+        })?,
+        span: sp,
+    })
+}
+
+fn build_constraint_kind(pair: Pair<'_, Rule>) -> Result<ConstraintKind> {
+    assert_eq!(pair.as_rule(), Rule::ConstraintKind);
+    let sp = span(&pair);
+    let mut has_unique = false;
+    let mut has_node = false;
+    let mut has_key = false;
+    let mut has_not_null = false;
+    let mut has_property_type = false;
+    let mut properties = Vec::new();
+    let mut types = Vec::new();
+    let mut in_parens = false;
+    let mut saw_is = false;
+    let mut saw_not = false;
+    let mut saw_property = false;
+    let mut saw_type = false;
+
+    for child in pair.into_inner() {
+        match child.as_rule() {
+            Rule::IS => {
+                saw_is = true;
+            }
+            Rule::NOT => {
+                if saw_is {
+                    saw_not = true;
+                }
+            }
+            Rule::NULL => {
+                if saw_not {
+                    has_not_null = true;
+                }
+            }
+            Rule::UNIQUE => {
+                has_unique = true;
+            }
+            Rule::NODE => {
+                has_node = true;
+            }
+            Rule::KEY => {
+                has_key = true;
+            }
+            Rule::PROPERTY => {
+                saw_property = true;
+                has_property_type = true;
+            }
+            Rule::TYPE => {
+                saw_type = true;
+            }
+            Rule::SymbolicName => {
+                if in_parens {
+                    types.push(build_symbolic_name(child)?);
+                }
+            }
+            Rule::PropertyKeyName => {
+                properties.push(build_property_key_name(child)?);
+            }
+            _ => {}
+        }
+    }
+
+    if has_property_type {
+        Ok(ConstraintKind::PropertyType { types })
+    } else if has_node && has_key {
+        Ok(ConstraintKind::NodeKey { properties })
+    } else if has_unique {
+        Ok(ConstraintKind::Unique)
+    } else if has_not_null {
+        Ok(ConstraintKind::NotNull)
+    } else {
+        Err(CypherError {
+            kind: ErrorKind::Internal {
+                message: "unrecognized constraint kind".into(),
+            },
+            span: sp,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
+        })
+    }
+}
+
+fn build_drop_constraint(pair: Pair<'_, Rule>) -> Result<DropConstraint> {
+    assert_eq!(pair.as_rule(), Rule::DropConstraint);
+    let sp = span(&pair);
+    let mut if_exists = false;
+    let mut name = None;
+    let mut saw_if = false;
+
+    for child in pair.into_inner() {
+        match child.as_rule() {
+            Rule::IF => saw_if = true,
+            Rule::EXISTS => {
+                if saw_if {
+                    if_exists = true;
+                    saw_if = false;
+                }
+            }
+            Rule::SymbolicName => name = Some(build_symbolic_name(child)?),
+            Rule::DROP_ | Rule::CONSTRAINT | Rule::SP => {}
+            _ => return Err(unsupported(child.as_rule(), sp)),
+        }
+    }
+
+    Ok(DropConstraint {
+        if_exists,
+        name: name.ok_or_else(|| CypherError {
+            kind: ErrorKind::Internal {
+                message: "missing constraint name".into(),
+            },
+            span: sp,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
+        })?,
+        span: sp,
+    })
+}
+
+fn build_show(pair: Pair<'_, Rule>) -> Result<Show> {
+    assert_eq!(pair.as_rule(), Rule::Show);
+    let sp = span(&pair);
+    let mut kind = None;
+    let mut yield_items = None;
+    let mut where_clause = None;
+    let mut return_clause = None;
+
+    for child in pair.into_inner() {
+        match child.as_rule() {
+            Rule::ShowKind => kind = Some(build_show_kind(child)?),
+            Rule::YieldItems => yield_items = Some(build_show_yield_items(child)?),
+            Rule::STAR => {
+                yield_items = Some(ShowYieldSpec::Star { span: span(&child) });
+            }
+            Rule::Where => where_clause = Some(build_where(child)?),
+            Rule::Return => return_clause = Some(build_return_body(child)?),
+            Rule::SHOW | Rule::SP => {}
+            Rule::YIELD => {}
+            _ => return Err(unsupported(child.as_rule(), sp)),
+        }
+    }
+
+    Ok(Show {
+        kind: kind.ok_or_else(|| CypherError {
+            kind: ErrorKind::Internal {
+                message: "missing SHOW kind".into(),
+            },
+            span: sp,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
+        })?,
+        yield_items,
+        where_clause,
+        return_clause,
+        span: sp,
+    })
+}
+
+fn build_show_kind(pair: Pair<'_, Rule>) -> Result<ShowKind> {
+    assert_eq!(pair.as_rule(), Rule::ShowKind);
+    let sp = span(&pair);
+    let mut inner = pair.clone().into_inner();
+    let first = inner.next();
+    match first {
+        Some(child) => match child.as_rule() {
+            Rule::INDEXES => Ok(ShowKind::Indexes),
+            Rule::CONSTRAINTS => Ok(ShowKind::Constraints),
+            Rule::FUNCTIONS => Ok(ShowKind::Functions),
+            Rule::PROCEDURES => Ok(ShowKind::Procedures),
+            Rule::DATABASES => Ok(ShowKind::Databases),
+            Rule::DATABASE => {
+                let name = inner
+                    .find(|p| p.as_rule() == Rule::SymbolicName)
+                    .map(|p| build_symbolic_name(p))
+                    .transpose()?;
+                Ok(ShowKind::Database(name.ok_or_else(|| CypherError {
+                    kind: ErrorKind::Internal {
+                        message: "missing database name".into(),
+                    },
+                    span: sp,
+                    source_label: None,
+                    notes: Vec::new(),
+                    source: None,
+                })?))
+            }
+            _ => Err(unsupported(child.as_rule(), sp)),
+        },
+        None => Err(unsupported(pair.as_rule(), sp)),
+    }
+}
+
+fn build_show_yield_items(pair: Pair<'_, Rule>) -> Result<ShowYieldSpec> {
+    assert_eq!(pair.as_rule(), Rule::YieldItems);
+    let sp = span(&pair);
+    let mut items = Vec::new();
+
+    for child in pair.into_inner() {
+        match child.as_rule() {
+            Rule::YieldItem => items.push(build_show_yield_item(child)?),
+            Rule::Where | Rule::SP | Rule::YIELD => {}
+            _ => {}
+        }
+    }
+
+    Ok(ShowYieldSpec::Items(items))
+}
+
+fn build_show_yield_item(pair: Pair<'_, Rule>) -> Result<ShowYieldItem> {
+    assert_eq!(pair.as_rule(), Rule::YieldItem);
+    let sp = span(&pair);
+    let mut procedure_field = None;
+    let mut alias = None;
+
+    for child in pair.clone().into_inner() {
+        match child.as_rule() {
+            Rule::ProcedureResultField => {
+                procedure_field = Some(build_symbolic_name(child.into_inner().next().unwrap())?);
+            }
+            Rule::Variable => alias = Some(build_variable(child)?),
+            Rule::AS | Rule::SP => {}
+            _ => {}
+        }
+    }
+
+    Ok(ShowYieldItem {
+        procedure_field: procedure_field.unwrap_or_else(|| SymbolicName {
+            name: String::new(),
+            span: sp,
+        }),
+        alias,
+    })
+}
+
+fn build_return_body(pair: Pair<'_, Rule>) -> Result<ReturnBody> {
+    assert_eq!(pair.as_rule(), Rule::Return);
+    let sp = span(&pair);
+    let projection = pair
+        .clone()
+        .into_inner()
+        .find(|p| p.as_rule() == Rule::ProjectionBody)
+        .map(|p| build_projection_body(p))
+        .transpose()?
+        .unwrap();
+    Ok(ReturnBody {
+        distinct: projection.0,
+        items: projection.1,
+        order: projection.2,
+        skip: projection.3,
+        limit: projection.4,
+    })
+}
+
+fn build_use(pair: Pair<'_, Rule>) -> Result<Use> {
+    assert_eq!(pair.as_rule(), Rule::Use);
+    let sp = span(&pair);
+    let name = pair
+        .into_inner()
+        .find(|p| p.as_rule() == Rule::SymbolicName)
+        .map(|p| build_symbolic_name(p))
+        .transpose()?
+        .ok_or_else(|| CypherError {
+            kind: ErrorKind::Internal {
+                message: "missing graph name in USE".into(),
+            },
+            span: sp,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
+        })?;
+    Ok(Use {
+        graph: name,
+        span: sp,
+    })
 }

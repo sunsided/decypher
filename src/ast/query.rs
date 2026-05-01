@@ -1,5 +1,9 @@
-use crate::ast::clause::{Create, Delete, Match, Merge, Remove, Return, Set, Unwind, With};
+use crate::ast::clause::{
+    Create, Delete, Foreach, Match, Merge, Remove, Return, Set, Unwind, With,
+};
+use crate::ast::expr::Expression;
 use crate::ast::procedure::{InQueryCall, StandaloneCall};
+use crate::ast::schema::{SchemaCommand, Show, Use};
 use crate::error::Span;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -12,6 +16,9 @@ pub struct Query {
 pub enum QueryBody {
     SingleQuery(SingleQuery),
     Standalone(StandaloneCall),
+    SchemaCommand(SchemaCommand),
+    Show(Show),
+    Use(Use),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -58,6 +65,30 @@ pub enum ReadingClause {
     Match(Match),
     Unwind(Unwind),
     InQueryCall(InQueryCall),
+    CallSubquery(CallSubquery),
+}
+
+/// CALL { subquery } [IN TRANSACTIONS]
+#[derive(Debug, Clone, PartialEq)]
+pub struct CallSubquery {
+    pub query: RegularQuery,
+    pub in_transactions: Option<InTransactions>,
+    pub span: Span,
+}
+
+/// IN TRANSACTIONS [OF n ROWS] [ON ERROR {CONTINUE|BREAK|FAIL}]
+#[derive(Debug, Clone, PartialEq)]
+pub struct InTransactions {
+    pub of_rows: Option<Expression>,
+    pub on_error: Option<OnErrorBehavior>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OnErrorBehavior {
+    Continue,
+    Break,
+    Fail,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -67,6 +98,7 @@ pub enum UpdatingClause {
     Delete(Delete),
     Set(Set),
     Remove(Remove),
+    Foreach(Foreach),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -85,4 +117,7 @@ pub struct Union {
 pub enum Statement {
     Query(Box<RegularQuery>),
     StandaloneCall(Box<StandaloneCall>),
+    SchemaCommand(SchemaCommand),
+    Show(Show),
+    Use(Use),
 }
