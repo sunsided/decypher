@@ -554,7 +554,10 @@ mod tests {
     fn test_foreach_clause() {
         let parse = parse("FOREACH (n IN nodes | CREATE (n)-[:LINK]->())");
         check!(parse.tree.text().to_string() == "FOREACH (n IN nodes | CREATE (n)-[:LINK]->())");
-        let has_foreach = parse.tree.descendants().any(|n| n.kind() == SyntaxKind::FOREACH_CLAUSE);
+        let has_foreach = parse
+            .tree
+            .descendants()
+            .any(|n| n.kind() == SyntaxKind::FOREACH_CLAUSE);
         check!(has_foreach);
     }
 
@@ -562,7 +565,10 @@ mod tests {
     fn test_standalone_call() {
         let parse = parse("CALL db.labels()");
         check!(parse.tree.text().to_string() == "CALL db.labels()");
-        let has_call = parse.tree.descendants().any(|n| n.kind() == SyntaxKind::STANDALONE_CALL);
+        let has_call = parse
+            .tree
+            .descendants()
+            .any(|n| n.kind() == SyntaxKind::STANDALONE_CALL);
         check!(has_call);
     }
 
@@ -570,21 +576,30 @@ mod tests {
     fn test_call_with_yield() {
         let parse = parse("CALL db.labels() YIELD label");
         check!(parse.tree.text().to_string() == "CALL db.labels() YIELD label");
-        let has_yield = parse.tree.descendants().any(|n| n.kind() == SyntaxKind::YIELD_ITEMS);
+        let has_yield = parse
+            .tree
+            .descendants()
+            .any(|n| n.kind() == SyntaxKind::YIELD_ITEMS);
         check!(has_yield);
     }
 
     #[test]
     fn test_call_with_yield_and_where() {
         let parse = parse("CALL db.labels() YIELD label WHERE label STARTS WITH 'User'");
-        check!(parse.tree.text().to_string() == "CALL db.labels() YIELD label WHERE label STARTS WITH 'User'");
+        check!(
+            parse.tree.text().to_string()
+                == "CALL db.labels() YIELD label WHERE label STARTS WITH 'User'"
+        );
     }
 
     #[test]
     fn test_call_subquery() {
         let parse = parse("CALL { MATCH (n) RETURN n }");
         check!(parse.tree.text().to_string() == "CALL { MATCH (n) RETURN n }");
-        let has_subquery = parse.tree.descendants().any(|n| n.kind() == SyntaxKind::CALL_SUBQUERY_CLAUSE);
+        let has_subquery = parse
+            .tree
+            .descendants()
+            .any(|n| n.kind() == SyntaxKind::CALL_SUBQUERY_CLAUSE);
         check!(has_subquery);
     }
 
@@ -592,21 +607,33 @@ mod tests {
     fn test_call_subquery_in_transactions() {
         let parse = parse("CALL { MATCH (n) RETURN n } IN TRANSACTIONS");
         check!(parse.tree.text().to_string() == "CALL { MATCH (n) RETURN n } IN TRANSACTIONS");
-        let has_tx = parse.tree.descendants().any(|n| n.kind() == SyntaxKind::IN_TRANSACTIONS);
+        let has_tx = parse
+            .tree
+            .descendants()
+            .any(|n| n.kind() == SyntaxKind::IN_TRANSACTIONS);
         check!(has_tx);
     }
 
     #[test]
     fn test_call_subquery_in_transactions_of_rows() {
         let parse = parse("CALL { MATCH (n) RETURN n } IN TRANSACTIONS OF 1000 ROWS");
-        check!(parse.tree.text().to_string() == "CALL { MATCH (n) RETURN n } IN TRANSACTIONS OF 1000 ROWS");
+        check!(
+            parse.tree.text().to_string()
+                == "CALL { MATCH (n) RETURN n } IN TRANSACTIONS OF 1000 ROWS"
+        );
     }
 
     #[test]
     fn test_union() {
         let parse = parse("MATCH (n:Person) RETURN n.name UNION MATCH (m:Company) RETURN m.name");
-        check!(parse.tree.text().to_string() == "MATCH (n:Person) RETURN n.name UNION MATCH (m:Company) RETURN m.name");
-        let has_union = parse.tree.descendants().any(|n| n.kind() == SyntaxKind::UNION);
+        check!(
+            parse.tree.text().to_string()
+                == "MATCH (n:Person) RETURN n.name UNION MATCH (m:Company) RETURN m.name"
+        );
+        let has_union = parse
+            .tree
+            .descendants()
+            .any(|n| n.kind() == SyntaxKind::UNION);
         check!(has_union);
     }
 
@@ -614,7 +641,10 @@ mod tests {
     fn test_union_all() {
         let parse = parse("RETURN 1 AS n UNION ALL RETURN 1 AS n");
         check!(parse.tree.text().to_string() == "RETURN 1 AS n UNION ALL RETURN 1 AS n");
-        let has_union = parse.tree.descendants().any(|n| n.kind() == SyntaxKind::UNION);
+        let has_union = parse
+            .tree
+            .descendants()
+            .any(|n| n.kind() == SyntaxKind::UNION);
         check!(has_union);
     }
 
@@ -622,21 +652,33 @@ mod tests {
     fn test_create_index() {
         let parse = parse("CREATE INDEX idx FOR (n:Person) ON (n.name)");
         check!(parse.tree.text().to_string() == "CREATE INDEX idx FOR (n:Person) ON (n.name)");
-        let has_index = parse.tree.descendants().any(|n| n.kind() == SyntaxKind::CREATE_INDEX);
+        let has_index = parse
+            .tree
+            .descendants()
+            .any(|n| n.kind() == SyntaxKind::CREATE_INDEX);
         check!(has_index);
     }
 
     #[test]
     fn test_create_text_index() {
         let parse = parse("CREATE TEXT INDEX idx FOR (n:Person) ON EACH [n.name, n.email]");
-        check!(parse.tree.text().to_string() == "CREATE TEXT INDEX idx FOR (n:Person) ON EACH [n.name, n.email]");
+        check!(
+            parse.tree.text().to_string()
+                == "CREATE TEXT INDEX idx FOR (n:Person) ON EACH [n.name, n.email]"
+        );
     }
 
     #[test]
     fn test_create_constraint() {
         let parse = parse("CREATE CONSTRAINT uniq FOR (n:Person) REQUIRE n.email IS UNIQUE");
-        check!(parse.tree.text().to_string() == "CREATE CONSTRAINT uniq FOR (n:Person) REQUIRE n.email IS UNIQUE");
-        let has_constraint = parse.tree.descendants().any(|n| n.kind() == SyntaxKind::CREATE_CONSTRAINT);
+        check!(
+            parse.tree.text().to_string()
+                == "CREATE CONSTRAINT uniq FOR (n:Person) REQUIRE n.email IS UNIQUE"
+        );
+        let has_constraint = parse
+            .tree
+            .descendants()
+            .any(|n| n.kind() == SyntaxKind::CREATE_CONSTRAINT);
         check!(has_constraint);
     }
 
@@ -644,7 +686,10 @@ mod tests {
     fn test_drop_index() {
         let parse = parse("DROP INDEX idx");
         check!(parse.tree.text().to_string() == "DROP INDEX idx");
-        let has_drop = parse.tree.descendants().any(|n| n.kind() == SyntaxKind::DROP_INDEX);
+        let has_drop = parse
+            .tree
+            .descendants()
+            .any(|n| n.kind() == SyntaxKind::DROP_INDEX);
         check!(has_drop);
     }
 
@@ -652,7 +697,10 @@ mod tests {
     fn test_drop_constraint() {
         let parse = parse("DROP CONSTRAINT uniq");
         check!(parse.tree.text().to_string() == "DROP CONSTRAINT uniq");
-        let has_drop = parse.tree.descendants().any(|n| n.kind() == SyntaxKind::DROP_CONSTRAINT);
+        let has_drop = parse
+            .tree
+            .descendants()
+            .any(|n| n.kind() == SyntaxKind::DROP_CONSTRAINT);
         check!(has_drop);
     }
 
@@ -660,7 +708,10 @@ mod tests {
     fn test_show_indexes() {
         let parse = parse("SHOW INDEXES");
         check!(parse.tree.text().to_string() == "SHOW INDEXES");
-        let has_show = parse.tree.descendants().any(|n| n.kind() == SyntaxKind::SHOW_CLAUSE);
+        let has_show = parse
+            .tree
+            .descendants()
+            .any(|n| n.kind() == SyntaxKind::SHOW_CLAUSE);
         check!(has_show);
     }
 
@@ -674,15 +725,25 @@ mod tests {
     fn test_use_database() {
         let parse = parse("USE mydb");
         check!(parse.tree.text().to_string() == "USE mydb");
-        let has_use = parse.tree.descendants().any(|n| n.kind() == SyntaxKind::USE_CLAUSE);
+        let has_use = parse
+            .tree
+            .descendants()
+            .any(|n| n.kind() == SyntaxKind::USE_CLAUSE);
         check!(has_use);
     }
 
     #[test]
     fn test_multiple_statements() {
         let parse = parse("MATCH (n) RETURN n; CREATE (m:Person {name: 'Alice'})");
-        check!(parse.tree.text().to_string() == "MATCH (n) RETURN n; CREATE (m:Person {name: 'Alice'})");
-        let stmts: Vec<_> = parse.tree.children().filter(|n| n.kind() == SyntaxKind::STATEMENT).collect();
+        check!(
+            parse.tree.text().to_string()
+                == "MATCH (n) RETURN n; CREATE (m:Person {name: 'Alice'})"
+        );
+        let stmts: Vec<_> = parse
+            .tree
+            .children()
+            .filter(|n| n.kind() == SyntaxKind::STATEMENT)
+            .collect();
         check!(stmts.len() == 2);
     }
 }

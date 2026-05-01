@@ -965,6 +965,20 @@ impl AstNode for ListComprehension {
     }
 }
 
+impl ListComprehension {
+    pub fn filter(&self) -> Option<FilterExpression> {
+        child(&self.0)
+    }
+
+    pub fn body(&self) -> Option<Expression> {
+        self.0
+            .children()
+            .skip_while(|n| !matches!(n.kind(), SyntaxKind::PIPE | SyntaxKind::FILTER_EXPRESSION))
+            .filter_map(Expression::cast)
+            .last()
+    }
+}
+
 // ============================================================
 // PatternComprehension
 // ============================================================
@@ -987,6 +1001,42 @@ impl AstNode for PatternComprehension {
 
     fn syntax(&self) -> &SyntaxNode {
         &self.0
+    }
+}
+
+impl PatternComprehension {
+    pub fn variable(&self) -> Option<Variable> {
+        self.0
+            .children()
+            .take_while(|n| {
+                n.kind() != SyntaxKind::RELATIONSHIPS_PATTERN
+                    && n.kind() != SyntaxKind::NODE_PATTERN
+                    && n.kind() != SyntaxKind::PATTERN_ELEMENT_CHAIN
+            })
+            .find_map(Variable::cast)
+    }
+
+    pub fn pattern(&self) -> Option<SyntaxNode> {
+        self.0.children().find(|n| {
+            matches!(
+                n.kind(),
+                SyntaxKind::RELATIONSHIPS_PATTERN
+                    | SyntaxKind::NODE_PATTERN
+                    | SyntaxKind::PATTERN_ELEMENT_CHAIN
+            )
+        })
+    }
+
+    pub fn where_clause(&self) -> Option<super::clauses::WhereClause> {
+        child(&self.0)
+    }
+
+    pub fn body(&self) -> Option<Expression> {
+        self.0
+            .children()
+            .skip_while(|n| n.kind() != SyntaxKind::PIPE)
+            .filter_map(Expression::cast)
+            .last()
     }
 }
 
@@ -1015,6 +1065,57 @@ impl AstNode for FilterExpression {
     }
 }
 
+impl FilterExpression {
+    pub fn id_in_coll(&self) -> Option<IdInColl> {
+        child(&self.0)
+    }
+
+    pub fn where_clause(&self) -> Option<super::clauses::WhereClause> {
+        self.0
+            .children()
+            .filter(|n| n.kind() != SyntaxKind::ID_IN_COLL)
+            .find_map(|n| super::clauses::WhereClause::cast(n))
+    }
+}
+
+// ============================================================
+// IdInColl
+// ============================================================
+
+#[derive(Clone, Debug)]
+pub struct IdInColl(SyntaxNode);
+
+impl AstNode for IdInColl {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::ID_IN_COLL
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(IdInColl(syntax))
+        } else {
+            None
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.0
+    }
+}
+
+impl IdInColl {
+    pub fn variable(&self) -> Option<Variable> {
+        child(&self.0)
+    }
+
+    pub fn collection(&self) -> Option<Expression> {
+        self.0
+            .children()
+            .filter(|n| n.kind() != SyntaxKind::VARIABLE && n.kind() != SyntaxKind::SYMBOLIC_NAME)
+            .find_map(Expression::cast)
+    }
+}
+
 // ============================================================
 // ExistsSubquery
 // ============================================================
@@ -1040,6 +1141,23 @@ impl AstNode for ExistsSubquery {
     }
 }
 
+impl ExistsSubquery {
+    pub fn pattern(&self) -> Option<SyntaxNode> {
+        self.0.children().find(|n| {
+            matches!(
+                n.kind(),
+                SyntaxKind::NODE_PATTERN
+                    | SyntaxKind::RELATIONSHIPS_PATTERN
+                    | SyntaxKind::PATTERN_ELEMENT_CHAIN
+            )
+        })
+    }
+
+    pub fn where_clause(&self) -> Option<super::clauses::WhereClause> {
+        child(&self.0)
+    }
+}
+
 // ============================================================
 // MapProjection
 // ============================================================
@@ -1062,6 +1180,60 @@ impl AstNode for MapProjection {
 
     fn syntax(&self) -> &SyntaxNode {
         &self.0
+    }
+}
+
+impl MapProjection {
+    pub fn variable(&self) -> Option<Variable> {
+        child(&self.0)
+    }
+
+    pub fn items(&self) -> impl Iterator<Item = MapProjectionItem> {
+        self.0.children().filter_map(MapProjectionItem::cast)
+    }
+}
+
+// ============================================================
+// MapProjectionItem
+// ============================================================
+
+#[derive(Clone, Debug)]
+pub struct MapProjectionItem(SyntaxNode);
+
+impl AstNode for MapProjectionItem {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::MAP_PROJECTION_ITEM
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(MapProjectionItem(syntax))
+        } else {
+            None
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.0
+    }
+}
+
+impl MapProjectionItem {
+    pub fn is_star(&self) -> bool {
+        child_token(&self.0, SyntaxKind::STAR).is_some()
+    }
+
+    pub fn property_name(&self) -> Option<PropertyKeyName> {
+        child(&self.0)
+    }
+
+    pub fn expression(&self) -> Option<Expression> {
+        self.0
+            .children()
+            .filter(|n| {
+                n.kind() != SyntaxKind::PROPERTY_KEY_NAME && n.kind() != SyntaxKind::SYMBOLIC_NAME
+            })
+            .find_map(Expression::cast)
     }
 }
 

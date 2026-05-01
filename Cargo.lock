@@ -167,6 +167,7 @@ dependencies = [
  "ryu",
  "serde",
  "thiserror",
+ "unicode-ident",
 ]
 
 [[package]]
