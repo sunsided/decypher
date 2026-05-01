@@ -2,12 +2,22 @@
 //!
 //! This module contains the lexer and grammar rules that produce a lossless CST
 //! backed by `rowan`. The pest-based parser lives in `pest_parser` as a
-//! conformance oracle (`#[cfg(test)]` in Phase 1).
+//! conformance oracle.
+//!
+//! # Diagnostic guarantee
+//!
+//! `Parse::errors` is non-empty when the input is not a well-formed openCypher
+//! query that the rowan grammar accepts. Every `CypherError` has a byte span
+//! pointing at the offending token and an `Expected` set populated from the
+//! call site that raised it.
+//!
+//! Phase 2: diagnostics implemented. Typed AstNode wrappers and wiring the
+//! rowan parser into the public `parse()` are deferred.
 
 pub mod lexer;
 pub mod grammar;
 
-use crate::error::CypherError;
+use crate::error::{CypherError, ErrorKind, Expected, Span};
 use crate::syntax::{CypherLang, SyntaxKind, SyntaxNode};
 use rowan::{GreenNodeBuilder, Language};
 
@@ -81,7 +91,8 @@ impl<'a> Parser<'a> {
             } else if self.current_len() == 0 {
                 break;
             } else {
-                // Unexpected token — eat it as error
+                // Unexpected token — emit diagnostic then eat it for recovery
+                self.error_here(&[Expected::Category("clause")]);
                 self.start_node(SyntaxKind::ERROR);
                 self.bump();
                 self.builder.finish_node();
@@ -154,13 +165,55 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Expects the current token to be `kind`. Emits an ERROR node if not.
+    /// Expects the current token to be `kind`. Emits an ERROR node and diagnostic if not.
     pub(crate) fn expect(&mut self, kind: SyntaxKind) {
         if !self.eat(kind) {
-            // Emit a synthetic error node
+            self.error_here(&[Expected::Symbol(kind_to_str(kind))]);
             self.start_node(SyntaxKind::ERROR);
             self.builder.finish_node();
         }
+    }
+
+    /// Emit a diagnostic at the current byte position using the current token text.
+    /// Does not consume any tokens.
+    pub(crate) fn error_here(&mut self, expected: &[Expected]) {
+        let start = self.byte_pos;
+        let end = start + self.current_len;
+        let span = Span::new(start, end);
+        let found = if self.current_len > 0 {
+            self.input[start..end].to_string()
+        } else {
+            String::from("<end of input>")
+        };
+        self.errors.push(CypherError {
+            kind: ErrorKind::UnexpectedToken {
+                expected: expected.to_vec(),
+                found,
+            },
+            span,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
+        });
+    }
+
+    /// Emit a diagnostic at an explicit span. Does not consume any tokens.
+    pub(crate) fn error_at(&mut self, span: Span, expected: &[Expected]) {
+        let found = if span.start < span.end && span.end <= self.input.len() {
+            self.input[span.start..span.end].to_string()
+        } else {
+            String::from("<end of input>")
+        };
+        self.errors.push(CypherError {
+            kind: ErrorKind::UnexpectedToken {
+                expected: expected.to_vec(),
+                found,
+            },
+            span,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
+        });
     }
 
     /// Advances to the next token.
@@ -223,6 +276,109 @@ impl<'a> Parser<'a> {
         }
     }
 }
+
+/// Map a `SyntaxKind` to its canonical Cypher spelling for diagnostics.
+fn kind_to_str(kind: SyntaxKind) -> &'static str {
+    match kind {
+        SyntaxKind::L_PAREN => "(",
+        SyntaxKind::R_PAREN => ")",
+        SyntaxKind::L_BRACE => "{",
+        SyntaxKind::R_BRACE => "}",
+        SyntaxKind::L_BRACKET => "[",
+        SyntaxKind::R_BRACKET => "]",
+        SyntaxKind::COMMA => ",",
+        SyntaxKind::DOT => ".",
+        SyntaxKind::DOT_DOT => "..",
+        SyntaxKind::COLON => ":",
+        SyntaxKind::PIPE => "|",
+        SyntaxKind::DOLLAR => "$",
+        SyntaxKind::SEMICOLON => ";",
+        SyntaxKind::EQ => "=",
+        SyntaxKind::NE => "<>",
+        SyntaxKind::LT => "<",
+        SyntaxKind::GT => ">",
+        SyntaxKind::LE => "<=",
+        SyntaxKind::GE => ">=",
+        SyntaxKind::PLUS => "+",
+        SyntaxKind::MINUS => "-",
+        SyntaxKind::STAR => "*",
+        SyntaxKind::SLASH => "/",
+        SyntaxKind::PERCENT => "%",
+        SyntaxKind::POW => "^",
+        SyntaxKind::PLUSEQ => "+=",
+        SyntaxKind::ARROW_LEFT => "<-",
+        SyntaxKind::ARROW_RIGHT => "->",
+        SyntaxKind::DASH => "-",
+        SyntaxKind::INTEGER => "integer",
+        SyntaxKind::FLOAT => "float",
+        SyntaxKind::STRING => "string",
+        SyntaxKind::TRUE_KW => "true",
+        SyntaxKind::FALSE_KW => "false",
+        SyntaxKind::NULL_KW => "null",
+        SyntaxKind::IDENT => "identifier",
+        SyntaxKind::ESCAPED_IDENT => "identifier",
+        SyntaxKind::KW_AS => "AS",
+        SyntaxKind::KW_BY => "BY",
+        SyntaxKind::KW_CASE => "CASE",
+        SyntaxKind::KW_ELSE => "ELSE",
+        SyntaxKind::KW_END => "END",
+        SyntaxKind::KW_THEN => "THEN",
+        SyntaxKind::KW_WHEN => "WHEN",
+        SyntaxKind::KW_WITH => "WITH",
+        SyntaxKind::KW_MATCH => "MATCH",
+        SyntaxKind::KW_RETURN => "RETURN",
+        SyntaxKind::KW_WHERE => "WHERE",
+        SyntaxKind::KW_ORDER => "ORDER",
+        SyntaxKind::KW_IS => "IS",
+        SyntaxKind::KW_IN => "IN",
+        SyntaxKind::KW_NOT => "NOT",
+        SyntaxKind::KW_STARTS => "STARTS",
+        SyntaxKind::KW_ENDS => "ENDS",
+        SyntaxKind::KW_CONTAINS => "CONTAINS",
+        SyntaxKind::KW_DISTINCT => "DISTINCT",
+        SyntaxKind::KW_UNWIND => "UNWIND",
+        SyntaxKind::KW_CREATE => "CREATE",
+        SyntaxKind::KW_MERGE => "MERGE",
+        SyntaxKind::KW_DELETE => "DELETE",
+        SyntaxKind::KW_SET => "SET",
+        SyntaxKind::KW_REMOVE => "REMOVE",
+        SyntaxKind::KW_CALL => "CALL",
+        SyntaxKind::KW_FOREACH => "FOREACH",
+        SyntaxKind::KW_OPTIONAL => "OPTIONAL",
+        SyntaxKind::KW_OR => "OR",
+        SyntaxKind::KW_XOR => "XOR",
+        SyntaxKind::KW_AND => "AND",
+        SyntaxKind::KW_ALL => "ALL",
+        SyntaxKind::KW_ANY => "ANY",
+        SyntaxKind::KW_NONE => "NONE",
+        SyntaxKind::KW_SINGLE => "SINGLE",
+        SyntaxKind::KW_FILTER => "FILTER",
+        SyntaxKind::KW_EXTRACT => "EXTRACT",
+        SyntaxKind::KW_EXISTS => "EXISTS",
+        SyntaxKind::KW_UNION => "UNION",
+        SyntaxKind::KW_SKIP => "SKIP",
+        SyntaxKind::KW_LIMIT => "LIMIT",
+        SyntaxKind::KW_DETACH => "DETACH",
+        SyntaxKind::KW_ASC => "ASC",
+        SyntaxKind::KW_ASCENDING => "ASCENDING",
+        SyntaxKind::KW_DESC => "DESC",
+        SyntaxKind::KW_DESCENDING => "DESCENDING",
+        _ => {
+            let debug = format!("{:?}", kind);
+            // Leak to get &'static str — acceptable for diagnostics
+            Box::leak(debug.into_boxed_str())
+        }
+    }
+}
+
+/// Check whether a syntax tree contains any ERROR nodes.
+pub(crate) fn tree_has_error_node(tree: &SyntaxNode) -> bool {
+    tree.descendants().any(|n| n.kind() == SyntaxKind::ERROR)
+}
+
+/// Re-exported for integration tests.
+#[cfg(test)]
+pub use tree_has_error_node as has_errors;
 
 #[cfg(test)]
 mod tests {
