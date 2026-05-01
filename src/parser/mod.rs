@@ -359,6 +359,8 @@ fn kind_to_str(kind: SyntaxKind) -> &'static str {
         SyntaxKind::KW_REMOVE => "REMOVE",
         SyntaxKind::KW_CALL => "CALL",
         SyntaxKind::KW_FOREACH => "FOREACH",
+        SyntaxKind::KW_EACH => "EACH",
+        SyntaxKind::KW_CONCURRENTLY => "CONCURRENTLY",
         SyntaxKind::KW_OPTIONAL => "OPTIONAL",
         SyntaxKind::KW_OR => "OR",
         SyntaxKind::KW_XOR => "XOR",
@@ -378,6 +380,11 @@ fn kind_to_str(kind: SyntaxKind) -> &'static str {
         SyntaxKind::KW_ASCENDING => "ASCENDING",
         SyntaxKind::KW_DESC => "DESC",
         SyntaxKind::KW_DESCENDING => "DESCENDING",
+        SyntaxKind::KW_EACH => "EACH",
+        SyntaxKind::KW_CONCURRENTLY => "CONCURRENTLY",
+        SyntaxKind::KW_GRAPH => "GRAPH",
+        SyntaxKind::KW_CALL_SUBQUERY => "CALL {",
+        SyntaxKind::KW_IN_TRANSACTIONS => "IN TRANSACTIONS",
         _ => {
             let debug = format!("{:?}", kind);
             // Leak to get &'static str — acceptable for diagnostics

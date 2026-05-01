@@ -88,6 +88,7 @@ pub enum SyntaxKind {
     KW_FILTER,
     KW_FOR,
     KW_FOREACH,
+    KW_EACH,
     KW_FUNCTIONS,
     KW_FULLTEXT,
     KW_IF,
@@ -141,6 +142,8 @@ pub enum SyntaxKind {
     KW_COUNT,
     KW_CALL_SUBQUERY,
     KW_IN_TRANSACTIONS,
+    KW_CONCURRENTLY,
+    KW_GRAPH,
 
     /* Composite nodes (CST non-terminals) */
     SOURCE_FILE,

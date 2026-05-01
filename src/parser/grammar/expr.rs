@@ -480,6 +480,12 @@ pub fn parse_clause(p: &mut Parser) {
         SyntaxKind::KW_DELETE | SyntaxKind::KW_DETACH => parse_delete_clause(p),
         SyntaxKind::KW_SET => parse_set_clause(p),
         SyntaxKind::KW_REMOVE => parse_remove_clause(p),
+        SyntaxKind::KW_FOREACH => parse_foreach_clause(p),
+        SyntaxKind::KW_CALL => parse_call_clause(p),
+        SyntaxKind::KW_YIELD => parse_yield_clause(p),
+        SyntaxKind::KW_DROP => parse_drop_clause(p),
+        SyntaxKind::KW_SHOW => parse_show_clause(p),
+        SyntaxKind::KW_USE => parse_use_clause(p),
         _ => {}
     }
 }
@@ -544,6 +550,26 @@ fn parse_unwind_clause(p: &mut Parser) {
 }
 
 fn parse_create_clause(p: &mut Parser) {
+    p.skip_trivia();
+    let next = p.peek_next_non_trivia();
+    if next == Some(SyntaxKind::KW_INDEX)
+        || next == Some(SyntaxKind::KW_TEXT)
+        || next == Some(SyntaxKind::KW_LOOKUP)
+        || next == Some(SyntaxKind::KW_RANGE)
+        || next == Some(SyntaxKind::KW_POINT)
+        || next == Some(SyntaxKind::KW_FULLTEXT)
+    {
+        parse_create_index(p);
+    } else if next == Some(SyntaxKind::KW_CONSTRAINT) {
+        parse_create_constraint(p);
+    } else if next == Some(SyntaxKind::KW_DATABASE) || next == Some(SyntaxKind::KW_DATABASES) {
+        parse_create_database(p);
+    } else {
+        parse_create_pattern(p);
+    }
+}
+
+fn parse_create_pattern(p: &mut Parser) {
     p.start_node(SyntaxKind::CREATE_CLAUSE);
     p.bump();
     p.skip_trivia();
@@ -1034,5 +1060,830 @@ fn is_relationship_chain_start(p: &Parser) -> bool {
             | SyntaxKind::ARROW_RIGHT
             | SyntaxKind::MINUS
             | SyntaxKind::DASH
+    )
+}
+
+// ── FOREACH clause ──────────────────────────────────────────────
+
+fn parse_foreach_clause(p: &mut Parser) {
+    p.start_node(SyntaxKind::FOREACH_CLAUSE);
+    p.bump(); // FOREACH
+    p.skip_trivia();
+    // FOREACH (variable IN list | clauses )
+    if p.at(SyntaxKind::L_PAREN) {
+        p.bump();
+        p.skip_trivia();
+        // variable
+        if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) {
+            p.start_node(SyntaxKind::VARIABLE);
+            p.start_node(SyntaxKind::SYMBOLIC_NAME);
+            p.bump();
+            p.builder.finish_node();
+            p.builder.finish_node();
+        }
+        p.skip_trivia();
+        // IN
+        p.expect(SyntaxKind::KW_IN);
+        p.skip_trivia();
+        // list expression
+        expr_bp(p, Prec::MIN);
+        p.skip_trivia();
+        // PIPE
+        p.expect(SyntaxKind::PIPE);
+        p.skip_trivia();
+        // nested clauses
+        while !p.at(SyntaxKind::R_PAREN) && p.current_len() > 0 && is_clause_start_in_foreach(p) {
+            parse_clause(p);
+            p.skip_trivia();
+        }
+        p.expect(SyntaxKind::R_PAREN);
+    }
+    p.builder.finish_node();
+}
+
+fn is_clause_start_in_foreach(p: &Parser) -> bool {
+    matches!(
+        p.current_kind(),
+        SyntaxKind::KW_MATCH
+            | SyntaxKind::KW_OPTIONAL
+            | SyntaxKind::KW_CREATE
+            | SyntaxKind::KW_MERGE
+            | SyntaxKind::KW_DELETE
+            | SyntaxKind::KW_DETACH
+            | SyntaxKind::KW_SET
+            | SyntaxKind::KW_REMOVE
+            | SyntaxKind::KW_FOREACH
+    )
+}
+
+// ── CALL clause (procedures) ────────────────────────────────────
+
+fn parse_call_clause(p: &mut Parser) {
+    p.skip_trivia();
+    // Check if this is CALL { ... } (subquery) or CALL proc() (procedure)
+    let next = p.peek_next_non_trivia();
+    if next == Some(SyntaxKind::L_BRACE) {
+        parse_call_subquery(p);
+    } else {
+        parse_procedure_call(p);
+    }
+}
+
+fn parse_procedure_call(p: &mut Parser) {
+    // Determine if standalone or in-query based on context
+    // For now, parse as standalone call
+    p.start_node(SyntaxKind::STANDALONE_CALL);
+    parse_procedure_invocation(p);
+    p.skip_trivia();
+    // Optional YIELD
+    if p.at(SyntaxKind::KW_YIELD) {
+        p.skip_trivia();
+        parse_yield_items(p);
+    }
+    p.builder.finish_node();
+}
+
+fn parse_procedure_invocation(p: &mut Parser) {
+    p.start_node(SyntaxKind::EXPLICIT_PROCEDURE_INVOCATION);
+    parse_procedure_name(p);
+    p.skip_trivia();
+    p.expect(SyntaxKind::L_PAREN);
+    p.skip_trivia();
+    // Arguments
+    if !p.at(SyntaxKind::R_PAREN) {
+        expr_bp(p, Prec::MIN);
+        p.skip_trivia();
+        while p.eat(SyntaxKind::COMMA) {
+            p.skip_trivia();
+            expr_bp(p, Prec::MIN);
+            p.skip_trivia();
+        }
+    }
+    p.expect(SyntaxKind::R_PAREN);
+    p.builder.finish_node();
+}
+
+fn parse_procedure_name(p: &mut Parser) {
+    p.start_node(SyntaxKind::PROCEDURE_NAME);
+    // Namespace parts: e.g., db.labels
+    loop {
+        p.start_node(SyntaxKind::SYMBOLIC_NAME);
+        if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) || is_keyword_as_name(p) {
+            p.bump();
+        } else {
+            p.start_node(SyntaxKind::ERROR);
+            p.builder.finish_node();
+        }
+        p.builder.finish_node();
+        p.skip_trivia();
+        if p.at(SyntaxKind::DOT) {
+            p.bump();
+            p.skip_trivia();
+        } else {
+            break;
+        }
+    }
+    p.builder.finish_node();
+}
+
+fn parse_yield_items(p: &mut Parser) {
+    p.start_node(SyntaxKind::YIELD_ITEMS);
+    // YIELD * or YIELD field1, field2
+    if p.at(SyntaxKind::STAR) {
+        p.bump();
+    } else {
+        parse_yield_item(p);
+        p.skip_trivia();
+        while p.eat(SyntaxKind::COMMA) {
+            p.skip_trivia();
+            parse_yield_item(p);
+            p.skip_trivia();
+        }
+    }
+    p.skip_trivia();
+    // Optional WHERE
+    if p.at(SyntaxKind::KW_WHERE) {
+        p.bump();
+        p.skip_trivia();
+        expr_bp(p, Prec::MIN);
+        p.skip_trivia();
+    }
+    p.builder.finish_node();
+}
+
+fn parse_yield_item(p: &mut Parser) {
+    p.start_node(SyntaxKind::YIELD_ITEM);
+    // procedure field
+    p.start_node(SyntaxKind::PROCEDURE_RESULT_FIELD);
+    p.start_node(SyntaxKind::SYMBOLIC_NAME);
+    if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) || is_keyword_as_name(p) {
+        p.bump();
+    }
+    p.builder.finish_node();
+    p.builder.finish_node();
+    p.skip_trivia();
+    // Optional AS alias
+    if p.at(SyntaxKind::KW_AS) {
+        p.bump();
+        p.skip_trivia();
+        if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) {
+            p.start_node(SyntaxKind::VARIABLE);
+            p.start_node(SyntaxKind::SYMBOLIC_NAME);
+            p.bump();
+            p.builder.finish_node();
+            p.builder.finish_node();
+        }
+    }
+    p.builder.finish_node();
+}
+
+fn parse_yield_clause(p: &mut Parser) {
+    // Standalone YIELD (in-query call variant)
+    p.start_node(SyntaxKind::IN_QUERY_CALL);
+    parse_yield_items(p);
+    p.builder.finish_node();
+}
+
+// ── CALL SUBQUERY ───────────────────────────────────────────────
+
+fn parse_call_subquery(p: &mut Parser) {
+    p.start_node(SyntaxKind::CALL_SUBQUERY_CLAUSE);
+    p.bump(); // CALL
+    p.skip_trivia();
+    // { subquery }
+    if p.at(SyntaxKind::L_BRACE) {
+        p.bump();
+        p.skip_trivia();
+        // Parse inner query
+        while !p.at(SyntaxKind::R_BRACE) && p.current_len() > 0 {
+            if is_clause_start_for_subquery(p) {
+                parse_clause(p);
+            } else {
+                p.start_node(SyntaxKind::ERROR);
+                p.bump();
+                p.builder.finish_node();
+            }
+            p.skip_trivia();
+        }
+        p.expect(SyntaxKind::R_BRACE);
+    }
+    p.skip_trivia();
+    // Optional IN TRANSACTIONS
+    if p.at(SyntaxKind::KW_IN) {
+        let next = p.peek_next_non_trivia();
+        if next == Some(SyntaxKind::KW_TRANSACTIONS) {
+            p.start_node(SyntaxKind::IN_TRANSACTIONS);
+            p.bump(); // IN
+            p.skip_trivia();
+            p.expect(SyntaxKind::KW_TRANSACTIONS);
+            p.skip_trivia();
+            // Optional OF <n> ROWS
+            if p.at_keyword(SyntaxKind::KW_OF) {
+                p.bump();
+                p.skip_trivia();
+                if p.at(SyntaxKind::INTEGER) {
+                    p.start_node(SyntaxKind::NUMBER_LITERAL);
+                    p.bump();
+                    p.builder.finish_node();
+                    p.skip_trivia();
+                }
+                p.expect(SyntaxKind::KW_ROWS);
+            }
+            p.builder.finish_node();
+        }
+    }
+    p.builder.finish_node();
+}
+
+fn is_clause_start_for_subquery(p: &Parser) -> bool {
+    matches!(
+        p.current_kind(),
+        SyntaxKind::KW_MATCH
+            | SyntaxKind::KW_RETURN
+            | SyntaxKind::KW_WITH
+            | SyntaxKind::KW_UNWIND
+            | SyntaxKind::KW_CREATE
+            | SyntaxKind::KW_MERGE
+            | SyntaxKind::KW_DELETE
+            | SyntaxKind::KW_SET
+            | SyntaxKind::KW_REMOVE
+            | SyntaxKind::KW_CALL
+            | SyntaxKind::KW_FOREACH
+            | SyntaxKind::KW_OPTIONAL
+            | SyntaxKind::KW_DETACH
+            | SyntaxKind::KW_YIELD
+    )
+}
+
+// ── Schema commands ─────────────────────────────────────────────
+
+fn parse_create_index(p: &mut Parser) {
+    p.start_node(SyntaxKind::CREATE_INDEX);
+    p.bump(); // CREATE
+    p.skip_trivia();
+    // Optional index type: LOOKUP, TEXT, RANGE, POINT, FULLTEXT
+    if p.at_keyword(SyntaxKind::KW_LOOKUP)
+        || p.at_keyword(SyntaxKind::KW_TEXT)
+        || p.at_keyword(SyntaxKind::KW_RANGE)
+        || p.at_keyword(SyntaxKind::KW_POINT)
+        || p.at_keyword(SyntaxKind::KW_FULLTEXT)
+    {
+        p.start_node(SyntaxKind::INDEX_KIND);
+        p.bump();
+        p.builder.finish_node();
+        p.skip_trivia();
+    }
+    p.expect(SyntaxKind::KW_INDEX);
+    p.skip_trivia();
+    // Optional index name
+    if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) {
+        p.start_node(SyntaxKind::SCHEMA_NAME);
+        p.start_node(SyntaxKind::SYMBOLIC_NAME);
+        p.bump();
+        p.builder.finish_node();
+        p.builder.finish_node();
+        p.skip_trivia();
+    }
+    // FOR pattern
+    if p.at_keyword(SyntaxKind::KW_FOR) {
+        p.bump();
+        p.skip_trivia();
+        parse_index_pattern(p);
+        p.skip_trivia();
+    }
+    // ON or ON EACH
+    if p.at_keyword(SyntaxKind::KW_ON) {
+        p.bump();
+        p.skip_trivia();
+        p.eat(SyntaxKind::KW_EACH);
+        p.skip_trivia();
+        // Properties
+        if p.at(SyntaxKind::L_PAREN) {
+            p.start_node(SyntaxKind::PROPERTIES);
+            parse_properties_expression(p);
+            p.builder.finish_node();
+        } else if p.at(SyntaxKind::L_BRACKET) {
+            p.start_node(SyntaxKind::PROPERTIES);
+            p.start_node(SyntaxKind::LIST_LITERAL);
+            p.bump();
+            p.skip_trivia();
+            if !p.at(SyntaxKind::R_BRACKET) {
+                parse_properties_expression(p);
+                p.skip_trivia();
+                while p.eat(SyntaxKind::COMMA) {
+                    p.skip_trivia();
+                    parse_properties_expression(p);
+                    p.skip_trivia();
+                }
+            }
+            p.expect(SyntaxKind::R_BRACKET);
+            p.builder.finish_node();
+            p.builder.finish_node();
+        }
+        p.skip_trivia();
+    }
+    // Optional OPTIONS
+    if p.at_keyword(SyntaxKind::KW_OPTIONS) {
+        p.bump();
+        p.skip_trivia();
+        parse_options_clause(p);
+        p.skip_trivia();
+    }
+    p.builder.finish_node();
+}
+
+fn parse_index_pattern(p: &mut Parser) {
+    // (variable:Label) or ()-[variable:REL]-()
+    if p.at(SyntaxKind::L_PAREN) {
+        p.start_node(SyntaxKind::NODE_PATTERN);
+        p.bump();
+        p.skip_trivia();
+        // Optional variable
+        if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) {
+            p.start_node(SyntaxKind::VARIABLE);
+            p.start_node(SyntaxKind::SYMBOLIC_NAME);
+            p.bump();
+            p.builder.finish_node();
+            p.builder.finish_node();
+            p.skip_trivia();
+        }
+        // Optional labels
+        while p.at(SyntaxKind::COLON) {
+            p.start_node(SyntaxKind::NODE_LABELS);
+            p.bump();
+            p.skip_trivia();
+            if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) {
+                p.start_node(SyntaxKind::NODE_LABEL);
+                p.start_node(SyntaxKind::LABEL_NAME);
+                p.start_node(SyntaxKind::SYMBOLIC_NAME);
+                p.bump();
+                p.builder.finish_node();
+                p.builder.finish_node();
+                p.builder.finish_node();
+            }
+            p.builder.finish_node();
+            p.skip_trivia();
+        }
+        p.expect(SyntaxKind::R_PAREN);
+        p.builder.finish_node();
+        p.skip_trivia();
+        // Check for relationship pattern: ()-[r:REL]-()
+        if p.at(SyntaxKind::MINUS) || p.at(SyntaxKind::DASH) {
+            p.bump();
+            p.skip_trivia();
+            if p.at(SyntaxKind::L_BRACKET) {
+                parse_relationship_detail(p);
+                p.skip_trivia();
+            }
+            if p.at(SyntaxKind::MINUS) || p.at(SyntaxKind::DASH) {
+                p.bump();
+                p.skip_trivia();
+            }
+            if p.at(SyntaxKind::L_PAREN) {
+                p.start_node(SyntaxKind::NODE_PATTERN);
+                p.bump();
+                p.skip_trivia();
+                p.expect(SyntaxKind::R_PAREN);
+                p.builder.finish_node();
+            }
+        }
+    }
+}
+
+fn parse_properties_expression(p: &mut Parser) {
+    // e.g., (n.property) or labels(n) or properties(n)
+    expr_bp(p, Prec::MIN);
+}
+
+fn parse_options_clause(p: &mut Parser) {
+    p.start_node(SyntaxKind::OPTIONS_CLAUSE);
+    if p.at(SyntaxKind::L_BRACE) {
+        p.start_node(SyntaxKind::MAP_LITERAL);
+        p.bump();
+        p.skip_trivia();
+        if !p.at(SyntaxKind::R_BRACE) {
+            parse_map_entry(p);
+            p.skip_trivia();
+            while p.eat(SyntaxKind::COMMA) {
+                p.skip_trivia();
+                parse_map_entry(p);
+                p.skip_trivia();
+            }
+        }
+        p.expect(SyntaxKind::R_BRACE);
+        p.builder.finish_node();
+    }
+    p.builder.finish_node();
+}
+
+fn parse_create_constraint(p: &mut Parser) {
+    p.start_node(SyntaxKind::CREATE_CONSTRAINT);
+    p.bump(); // CREATE
+    p.skip_trivia();
+    // Optional constraint type: UNIQUE, NODE KEY, EXISTENCE, IS TYPED
+    if is_constraint_kind(p) {
+        p.start_node(SyntaxKind::CONSTRAINT_KIND);
+        if p.at(SyntaxKind::KW_UNIQUE) {
+            p.bump();
+        } else if p.at(SyntaxKind::KW_NODE) {
+            p.bump();
+            p.skip_trivia();
+            p.expect(SyntaxKind::KW_KEY);
+        } else if p.at_keyword(SyntaxKind::KW_IS) {
+            p.bump();
+            p.skip_trivia();
+            if p.at(SyntaxKind::KW_TYPE) {
+                p.bump();
+            }
+        }
+        p.builder.finish_node();
+        p.skip_trivia();
+    }
+    p.expect(SyntaxKind::KW_CONSTRAINT);
+    p.skip_trivia();
+    // Optional constraint name
+    if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) {
+        p.start_node(SyntaxKind::SCHEMA_NAME);
+        p.start_node(SyntaxKind::SYMBOLIC_NAME);
+        p.bump();
+        p.builder.finish_node();
+        p.builder.finish_node();
+        p.skip_trivia();
+    }
+    // FOR pattern
+    if p.at_keyword(SyntaxKind::KW_FOR) {
+        p.bump();
+        p.skip_trivia();
+        parse_index_pattern(p);
+        p.skip_trivia();
+    }
+    // REQUIRE
+    if p.at_keyword(SyntaxKind::KW_REQUIRE) {
+        p.bump();
+        p.skip_trivia();
+        // Constraint expression
+        expr_bp(p, Prec::MIN);
+        p.skip_trivia();
+    }
+    // Optional OPTIONS
+    if p.at_keyword(SyntaxKind::KW_OPTIONS) {
+        p.bump();
+        p.skip_trivia();
+        parse_options_clause(p);
+        p.skip_trivia();
+    }
+    p.builder.finish_node();
+}
+
+fn is_constraint_kind(p: &Parser) -> bool {
+    matches!(
+        p.current_kind(),
+        SyntaxKind::KW_UNIQUE | SyntaxKind::KW_NODE | SyntaxKind::KW_IS
+    )
+}
+
+fn parse_create_database(p: &mut Parser) {
+    p.start_node(SyntaxKind::SCHEMA_COMMAND);
+    p.bump(); // CREATE
+    p.skip_trivia();
+    // DATABASE or DATABASES
+    if p.at_keyword(SyntaxKind::KW_DATABASE) {
+        p.bump();
+    } else if p.at_keyword(SyntaxKind::KW_DATABASES) {
+        p.bump();
+    }
+    p.skip_trivia();
+    // Database name
+    if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) {
+        p.start_node(SyntaxKind::SCHEMA_NAME);
+        p.start_node(SyntaxKind::SYMBOLIC_NAME);
+        p.bump();
+        p.builder.finish_node();
+        p.builder.finish_node();
+    }
+    p.skip_trivia();
+    // Optional IF NOT EXISTS
+    if p.at_keyword(SyntaxKind::KW_IF) {
+        p.bump();
+        p.skip_trivia();
+        p.eat(SyntaxKind::KW_NOT);
+        p.skip_trivia();
+        p.eat(SyntaxKind::KW_EXISTS);
+    }
+    p.builder.finish_node();
+}
+
+fn parse_drop_clause(p: &mut Parser) {
+    p.skip_trivia();
+    let next = p.peek_next_non_trivia();
+    match next {
+        Some(SyntaxKind::KW_INDEX) => parse_drop_index(p),
+        Some(SyntaxKind::KW_CONSTRAINT) => parse_drop_constraint(p),
+        Some(SyntaxKind::KW_DATABASE) | Some(SyntaxKind::KW_DATABASES) => parse_drop_database(p),
+        _ => {
+            // Unknown DROP - eat it
+            p.start_node(SyntaxKind::ERROR);
+            p.bump();
+            p.builder.finish_node();
+        }
+    }
+}
+
+fn parse_drop_index(p: &mut Parser) {
+    p.start_node(SyntaxKind::DROP_INDEX);
+    p.bump(); // DROP
+    p.skip_trivia();
+    p.expect(SyntaxKind::KW_INDEX);
+    p.skip_trivia();
+    // Optional CONCURRENTLY
+    if p.at_keyword(SyntaxKind::KW_CONCURRENTLY) {
+        p.bump();
+        p.skip_trivia();
+    }
+    // Index name
+    if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) {
+        p.start_node(SyntaxKind::SCHEMA_NAME);
+        p.start_node(SyntaxKind::SYMBOLIC_NAME);
+        p.bump();
+        p.builder.finish_node();
+        p.builder.finish_node();
+    }
+    p.skip_trivia();
+    // Optional IF EXISTS
+    if p.at_keyword(SyntaxKind::KW_IF) {
+        p.bump();
+        p.skip_trivia();
+        p.eat(SyntaxKind::KW_EXISTS);
+    }
+    p.builder.finish_node();
+}
+
+fn parse_drop_constraint(p: &mut Parser) {
+    p.start_node(SyntaxKind::DROP_CONSTRAINT);
+    p.bump(); // DROP
+    p.skip_trivia();
+    p.expect(SyntaxKind::KW_CONSTRAINT);
+    p.skip_trivia();
+    // Optional CONCURRENTLY
+    if p.at_keyword(SyntaxKind::KW_CONCURRENTLY) {
+        p.bump();
+        p.skip_trivia();
+    }
+    // Constraint name
+    if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) {
+        p.start_node(SyntaxKind::SCHEMA_NAME);
+        p.start_node(SyntaxKind::SYMBOLIC_NAME);
+        p.bump();
+        p.builder.finish_node();
+        p.builder.finish_node();
+    }
+    p.skip_trivia();
+    // Optional IF EXISTS
+    if p.at_keyword(SyntaxKind::KW_IF) {
+        p.bump();
+        p.skip_trivia();
+        p.eat(SyntaxKind::KW_EXISTS);
+    }
+    p.builder.finish_node();
+}
+
+fn parse_drop_database(p: &mut Parser) {
+    p.start_node(SyntaxKind::SCHEMA_COMMAND);
+    p.bump(); // DROP
+    p.skip_trivia();
+    // DATABASE or DATABASES
+    if p.at_keyword(SyntaxKind::KW_DATABASE) {
+        p.bump();
+    } else if p.at_keyword(SyntaxKind::KW_DATABASES) {
+        p.bump();
+    }
+    p.skip_trivia();
+    // Database name
+    if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) {
+        p.start_node(SyntaxKind::SCHEMA_NAME);
+        p.start_node(SyntaxKind::SYMBOLIC_NAME);
+        p.bump();
+        p.builder.finish_node();
+        p.builder.finish_node();
+    }
+    p.skip_trivia();
+    // Optional IF EXISTS
+    if p.at_keyword(SyntaxKind::KW_IF) {
+        p.bump();
+        p.skip_trivia();
+        p.eat(SyntaxKind::KW_EXISTS);
+    }
+    p.builder.finish_node();
+}
+
+// ── SHOW clause ─────────────────────────────────────────────────
+
+fn parse_show_clause(p: &mut Parser) {
+    p.start_node(SyntaxKind::SHOW_CLAUSE);
+    p.bump(); // SHOW
+    p.skip_trivia();
+    // SHOW kind: INDEXES, CONSTRAINTS, DATABASES, PROCEDURES, FUNCTIONS, etc.
+    parse_show_kind(p);
+    p.skip_trivia();
+    // Optional YIELD
+    if p.at(SyntaxKind::KW_YIELD) {
+        p.bump();
+        p.skip_trivia();
+        parse_show_yield(p);
+    }
+    p.builder.finish_node();
+}
+
+fn parse_show_kind(p: &mut Parser) {
+    p.start_node(SyntaxKind::SHOW_KIND);
+    if p.at(SyntaxKind::KW_INDEX) || p.at(SyntaxKind::KW_INDEXES) {
+        p.bump();
+    } else if p.at(SyntaxKind::KW_CONSTRAINT) || p.at(SyntaxKind::KW_CONSTRAINTS) {
+        p.bump();
+    } else if p.at_keyword(SyntaxKind::KW_DATABASE) || p.at_keyword(SyntaxKind::KW_DATABASES) {
+        p.bump();
+    } else if p.at_keyword(SyntaxKind::KW_PROCEDURES) {
+        p.bump();
+    } else if p.at_keyword(SyntaxKind::KW_FUNCTIONS) {
+        p.bump();
+    } else if p.at_keyword(SyntaxKind::KW_TYPES) {
+        p.bump();
+    } else if p.at_keyword(SyntaxKind::KW_PROPERTY) {
+        p.bump();
+        p.skip_trivia();
+        if p.at_keyword(SyntaxKind::KW_GRAPH) {
+            p.bump();
+            p.skip_trivia();
+            if p.at(SyntaxKind::L_PAREN) {
+                p.bump();
+                p.skip_trivia();
+                if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) {
+                    p.start_node(SyntaxKind::VARIABLE);
+                    p.start_node(SyntaxKind::SYMBOLIC_NAME);
+                    p.bump();
+                    p.builder.finish_node();
+                    p.builder.finish_node();
+                }
+                p.skip_trivia();
+                p.expect(SyntaxKind::R_PAREN);
+            }
+        }
+    } else if p.at_keyword(SyntaxKind::KW_ACCESS) {
+        p.bump();
+        p.skip_trivia();
+        p.eat(SyntaxKind::KW_FOR);
+        p.skip_trivia();
+        if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) {
+            p.start_node(SyntaxKind::VARIABLE);
+            p.start_node(SyntaxKind::SYMBOLIC_NAME);
+            p.bump();
+            p.builder.finish_node();
+            p.builder.finish_node();
+        }
+    } else {
+        // Generic - just bump the token
+        if p.current_len() > 0 {
+            p.bump();
+        }
+    }
+    p.builder.finish_node();
+}
+
+fn parse_show_yield(p: &mut Parser) {
+    p.start_node(SyntaxKind::SHOW_RETURN);
+    if p.at(SyntaxKind::STAR) {
+        p.bump();
+    } else {
+        parse_yield_item(p);
+        p.skip_trivia();
+        while p.eat(SyntaxKind::COMMA) {
+            p.skip_trivia();
+            parse_yield_item(p);
+            p.skip_trivia();
+        }
+    }
+    p.skip_trivia();
+    // Optional WHERE
+    if p.at(SyntaxKind::KW_WHERE) {
+        p.bump();
+        p.skip_trivia();
+        expr_bp(p, Prec::MIN);
+    }
+    p.builder.finish_node();
+}
+
+// ── USE clause ──────────────────────────────────────────────────
+
+fn parse_use_clause(p: &mut Parser) {
+    p.start_node(SyntaxKind::USE_CLAUSE);
+    p.bump(); // USE
+    p.skip_trivia();
+    // Database name
+    if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) {
+        p.start_node(SyntaxKind::SCHEMA_NAME);
+        p.start_node(SyntaxKind::SYMBOLIC_NAME);
+        p.bump();
+        p.builder.finish_node();
+        p.builder.finish_node();
+    }
+    p.builder.finish_node();
+}
+
+// ── Helpers ─────────────────────────────────────────────────────
+
+fn is_keyword_as_name(p: &Parser) -> bool {
+    matches!(
+        p.current_kind(),
+        SyntaxKind::KW_ACCESS
+            | SyntaxKind::KW_ADD
+            | SyntaxKind::KW_ALL
+            | SyntaxKind::KW_AND
+            | SyntaxKind::KW_ANY
+            | SyntaxKind::KW_AS
+            | SyntaxKind::KW_ASC
+            | SyntaxKind::KW_ASCENDING
+            | SyntaxKind::KW_BREAK
+            | SyntaxKind::KW_BY
+            | SyntaxKind::KW_CALL
+            | SyntaxKind::KW_CASE
+            | SyntaxKind::KW_CONTAINS
+            | SyntaxKind::KW_CONTINUE
+            | SyntaxKind::KW_CONSTRAINT
+            | SyntaxKind::KW_CONSTRAINTS
+            | SyntaxKind::KW_CREATE
+            | SyntaxKind::KW_DATABASE
+            | SyntaxKind::KW_DATABASES
+            | SyntaxKind::KW_DELETE
+            | SyntaxKind::KW_DESC
+            | SyntaxKind::KW_DESCENDING
+            | SyntaxKind::KW_DETACH
+            | SyntaxKind::KW_DISTINCT
+            | SyntaxKind::KW_DO
+            | SyntaxKind::KW_DROP
+            | SyntaxKind::KW_ELSE
+            | SyntaxKind::KW_END
+            | SyntaxKind::KW_ENDS
+            | SyntaxKind::KW_ERROR
+            | SyntaxKind::KW_EXISTS
+            | SyntaxKind::KW_EXTRACT
+            | SyntaxKind::KW_FAIL
+            | SyntaxKind::KW_FILTER
+            | SyntaxKind::KW_FOR
+            | SyntaxKind::KW_FOREACH
+            | SyntaxKind::KW_EACH
+            | SyntaxKind::KW_FUNCTIONS
+            | SyntaxKind::KW_FULLTEXT
+            | SyntaxKind::KW_IF
+            | SyntaxKind::KW_IN
+            | SyntaxKind::KW_INDEX
+            | SyntaxKind::KW_INDEXES
+            | SyntaxKind::KW_IS
+            | SyntaxKind::KW_KEY
+            | SyntaxKind::KW_LIMIT
+            | SyntaxKind::KW_LOOKUP
+            | SyntaxKind::KW_MANDATORY
+            | SyntaxKind::KW_MATCH
+            | SyntaxKind::KW_MERGE
+            | SyntaxKind::KW_NODE
+            | SyntaxKind::KW_NONE
+            | SyntaxKind::KW_NOT
+            | SyntaxKind::KW_OF
+            | SyntaxKind::KW_ON
+            | SyntaxKind::KW_OPTIONAL
+            | SyntaxKind::KW_OPTIONS
+            | SyntaxKind::KW_OR
+            | SyntaxKind::KW_ORDER
+            | SyntaxKind::KW_POINT
+            | SyntaxKind::KW_PROCEDURES
+            | SyntaxKind::KW_PROPERTY
+            | SyntaxKind::KW_RANGE
+            | SyntaxKind::KW_REMOVE
+            | SyntaxKind::KW_REQUIRE
+            | SyntaxKind::KW_RETURN
+            | SyntaxKind::KW_ROWS
+            | SyntaxKind::KW_SCALAR
+            | SyntaxKind::KW_SET
+            | SyntaxKind::KW_SHOW
+            | SyntaxKind::KW_SINGLE
+            | SyntaxKind::KW_SKIP
+            | SyntaxKind::KW_STARTS
+            | SyntaxKind::KW_TEXT
+            | SyntaxKind::KW_THEN
+            | SyntaxKind::KW_TRANSACTIONS
+            | SyntaxKind::KW_TYPE
+            | SyntaxKind::KW_TYPES
+            | SyntaxKind::KW_UNION
+            | SyntaxKind::KW_UNIQUE
+            | SyntaxKind::KW_UNWIND
+            | SyntaxKind::KW_USE
+            | SyntaxKind::KW_WHEN
+            | SyntaxKind::KW_WHERE
+            | SyntaxKind::KW_WITH
+            | SyntaxKind::KW_XOR
+            | SyntaxKind::KW_YIELD
+            | SyntaxKind::KW_COUNT
+            | SyntaxKind::KW_CALL_SUBQUERY
+            | SyntaxKind::KW_IN_TRANSACTIONS
+            | SyntaxKind::KW_CONCURRENTLY
     )
 }
