@@ -1276,7 +1276,7 @@ fn build_expression(pair: Pair<'_, Rule>) -> Result<Expression> {
     match pair.as_rule() {
         Rule::NotExpression => {
             let sp = span(&pair);
-            let mut inner = pair.into_inner();
+            let inner = pair.into_inner();
             let mut not_count = 0;
             let mut inner_expr = None;
             for child in inner {
@@ -1310,7 +1310,6 @@ fn build_expression(pair: Pair<'_, Rule>) -> Result<Expression> {
         | Rule::OrExpression
         | Rule::XorExpression
         | Rule::AndExpression
-        | Rule::NotExpression
         | Rule::ComparisonExpression
         | Rule::AddOrSubtractExpression
         | Rule::MultiplyDivideModuloExpression
