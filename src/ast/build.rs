@@ -8,7 +8,7 @@ use crate::ast::procedure::*;
 use crate::ast::query::*;
 use crate::ast::schema::*;
 use crate::error::{CypherError, ErrorKind, Result, Span};
-use crate::parser::Rule;
+use crate::pest_parser::Rule;
 
 fn span(pair: &Pair<'_, Rule>) -> Span {
     let s = pair.as_span();

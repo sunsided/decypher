@@ -1,7 +1,7 @@
 //! Pest error translation and common-mistake detection.
 
 use crate::error::*;
-use crate::parser::Rule;
+use crate::pest_parser::Rule;
 use pest::error::{ErrorVariant, InputLocation};
 use std::collections::BTreeSet;
 use std::sync::Arc;

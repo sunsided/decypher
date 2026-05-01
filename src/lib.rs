@@ -4,12 +4,14 @@
 pub mod ast;
 pub mod error;
 mod parser;
+mod pest_parser;
 mod recover;
 pub mod sema;
+pub mod syntax;
 
 #[cfg(feature = "low-level")]
 pub mod low_level {
-    pub use crate::parser::{CypherParser, Rule};
+    pub use crate::pest_parser::{CypherParser, Rule};
     pub use pest::iterators::{Pair, Pairs};
 }
 
@@ -26,7 +28,7 @@ pub fn parse(input: &str) -> Result<Query> {
 
 /// Parse a Cypher query string with a source label for diagnostics.
 pub fn parse_with_label(input: &str, label: impl Into<Arc<str>>) -> Result<Query> {
-    use crate::parser::CypherParser;
+    use crate::pest_parser::CypherParser;
     use pest::Parser;
 
     if input.trim().is_empty() {
@@ -42,7 +44,7 @@ pub fn parse_with_label(input: &str, label: impl Into<Arc<str>>) -> Result<Query
     let source: Arc<str> = label.into();
     let original_source: Arc<str> = Arc::from(input);
 
-    let pairs = CypherParser::parse(crate::parser::Rule::Cypher, input).map_err(|e| {
+    let pairs = CypherParser::parse(crate::pest_parser::Rule::Cypher, input).map_err(|e| {
         let mut err = error::translate_pest_error(e, original_source.clone());
         err.source_label = Some(source.clone());
         err
