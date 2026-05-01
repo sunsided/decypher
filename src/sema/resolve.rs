@@ -5,7 +5,7 @@ use crate::ast::expr::*;
 use crate::ast::pattern::*;
 use crate::ast::query::*;
 use crate::ast::visit::{walk_match, Visit};
-use crate::error::{CypherError, Span};
+use crate::error::CypherError;
 use crate::sema::error::SemaError;
 use crate::sema::scope::{ScopeStack, SymbolKind};
 

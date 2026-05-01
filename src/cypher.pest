@@ -133,10 +133,10 @@ Set = {
 }
 
 SetItem = {
-    (PropertyExpression ~ SP? ~ "=" ~ SP? ~ Expression)
-    | (PropertyExpression ~ SP? ~ "+=" ~ SP? ~ Expression)
+    (PropertyExpression ~ SP? ~ PLUSEQ ~ SP? ~ Expression)
+    | (PropertyExpression ~ SP? ~ "=" ~ SP? ~ Expression)
+    | (Variable ~ SP? ~ PLUSEQ ~ SP? ~ Expression)
     | (Variable ~ SP? ~ "=" ~ SP? ~ Expression)
-    | (Variable ~ SP? ~ "+=" ~ SP? ~ Expression)
     | (Variable ~ SP? ~ NodeLabels)
 }
 
@@ -306,7 +306,7 @@ AndExpression = {
 }
 
 NotExpression = {
-    (^"NOT" ~ SP?)* ~ ComparisonExpression
+    (NOT ~ SP?)* ~ ComparisonExpression
 }
 
 ComparisonExpression = {
@@ -408,7 +408,7 @@ ListLiteral = {
 }
 
 PartialComparisonExpression = {
-    (EQ | NE | LT | GT | LE | GE) ~ SP? ~ AddOrSubtractExpression
+    (LE | GE | NE | EQ | LT | GT) ~ SP? ~ AddOrSubtractExpression
 }
 
 
@@ -870,6 +870,7 @@ MODULO = @{ "%" }
 // ADD = @{ "+" }
 PLUS = @{ "+" }
 SUBTRACT = @{ "-" }
+PLUSEQ = @{ "+=" }
 DOT_DOT = @{ ".." }
 // WHERE = @{ ^"WHERE" }
 // ASCENDING = @{ ^"ASCENDING" }

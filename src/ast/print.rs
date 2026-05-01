@@ -112,6 +112,7 @@ impl ToCypher for QueryBody {
     fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
         match self {
             QueryBody::SingleQuery(sq) => sq.write_cypher(w),
+            QueryBody::Regular(rq) => rq.write_cypher(w),
             QueryBody::Standalone(sc) => sc.write_cypher(w),
             QueryBody::SchemaCommand(sc) => sc.write_cypher(w),
             QueryBody::Show(s) => s.write_cypher(w),
@@ -234,18 +235,6 @@ impl ToCypher for Union {
             write!(w, "UNION ")?;
         }
         self.single_query.write_cypher(w)
-    }
-}
-
-impl ToCypher for Statement {
-    fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
-        match self {
-            Statement::Query(q) => q.write_cypher(w),
-            Statement::StandaloneCall(sc) => sc.write_cypher(w),
-            Statement::SchemaCommand(sc) => sc.write_cypher(w),
-            Statement::Show(s) => s.write_cypher(w),
-            Statement::Use(u) => u.write_cypher(w),
-        }
     }
 }
 

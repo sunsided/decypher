@@ -22,6 +22,12 @@ pub fn check_aggregation(query: &Query, diagnostics: &mut Diagnostics) {
     for stmt in &query.statements {
         match stmt {
             QueryBody::SingleQuery(sq) => checker.check_single_query(sq),
+            QueryBody::Regular(rq) => {
+                checker.check_single_query(&rq.single_query);
+                for union in &rq.unions {
+                    checker.check_single_query(&union.single_query);
+                }
+            }
             QueryBody::Standalone(_)
             | QueryBody::SchemaCommand(_)
             | QueryBody::Show(_)

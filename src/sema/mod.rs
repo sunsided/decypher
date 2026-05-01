@@ -14,7 +14,7 @@ pub use resolve::{resolve_names, ResolutionResult};
 pub use scope::{ScopeStack, SymbolKind};
 
 use crate::ast::query::Query;
-use crate::error::{CypherError, Diagnostics, ErrorKind, Span};
+use crate::error::Diagnostics;
 
 /// Analyze a query for semantic errors.
 ///
@@ -43,15 +43,5 @@ pub fn analyze_all(query: &Query) -> Diagnostics {
     match analyze(query) {
         Ok(()) => Diagnostics { errors: Vec::new() },
         Err(diags) => diags,
-    }
-}
-
-fn sema_error(kind: ErrorKind, span: Span, message: &'static str) -> CypherError {
-    CypherError {
-        kind,
-        span,
-        source_label: None,
-        notes: Vec::new(),
-        source: None,
     }
 }

@@ -11,4 +11,4 @@ pub mod visit;
 
 pub use crate::ast::expr::Expression;
 pub use crate::ast::print::ToCypher;
-pub use crate::ast::query::{Query, RegularQuery, SingleQuery, Statement, Union};
+pub use crate::ast::query::{Query, QueryBody, RegularQuery, SingleQuery, Union};

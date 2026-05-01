@@ -903,6 +903,7 @@ pub fn walk_query<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Query) {
     for stmt in &node.statements {
         match stmt {
             QueryBody::SingleQuery(sq) => v.visit_single_query(sq),
+            QueryBody::Regular(rq) => v.visit_regular_query(rq),
             QueryBody::Standalone(sc) => v.visit_standalone_call(sc),
             QueryBody::SchemaCommand(sc) => v.visit_schema_command(sc),
             QueryBody::Show(s) => v.visit_show(s),
@@ -1484,6 +1485,7 @@ pub fn walk_query_mut<V: VisitMut>(v: &mut V, node: &mut Query) {
     for stmt in &mut node.statements {
         match stmt {
             QueryBody::SingleQuery(sq) => v.visit_single_query(sq),
+            QueryBody::Regular(rq) => v.visit_regular_query(rq),
             QueryBody::Standalone(sc) => v.visit_standalone_call(sc),
             QueryBody::SchemaCommand(sc) => v.visit_schema_command_mut(sc),
             QueryBody::Show(s) => v.visit_show_mut(s),

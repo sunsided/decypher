@@ -38,6 +38,6 @@ pub fn render_diagnostic(err: &CypherError, source: &str) -> String {
 }
 
 fn underline(start: usize, end: usize) -> String {
-    let _len = if end > start { end - start } else { 1 };
-    format!("{: >width$}{}", "", "^", width = start)
+    let len = if end > start { end - start } else { 1 };
+    format!("{: >width$}{}", "", "^".repeat(len), width = start)
 }

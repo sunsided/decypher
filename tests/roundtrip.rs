@@ -47,12 +47,10 @@ fn rt_set() {
     roundtrip("MATCH (n) SET n.name = 'Bob';");
 }
 
-// Parser limitation: SetItem::Add (+=) only supports Variable, not PropertyExpression
-// See: cypher.pest line 69 — "+=" is on Variable arm, not PropertyExpression arm
-// #[test]
-// fn rt_set_add() {
-//     roundtrip("MATCH (n) SET n += {extra: 'data'};");
-// }
+#[test]
+fn rt_set_add() {
+    roundtrip("MATCH (n) SET n += {extra: 'data'};");
+}
 
 #[test]
 fn rt_remove() {
@@ -69,17 +67,15 @@ fn rt_detach_delete() {
     roundtrip("MATCH (n) DETACH DELETE n;");
 }
 
-// Parser limitation: unions are discarded in build_query_variant (build.rs:48-51)
-// The Query type has no field to store unions, so round-trip is impossible
-// #[test]
-// fn rt_union() {
-//     roundtrip("MATCH (n:Person) RETURN n.name UNION MATCH (m:Movie) RETURN m.title;");
-// }
+#[test]
+fn rt_union() {
+    roundtrip("MATCH (n:Person) RETURN n.name UNION MATCH (m:Movie) RETURN m.title;");
+}
 
-// #[test]
-// fn rt_union_all() {
-//     roundtrip("MATCH (n:Person) RETURN n.name UNION ALL MATCH (m:Movie) RETURN m.title;");
-// }
+#[test]
+fn rt_union_all() {
+    roundtrip("MATCH (n:Person) RETURN n.name UNION ALL MATCH (m:Movie) RETURN m.title;");
+}
 
 #[test]
 fn rt_parameters() {
@@ -201,11 +197,10 @@ fn rt_property_access() {
     roundtrip("MATCH (n) RETURN n.name.first;");
 }
 
-// Parser AST builder limitation: NotExpression doesn't skip SP tokens, hits Unsupported("SP")
-// #[test]
-// fn rt_not_operator() {
-//     roundtrip("MATCH (n) WHERE NOT n.active RETURN n;");
-// }
+#[test]
+fn rt_not_operator() {
+    roundtrip("MATCH (n) WHERE NOT n.active RETURN n;");
+}
 
 #[test]
 fn rt_arithmetic_parens() {
@@ -297,14 +292,12 @@ fn rt_comparison_ne() {
     roundtrip("MATCH (n) WHERE n.name <> 'Alice' RETURN n;");
 }
 
-// Parser bug: cypher.pest line 312 has (EQ | NE | LT | GT | LE | GE)
-// LT and GT match before LE and GE, so "<=" and ">=" fail to parse
-// #[test]
-// fn rt_comparison_le() {
-//     roundtrip("MATCH (n) WHERE n.age <= 30 RETURN n;");
-// }
+#[test]
+fn rt_comparison_le() {
+    roundtrip("MATCH (n) WHERE n.age <= 30 RETURN n;");
+}
 
-// #[test]
-// fn rt_comparison_ge() {
-//     roundtrip("MATCH (n) WHERE n.age >= 18 RETURN n;");
-// }
+#[test]
+fn rt_comparison_ge() {
+    roundtrip("MATCH (n) WHERE n.age >= 18 RETURN n;");
+}

@@ -235,10 +235,17 @@ fn build_query_variant(pair: Pair<'_, Rule>) -> Result<Query> {
     match inner.as_rule() {
         Rule::RegularQuery => {
             let regular = build_regular_query(inner)?;
-            Ok(Query {
-                statements: vec![QueryBody::SingleQuery(regular.single_query.clone())],
-                span: sp,
-            })
+            if regular.unions.is_empty() {
+                Ok(Query {
+                    statements: vec![QueryBody::SingleQuery(regular.single_query.clone())],
+                    span: sp,
+                })
+            } else {
+                Ok(Query {
+                    statements: vec![QueryBody::Regular(regular)],
+                    span: sp,
+                })
+            }
         }
         Rule::StandaloneCall => {
             let standalone = build_standalone_call(inner)?;
@@ -591,9 +598,7 @@ fn build_set_item(pair: Pair<'_, Rule>) -> Result<SetItem> {
     match children[0].as_rule() {
         Rule::PropertyExpression => {
             let prop = build_property_expression(children[0].clone())?;
-            let has_add = children
-                .iter()
-                .any(|p| p.as_rule() == Rule::ADD || p.as_rule() == Rule::PLUS);
+            let has_add = children.iter().any(|p| p.as_rule() == Rule::PLUSEQ);
             let operator = if has_add {
                 SetOperator::Add
             } else {
@@ -613,31 +618,29 @@ fn build_set_item(pair: Pair<'_, Rule>) -> Result<SetItem> {
         Rule::Variable => {
             let var = build_variable(children[0].clone())?;
             if children.len() >= 2 {
-                let has_add = children
-                    .iter()
-                    .any(|p| p.as_rule() == Rule::ADD || p.as_rule() == Rule::PLUS);
-                match children[1].as_rule() {
-                    Rule::Expression => {
-                        let value = build_expression(children[1].clone())?;
-                        let operator = if has_add {
-                            SetOperator::Add
-                        } else {
-                            SetOperator::Assign
-                        };
-                        Ok(SetItem::Variable {
-                            variable: var,
-                            value,
-                            operator,
-                        })
-                    }
-                    Rule::NodeLabels => {
-                        let labels = build_node_labels(children[1].clone())?;
-                        Ok(SetItem::Labels {
-                            variable: var,
-                            labels,
-                        })
-                    }
-                    _ => Err(unsupported(children[1].as_rule(), sp)),
+                let has_add = children.iter().any(|p| p.as_rule() == Rule::PLUSEQ);
+                let expr_child = children.iter().find(|p| p.as_rule() == Rule::Expression);
+                let labels_child = children.iter().find(|p| p.as_rule() == Rule::NodeLabels);
+                if let Some(expr) = expr_child {
+                    let value = build_expression(expr.clone())?;
+                    let operator = if has_add {
+                        SetOperator::Add
+                    } else {
+                        SetOperator::Assign
+                    };
+                    Ok(SetItem::Variable {
+                        variable: var,
+                        value,
+                        operator,
+                    })
+                } else if let Some(labels) = labels_child {
+                    let labels = build_node_labels(labels.clone())?;
+                    Ok(SetItem::Labels {
+                        variable: var,
+                        labels,
+                    })
+                } else {
+                    Err(unsupported(children[1].as_rule(), sp))
                 }
             } else {
                 Err(CypherError {
@@ -1271,6 +1274,38 @@ fn build_relationships_pattern(pair: Pair<'_, Rule>) -> Result<RelationshipsPatt
 
 fn build_expression(pair: Pair<'_, Rule>) -> Result<Expression> {
     match pair.as_rule() {
+        Rule::NotExpression => {
+            let sp = span(&pair);
+            let mut inner = pair.into_inner();
+            let mut not_count = 0;
+            let mut inner_expr = None;
+            for child in inner {
+                match child.as_rule() {
+                    Rule::NOT => not_count += 1,
+                    Rule::SP => {}
+                    _ => {
+                        inner_expr = Some(build_expression(child)?);
+                    }
+                }
+            }
+            let mut result = inner_expr.ok_or_else(|| CypherError {
+                kind: ErrorKind::Internal {
+                    message: "empty NotExpression".into(),
+                },
+                span: sp,
+                source_label: None,
+                notes: Vec::new(),
+                source: None,
+            })?;
+            for _ in 0..not_count {
+                result = Expression::UnaryOp {
+                    op: UnaryOperator::Not,
+                    operand: Box::new(result),
+                    span: sp,
+                };
+            }
+            Ok(result)
+        }
         Rule::Expression
         | Rule::OrExpression
         | Rule::XorExpression
@@ -1346,28 +1381,6 @@ fn build_expression(pair: Pair<'_, Rule>) -> Result<Expression> {
                                 span: sp,
                             };
                         }
-                    }
-                }
-                Rule::NotExpression => {
-                    let mut not_count = 0;
-                    while let Some(child) = inner.peek() {
-                        if child.as_rule() == Rule::NOT {
-                            not_count += 1;
-                            inner.next();
-                        } else {
-                            break;
-                        }
-                    }
-                    if let Some(r) = inner.next() {
-                        let mut result = build_expression(r)?;
-                        for _ in 0..not_count {
-                            result = Expression::UnaryOp {
-                                op: UnaryOperator::Not,
-                                operand: Box::new(result),
-                                span: sp,
-                            };
-                        }
-                        expr = result;
                     }
                 }
                 Rule::ComparisonExpression => {

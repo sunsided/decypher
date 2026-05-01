@@ -15,6 +15,7 @@ pub struct Query {
 #[derive(Debug, Clone, PartialEq)]
 pub enum QueryBody {
     SingleQuery(SingleQuery),
+    Regular(RegularQuery),
     Standalone(StandaloneCall),
     SchemaCommand(SchemaCommand),
     Show(Show),
@@ -112,12 +113,4 @@ pub struct Union {
     pub all: bool,
     pub single_query: SingleQuery,
     pub span: Span,
-}
-
-pub enum Statement {
-    Query(Box<RegularQuery>),
-    StandaloneCall(Box<StandaloneCall>),
-    SchemaCommand(SchemaCommand),
-    Show(Show),
-    Use(Use),
 }
