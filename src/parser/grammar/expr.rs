@@ -1521,8 +1521,8 @@ fn parse_create_constraint(p: &mut Parser) {
     if p.at_keyword(SyntaxKind::KW_REQUIRE) {
         p.bump();
         p.skip_trivia();
-        // Constraint expression
-        expr_bp(p, Prec::MIN);
+        // Parse constraint expression: prop IS UNIQUE, prop IS NOT NULL, etc.
+        parse_constraint_expression(p);
         p.skip_trivia();
     }
     // Optional OPTIONS
@@ -1533,6 +1533,54 @@ fn parse_create_constraint(p: &mut Parser) {
         p.skip_trivia();
     }
     p.builder.finish_node();
+}
+
+fn parse_constraint_expression(p: &mut Parser) {
+    // Parse: property_expression IS [NOT] (UNIQUE|NULL|TYPED)
+    // Parse property chain directly to avoid expr_bp consuming IS as IS NULL
+    parse_constraint_property(p);
+    p.skip_trivia();
+    // IS [NOT] constraint_type
+    if p.at(SyntaxKind::KW_IS) {
+        p.start_node(SyntaxKind::CONSTRAINT_KIND);
+        p.bump(); // IS
+        p.skip_trivia();
+        p.eat(SyntaxKind::KW_NOT);
+        p.skip_trivia();
+        if p.at(SyntaxKind::KW_UNIQUE)
+            || p.at(SyntaxKind::NULL_KW)
+            || p.at(SyntaxKind::KW_TYPE)
+        {
+            p.bump();
+        }
+        p.builder.finish_node();
+    }
+}
+
+fn parse_constraint_property(p: &mut Parser) {
+    // Parse variable.property chain
+    if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) {
+        p.start_node(SyntaxKind::VARIABLE);
+        p.start_node(SyntaxKind::SYMBOLIC_NAME);
+        p.bump();
+        p.builder.finish_node();
+        p.builder.finish_node();
+        p.skip_trivia();
+        while p.at(SyntaxKind::DOT) {
+            p.start_node(SyntaxKind::PROPERTY_LOOKUP);
+            p.bump();
+            p.skip_trivia();
+            if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) {
+                p.start_node(SyntaxKind::PROPERTY_KEY_NAME);
+                p.start_node(SyntaxKind::SYMBOLIC_NAME);
+                p.bump();
+                p.builder.finish_node();
+                p.builder.finish_node();
+            }
+            p.builder.finish_node();
+            p.skip_trivia();
+        }
+    }
 }
 
 fn is_constraint_kind(p: &Parser) -> bool {
