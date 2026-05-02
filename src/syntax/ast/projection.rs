@@ -106,24 +106,45 @@ impl AstNode for ProjectionItem {
 
 impl ProjectionItem {
     pub fn expr(&self) -> Option<Expression> {
-        // Collect all expression children in order. The CST stores them flat:
-        // e.g. NUMBER_LITERAL, ADD_SUB_EXPR for "1 + 2".
-        // The last expression node is the top-level operator.
-        let exprs: Vec<_> = self.0.children().filter_map(Expression::cast).collect();
-        if exprs.is_empty() {
-            return None;
+        // Collect all expression children in order, but stop at KW_AS so the
+        // alias VARIABLE after `AS` is not picked up as the projection's expr.
+        // The CST stores them flat, e.g. NUMBER_LITERAL, ADD_SUB_EXPR for
+        // "1 + 2", so the last expression node before KW_AS is the top-level
+        // operator; lhs() on that node will look at its preceding siblings.
+        let mut last: Option<Expression> = None;
+        for child in self.0.children_with_tokens() {
+            if let Some(tok) = child.as_token() {
+                if tok.kind() == SyntaxKind::KW_AS {
+                    break;
+                }
+                continue;
+            }
+            if let Some(node) = child.as_node() {
+                if let Some(e) = Expression::cast(node.clone()) {
+                    last = Some(e);
+                }
+            }
         }
-        if exprs.len() == 1 {
-            return Some(exprs.into_iter().next().unwrap());
-        }
-        // For multiple expressions (infix chain), return the last one as root.
-        // We need to create a synthesized BinaryExpr that has the proper LHS.
-        // For now, return the last one; lhs() will look at siblings.
-        Some(exprs.into_iter().last().unwrap())
+        last
     }
 
     pub fn as_name(&self) -> Option<super::top_level::Variable> {
-        child(&self.0)
+        // Look for a VARIABLE that appears after a KW_AS token
+        let mut found_as = false;
+        for child in self.0.children_with_tokens() {
+            if let Some(token) = child.as_token() {
+                if token.kind() == SyntaxKind::KW_AS {
+                    found_as = true;
+                }
+            } else if found_as {
+                if let Some(node) = child.as_node() {
+                    if let Some(v) = super::top_level::Variable::cast(node.clone()) {
+                        return Some(v);
+                    }
+                }
+            }
+        }
+        None
     }
 }
 
@@ -183,7 +204,13 @@ impl AstNode for SortItem {
 
 impl SortItem {
     pub fn expr(&self) -> Option<Expression> {
-        child(&self.0)
+        // In the flat CST, the expression is the LAST expression child.
+        // e.g. ORDER BY n.name ASC produces:
+        //   SORT_ITEM
+        //     └── VARIABLE (n)
+        //     └── PROPERTY_LOOKUP (.name)  ← this is the root
+        //     └── KW_ASC (token)
+        self.0.children().filter_map(Expression::cast).last()
     }
 
     pub fn direction(&self) -> Option<SortDirection> {

@@ -390,19 +390,38 @@ impl AstNode for SetItem {
 
 impl SetItem {
     pub fn property_expr(&self) -> Option<Expression> {
-        self.0
-            .children()
-            .filter(|n| {
-                matches!(
-                    n.kind(),
+        // In the flat CST, the property expression is the LAST expression-like
+        // child BEFORE the `=` / `+=` operator. e.g. SET n.name = 'Bob' produces:
+        //   SET_ITEM
+        //     └── VARIABLE (n)
+        //     └── PROPERTY_LOOKUP (.name)  ← this is the root
+        //     └── EQ
+        //     └── STRING_LITERAL
+        // We must not consume nodes after the operator: the RHS can also
+        // contain VARIABLE nodes (e.g. `timestamp` in `timestamp()`).
+        let mut last: Option<Expression> = None;
+        for child in self.0.children_with_tokens() {
+            if let Some(tok) = child.as_token() {
+                if matches!(tok.kind(), SyntaxKind::EQ | SyntaxKind::PLUSEQ) {
+                    break;
+                }
+                continue;
+            }
+            if let Some(node) = child.as_node() {
+                if matches!(
+                    node.kind(),
                     SyntaxKind::VARIABLE
                         | SyntaxKind::PROPERTY_LOOKUP
                         | SyntaxKind::PROPERTY_OR_LABELS_EXPR
                         | SyntaxKind::PROPERTY_EXPRESSION
-                )
-            })
-            .next()
-            .and_then(Expression::cast)
+                ) {
+                    if let Some(e) = Expression::cast(node.clone()) {
+                        last = Some(e);
+                    }
+                }
+            }
+        }
+        last
     }
 
     pub fn eq_token(&self) -> Option<SyntaxToken> {
@@ -414,20 +433,28 @@ impl SetItem {
     }
 
     pub fn value_expr(&self) -> Option<Expression> {
-        self.0
-            .children()
-            .filter(|n| {
-                !matches!(
-                    n.kind(),
-                    SyntaxKind::VARIABLE
-                        | SyntaxKind::PROPERTY_LOOKUP
-                        | SyntaxKind::PROPERTY_OR_LABELS_EXPR
-                        | SyntaxKind::PROPERTY_EXPRESSION
-                        | SyntaxKind::NODE_LABELS
-                        | SyntaxKind::SYMBOLIC_NAME
-                )
-            })
-            .find_map(Expression::cast)
+        // The value expression appears AFTER the `=` / `+=` operator.
+        // Return the LAST Expression-castable node after that operator so
+        // that flat chains like `VARIABLE timestamp` + `FUNCTION_INVOCATION ()`
+        // resolve to the composite FunctionInvocation via prev_sibling.
+        let mut seen_op = false;
+        let mut last: Option<Expression> = None;
+        for child in self.0.children_with_tokens() {
+            if let Some(tok) = child.as_token() {
+                if matches!(tok.kind(), SyntaxKind::EQ | SyntaxKind::PLUSEQ) {
+                    seen_op = true;
+                }
+                continue;
+            }
+            if seen_op {
+                if let Some(node) = child.as_node() {
+                    if let Some(e) = Expression::cast(node.clone()) {
+                        last = Some(e);
+                    }
+                }
+            }
+        }
+        last
     }
 
     pub fn node_labels(&self) -> Option<super::patterns::NodeLabels> {
@@ -516,6 +543,11 @@ impl AstNode for RemoveItem {
 
 impl RemoveItem {
     pub fn property_expr(&self) -> Option<Expression> {
+        // In the flat CST, the property expression is the LAST expression-like child.
+        // e.g. REMOVE n.name produces:
+        //   REMOVE_ITEM
+        //     └── VARIABLE (n)
+        //     └── PROPERTY_LOOKUP (.name)  ← this is the root
         self.0
             .children()
             .filter(|n| {
@@ -526,7 +558,8 @@ impl RemoveItem {
                         | SyntaxKind::PROPERTY_EXPRESSION
                 )
             })
-            .find_map(Expression::cast)
+            .last()
+            .and_then(Expression::cast)
     }
 
     pub fn node_labels(&self) -> Option<super::patterns::NodeLabels> {
@@ -557,7 +590,13 @@ impl AstNode for WhereClause {
 
 impl WhereClause {
     pub fn expr(&self) -> Option<Expression> {
-        child(&self.0)
+        // In the Pratt parser, the top-level operator is the LAST expression child.
+        // e.g. WHERE n.name = 'Alice' produces:
+        //   WHERE_CLAUSE
+        //     └── VARIABLE (n)
+        //     └── PROPERTY_LOOKUP (.name)
+        //     └── COMPARISON_EXPR (= 'Alice')  ← this is the root
+        self.0.children().filter_map(Expression::cast).last()
     }
 }
 

@@ -261,7 +261,13 @@ impl UnaryExpr {
     }
 
     pub fn operand(&self) -> Option<Expression> {
-        child(&self.0)
+        // In the flat CST, the operand is the LAST expression child.
+        // e.g. NOT n.active produces:
+        //   NOT_EXPR
+        //     └── KW_NOT
+        //     └── VARIABLE (n)
+        //     └── PROPERTY_LOOKUP (.active)  ← this is the root operand
+        self.0.children().filter_map(Expression::cast).last()
     }
 }
 
@@ -292,6 +298,8 @@ pub enum Atom {
     ExistsSubquery(ExistsSubquery),
     MapProjection(MapProjection),
     ImplicitProcedureInvocation(ImplicitProcedureInvocation),
+    PropertyLookup(PropertyLookup),
+    Null(NullLiteral),
 }
 
 impl AstNode for Atom {
@@ -302,6 +310,7 @@ impl AstNode for Atom {
                 | SyntaxKind::NUMBER_LITERAL
                 | SyntaxKind::STRING_LITERAL
                 | SyntaxKind::BOOLEAN_LITERAL
+                | SyntaxKind::NULL_KW
                 | SyntaxKind::VARIABLE
                 | SyntaxKind::PARAMETER
                 | SyntaxKind::FUNCTION_INVOCATION
@@ -315,6 +324,7 @@ impl AstNode for Atom {
                 | SyntaxKind::EXISTS_SUBQUERY
                 | SyntaxKind::MAP_PROJECTION
                 | SyntaxKind::IMPLICIT_PROCEDURE_INVOCATION
+                | SyntaxKind::PROPERTY_LOOKUP
         )
     }
 
@@ -324,6 +334,7 @@ impl AstNode for Atom {
             | SyntaxKind::NUMBER_LITERAL
             | SyntaxKind::STRING_LITERAL
             | SyntaxKind::BOOLEAN_LITERAL => Literal::cast(syntax).map(Atom::Literal),
+            SyntaxKind::NULL_KW => NullLiteral::cast(syntax).map(Atom::Null),
             SyntaxKind::VARIABLE => Variable::cast(syntax).map(Atom::Variable),
             SyntaxKind::PARAMETER => Parameter::cast(syntax).map(Atom::Parameter),
             SyntaxKind::FUNCTION_INVOCATION => {
@@ -349,6 +360,7 @@ impl AstNode for Atom {
             SyntaxKind::IMPLICIT_PROCEDURE_INVOCATION => {
                 ImplicitProcedureInvocation::cast(syntax).map(Atom::ImplicitProcedureInvocation)
             }
+            SyntaxKind::PROPERTY_LOOKUP => PropertyLookup::cast(syntax).map(Atom::PropertyLookup),
             _ => None,
         }
     }
@@ -369,6 +381,8 @@ impl AstNode for Atom {
             Atom::ExistsSubquery(it) => it.syntax(),
             Atom::MapProjection(it) => it.syntax(),
             Atom::ImplicitProcedureInvocation(it) => it.syntax(),
+            Atom::PropertyLookup(it) => it.syntax(),
+            Atom::Null(it) => it.syntax(),
         }
     }
 }
@@ -583,6 +597,17 @@ impl AstNode for Parameter {
     }
 }
 
+impl Parameter {
+    /// Returns the parameter name token ($name -> "name") or the numeric
+    /// index token ($1 -> "1") depending on the form used.
+    pub fn name_token(&self) -> Option<SyntaxToken> {
+        self.0.children_with_tokens().find_map(|c| {
+            c.into_token()
+                .filter(|t| matches!(t.kind(), SyntaxKind::IDENT | SyntaxKind::INTEGER))
+        })
+    }
+}
+
 // ============================================================
 // FunctionInvocation
 // ============================================================
@@ -610,13 +635,24 @@ impl AstNode for FunctionInvocation {
 
 impl FunctionInvocation {
     pub fn name(&self) -> Option<FunctionName> {
-        child(&self.0)
+        // Two patterns from the grammar:
+        // 1. KW_COUNT (and keywords) → FUNCTION_NAME is a CHILD of FUNCTION_INVOCATION
+        // 2. IDENT identifiers → VARIABLE is a PREV_SIBLING (checkpoint set after it)
+        self.0
+            .children()
+            .find_map(FunctionName::cast)
+            .or_else(|| self.0.prev_sibling().and_then(FunctionName::cast))
     }
 
     pub fn arguments(&self) -> impl Iterator<Item = Expression> {
         self.0
             .children()
-            .filter(|n| !matches!(n.kind(), SyntaxKind::FUNCTION_NAME | SyntaxKind::NAMESPACE))
+            .filter(|n| {
+                !matches!(
+                    n.kind(),
+                    SyntaxKind::FUNCTION_NAME | SyntaxKind::NAMESPACE | SyntaxKind::VARIABLE
+                )
+            })
             .filter_map(Expression::cast)
     }
 
@@ -634,7 +670,7 @@ pub struct FunctionName(SyntaxNode);
 
 impl AstNode for FunctionName {
     fn can_cast(kind: SyntaxKind) -> bool {
-        kind == SyntaxKind::FUNCTION_NAME
+        kind == SyntaxKind::FUNCTION_NAME || kind == SyntaxKind::VARIABLE
     }
 
     fn cast(syntax: SyntaxNode) -> Option<Self> {
@@ -727,7 +763,14 @@ impl AstNode for ParenthesizedExpr {
 
 impl ParenthesizedExpr {
     pub fn expr(&self) -> Option<Expression> {
-        child(&self.0)
+        // In the flat CST, the expression is the LAST expression child.
+        // e.g. (1 + 2) produces:
+        //   PARENTHESIZED_EXPR
+        //     └── L_PAREN
+        //     └── NUMBER_LITERAL (1)
+        //     └── ADD_SUB_EXPR (+ 2)  ← this is the root
+        //     └── R_PAREN
+        self.0.children().filter_map(Expression::cast).last()
     }
 }
 
@@ -758,10 +801,30 @@ impl AstNode for CaseExpr {
 
 impl CaseExpr {
     pub fn value(&self) -> Option<Expression> {
-        self.0
-            .children()
-            .take_while(|n| n.kind() != SyntaxKind::KW_WHEN)
-            .find_map(Expression::cast)
+        // Scrutinee is the Expression appearing after CASE but before the
+        // first WHEN or ELSE keyword. KW_WHEN / KW_ELSE are tokens, so we
+        // must iterate children_with_tokens to detect them.
+        let mut last: Option<Expression> = None;
+        for child in self.0.children_with_tokens() {
+            if let Some(tok) = child.as_token() {
+                if matches!(tok.kind(), SyntaxKind::KW_WHEN | SyntaxKind::KW_ELSE) {
+                    break;
+                }
+                continue;
+            }
+            if let Some(node) = child.as_node() {
+                // CASE_ALTERNATIVE (the first WHEN branch) is also a child;
+                // stop before consuming it so alternatives don't get mistaken
+                // for the scrutinee.
+                if node.kind() == SyntaxKind::CASE_ALTERNATIVE {
+                    break;
+                }
+                if let Some(e) = Expression::cast(node.clone()) {
+                    last = Some(e);
+                }
+            }
+        }
+        last
     }
 
     pub fn alternatives(&self) -> AstChildren<CaseAlternative> {
@@ -769,17 +832,26 @@ impl CaseExpr {
     }
 
     pub fn else_expr(&self) -> Option<Expression> {
+        // ELSE is a token, so use children_with_tokens. The expression that
+        // follows the ELSE token is the default.
         let mut seen_else = false;
-        for child_node in self.0.children() {
-            if child_node.kind() == SyntaxKind::KW_ELSE {
-                seen_else = true;
+        let mut last: Option<Expression> = None;
+        for child in self.0.children_with_tokens() {
+            if let Some(tok) = child.as_token() {
+                if tok.kind() == SyntaxKind::KW_ELSE {
+                    seen_else = true;
+                }
                 continue;
             }
             if seen_else {
-                return Expression::cast(child_node);
+                if let Some(node) = child.as_node() {
+                    if let Some(e) = Expression::cast(node.clone()) {
+                        last = Some(e);
+                    }
+                }
             }
         }
-        None
+        last
     }
 }
 
@@ -806,35 +878,46 @@ impl AstNode for CaseAlternative {
 
 impl CaseAlternative {
     pub fn when_expr(&self) -> Option<Expression> {
-        self.0
-            .children_with_tokens()
-            .take_while(|n| {
-                n.as_token()
-                    .map_or(true, |t| t.kind() != SyntaxKind::KW_THEN)
-            })
-            .filter_map(|e| e.as_node().cloned())
-            .find_map(Expression::cast)
-    }
-
-    pub fn then_expr(&self) -> Option<Expression> {
-        let mut seen_then = false;
+        // Return the LAST Expression child appearing before KW_THEN. The CST
+        // stores chains like `n.active` as flat siblings (VARIABLE, PROPERTY_LOOKUP),
+        // and the rightmost node carries the composition via prev_sibling().
+        let mut last: Option<Expression> = None;
         for child in self.0.children_with_tokens() {
             if child
                 .as_token()
                 .map_or(false, |t| t.kind() == SyntaxKind::KW_THEN)
             {
-                seen_then = true;
+                break;
+            }
+            if let Some(node) = child.as_node() {
+                if let Some(e) = Expression::cast(node.clone()) {
+                    last = Some(e);
+                }
+            }
+        }
+        last
+    }
+
+    pub fn then_expr(&self) -> Option<Expression> {
+        // Return the LAST Expression child appearing after KW_THEN.
+        let mut seen_then = false;
+        let mut last: Option<Expression> = None;
+        for child in self.0.children_with_tokens() {
+            if let Some(tok) = child.as_token() {
+                if tok.kind() == SyntaxKind::KW_THEN {
+                    seen_then = true;
+                }
                 continue;
             }
             if seen_then {
                 if let Some(node) = child.as_node() {
                     if let Some(expr) = Expression::cast(node.clone()) {
-                        return Some(expr);
+                        last = Some(expr);
                     }
                 }
             }
         }
-        None
+        last
     }
 }
 
@@ -1288,6 +1371,16 @@ impl AstNode for PropertyLookup {
 impl PropertyLookup {
     pub fn key(&self) -> Option<PropertyKeyName> {
         child(&self.0)
+    }
+
+    pub fn base(&self) -> Option<Expression> {
+        // In the flat CST, the base is the preceding sibling of this PROPERTY_LOOKUP.
+        // e.g. WHERE n.name = 'Alice' produces:
+        //   WHERE_CLAUSE
+        //     └── VARIABLE (n)
+        //     └── PROPERTY_LOOKUP (.name)  ← base is VARIABLE
+        //     └── COMPARISON_EXPR
+        self.0.prev_sibling().and_then(Expression::cast)
     }
 }
 

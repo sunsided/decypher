@@ -1,3 +1,4 @@
+use assert2::check;
 use open_cypher::ast::query::{QueryBody, SinglePartBody};
 use open_cypher::parse;
 
@@ -29,7 +30,7 @@ fn test_match_create_has_updating_body() {
                     return_clause,
                 } => {
                     assert_eq!(updating.len(), 1);
-                    assert!(return_clause.is_none());
+                    check!(return_clause.is_none());
                 }
                 _ => panic!("expected Updating body"),
             },
@@ -47,7 +48,7 @@ fn test_optional_match_flag() {
             open_cypher::ast::query::SingleQueryKind::SinglePart(spq) => {
                 match &spq.reading_clauses[0] {
                     open_cypher::ast::query::ReadingClause::Match(m) => {
-                        assert!(m.optional);
+                        check!(m.optional);
                     }
                     _ => panic!("expected Match clause"),
                 }
@@ -93,7 +94,7 @@ fn test_pattern_has_node() {
                                 open_cypher::ast::pattern::PatternElement::Path {
                                     start, ..
                                 } => {
-                                    assert!(start.variable.is_some());
+                                    check!(start.variable.is_some());
                                     assert_eq!(start.variable.as_ref().unwrap().name.name, "n");
                                     assert_eq!(start.labels.len(), 1);
                                 }
@@ -114,7 +115,7 @@ fn test_pattern_has_node() {
 fn test_union_has_two_queries() {
     let query =
         parse("MATCH (n:Person) RETURN n.name UNION MATCH (m:Movie) RETURN m.title;").unwrap();
-    assert!(query.statements.len() >= 1);
+    check!(query.statements.len() >= 1);
     // The UNION creates a RegularQuery with unions
     // Our current structure stores it in RegularQuery.unions
 }
@@ -122,5 +123,5 @@ fn test_union_has_two_queries() {
 #[test]
 fn test_span_is_nonzero() {
     let query = parse("MATCH (n) RETURN n;").unwrap();
-    assert!(query.span.start < query.span.end);
+    check!(query.span.start < query.span.end);
 }

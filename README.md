@@ -55,7 +55,7 @@ use open_cypher::parse;
 
 let query = parse("MATCH (n:Person) WHERE n.age > 18 RETURN n.name;").unwrap();
 let cypher = query.to_cypher();
-assert!(cypher.contains("MATCH"));
+check!(cypher.contains("MATCH"));
 ```
 
 ## Stability

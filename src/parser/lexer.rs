@@ -256,9 +256,11 @@ impl<'a> Lexer<'a> {
                 '"' | '\'' => {
                     let quote = ch;
                     self.bump();
+                    let mut terminated = false;
                     while let Some(c) = self.peek() {
                         if c == quote {
                             self.bump();
+                            terminated = true;
                             break;
                         }
                         if c == '\\' {
@@ -267,7 +269,6 @@ impl<'a> Lexer<'a> {
                                 self.bump();
                                 match escaped {
                                     'u' => {
-                                        // Exactly 4 hex digits
                                         for _ in 0..4 {
                                             if let Some(h) = self.peek() {
                                                 if h.is_ascii_hexdigit() {
@@ -279,7 +280,6 @@ impl<'a> Lexer<'a> {
                                         }
                                     }
                                     'U' => {
-                                        // Exactly 8 hex digits
                                         for _ in 0..8 {
                                             if let Some(h) = self.peek() {
                                                 if h.is_ascii_hexdigit() {
@@ -300,7 +300,12 @@ impl<'a> Lexer<'a> {
                         }
                         self.bump();
                     }
-                    return Some(self.make_token(SyntaxKind::STRING, start));
+                    let kind = if terminated {
+                        SyntaxKind::STRING
+                    } else {
+                        SyntaxKind::ERROR
+                    };
+                    return Some(self.make_token(kind, start));
                 }
 
                 /* Numbers */

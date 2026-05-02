@@ -1,3 +1,4 @@
+use crate::error::Expected;
 use crate::parser::Parser;
 use crate::syntax::SyntaxKind;
 
@@ -271,7 +272,9 @@ fn parse_atom(p: &mut Parser) {
             p.builder.finish_node();
         }
         SyntaxKind::NULL_KW => {
+            p.start_node(SyntaxKind::NULL_KW);
             p.bump();
+            p.builder.finish_node();
         }
         SyntaxKind::KW_COUNT if p.peek_next_non_trivia() == Some(SyntaxKind::L_PAREN) => {
             p.start_node(SyntaxKind::FUNCTION_INVOCATION);
@@ -289,6 +292,56 @@ fn parse_atom(p: &mut Parser) {
             p.builder.finish_node();
         }
         SyntaxKind::IDENT | SyntaxKind::ESCAPED_IDENT | SyntaxKind::KW_COUNT => {
+            // Detect qualified function calls: `ns1.ns2.name(args)`. We can't
+            // rewrite from a VARIABLE + PROPERTY_LOOKUP chain after the fact,
+            // so look ahead before committing and build a FUNCTION_INVOCATION
+            // with a FUNCTION_NAME containing all SYMBOLIC_NAME parts.
+            let is_qcall = p.looks_like_qualified_call();
+            if is_qcall {
+                p.start_node(SyntaxKind::FUNCTION_INVOCATION);
+                p.start_node(SyntaxKind::FUNCTION_NAME);
+                // First part
+                p.start_node(SyntaxKind::SYMBOLIC_NAME);
+                p.bump();
+                p.builder.finish_node();
+                // Subsequent `.IDENT` parts
+                loop {
+                    p.skip_trivia();
+                    if !p.at(SyntaxKind::DOT) {
+                        break;
+                    }
+                    p.bump(); // DOT
+                    p.skip_trivia();
+                    if p.at(SyntaxKind::IDENT)
+                        || p.at(SyntaxKind::ESCAPED_IDENT)
+                        || is_keyword_as_name(p)
+                    {
+                        p.start_node(SyntaxKind::SYMBOLIC_NAME);
+                        p.bump();
+                        p.builder.finish_node();
+                    } else {
+                        break;
+                    }
+                }
+                p.builder.finish_node(); // FUNCTION_NAME
+                p.skip_trivia();
+                p.expect(SyntaxKind::L_PAREN);
+                p.skip_trivia();
+                p.eat(SyntaxKind::KW_DISTINCT);
+                p.skip_trivia();
+                if !p.at(SyntaxKind::R_PAREN) {
+                    expr_bp(p, Prec::MIN);
+                    p.skip_trivia();
+                    while p.eat(SyntaxKind::COMMA) {
+                        p.skip_trivia();
+                        expr_bp(p, Prec::MIN);
+                        p.skip_trivia();
+                    }
+                }
+                p.expect(SyntaxKind::R_PAREN);
+                p.builder.finish_node(); // FUNCTION_INVOCATION
+                return;
+            }
             // Consume identifier first
             p.start_node(SyntaxKind::VARIABLE);
             p.start_node(SyntaxKind::SYMBOLIC_NAME);
@@ -477,6 +530,23 @@ fn parse_atom(p: &mut Parser) {
             }
         }
         _ => {
+            if p.current_len() > 0 {
+                let start = p.byte_pos;
+                let end = start + p.current_len;
+                if let Some(text) = p.input.get(start..end) {
+                    if text.starts_with('\'') || text.starts_with('"') {
+                        p.error_here(&[Expected::Category(
+                            "closing quote for unterminated string",
+                        )]);
+                    } else {
+                        p.error_here(&[Expected::Category("expression")]);
+                    }
+                } else {
+                    p.error_here(&[Expected::Category("expression")]);
+                }
+            } else {
+                p.error_here(&[Expected::Category("expression")]);
+            }
             p.start_node(SyntaxKind::ERROR);
             if p.current_len() > 0 {
                 p.bump();
@@ -1300,9 +1370,8 @@ fn parse_pattern_element(p: &mut Parser) {
             }
         }
     } else {
-        p.bump();
-        parse_pattern_element(p);
-        p.expect(SyntaxKind::R_PAREN);
+        // Not a valid pattern element start — emit error and recover
+        p.error_here(&[Expected::Symbol("(")]);
     }
     p.builder.finish_node();
 }
@@ -1536,6 +1605,15 @@ fn parse_projection_items(p: &mut Parser) {
                 p.skip_trivia();
             }
         }
+    } else if p.at(SyntaxKind::KW_ORDER)
+        || p.at(SyntaxKind::KW_SKIP)
+        || p.at(SyntaxKind::KW_LIMIT)
+        || p.at(SyntaxKind::SEMICOLON)
+        || p.at(SyntaxKind::KW_UNION)
+        || p.at(SyntaxKind::KW_END)
+        || p.current_len() == 0
+    {
+        // No projection items — skip creating empty item nodes
     } else {
         parse_projection_item(p);
         p.skip_trivia();

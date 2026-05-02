@@ -24,7 +24,7 @@ fn smoke_queries_cast_to_source_file() {
     for input in queries {
         let result = parse(input);
         let source = open_cypher::cst::SourceFile::cast(result.tree.clone());
-        assert!(source.is_some(), "Failed to cast for: {input}");
+        check!(source.is_some(), "Failed to cast for: {input}");
     }
 }
 

@@ -150,9 +150,12 @@ impl<'a> Parser<'a> {
             self.skip_trivia();
             if self.at(SyntaxKind::SEMICOLON)
                 || self.at(SyntaxKind::KW_UNION)
-                || self.at(SyntaxKind::ERROR)
                 || self.current_len() == 0
             {
+                break;
+            }
+            if self.at(SyntaxKind::ERROR) {
+                self.error_here(&[Expected::Category("valid token")]);
                 break;
             }
             if self.is_clause_start() {
@@ -169,9 +172,11 @@ impl<'a> Parser<'a> {
         // Semicolon is trivia-level, just eat it (but not at statement level)
     }
 
-    /// Skip whitespace tokens without emitting them.
+    /// Skip whitespace and comment tokens without emitting them.
     pub(crate) fn skip_trivia(&mut self) {
-        while self.current_kind == SyntaxKind::WHITESPACE {
+        while self.current_kind == SyntaxKind::WHITESPACE
+            || self.current_kind == SyntaxKind::COMMENT
+        {
             self.bump();
         }
     }
@@ -331,6 +336,147 @@ impl<'a> Parser<'a> {
                 Some(tok) if tok.kind == SyntaxKind::WHITESPACE => continue,
                 Some(tok) => return Some(tok.kind),
                 None => return None,
+            }
+        }
+    }
+
+    /// Returns true if, starting at the current position, the tokens look
+    /// like a qualified function call head: `.IDENT (. IDENT)* (`.
+    /// Used to disambiguate `foo.bar(x)` (qualified function invocation)
+    /// from `foo.bar` (property lookup).
+    pub(crate) fn looks_like_qualified_call(&self) -> bool {
+        /// Returns true if this SyntaxKind can be used as a name segment
+        /// (plain identifier, escaped identifier, or a keyword).
+        fn is_name_part(k: SyntaxKind) -> bool {
+            matches!(
+                k,
+                SyntaxKind::IDENT
+                    | SyntaxKind::ESCAPED_IDENT
+                    | SyntaxKind::KW_ACCESS
+                    | SyntaxKind::KW_ADD
+                    | SyntaxKind::KW_ALL
+                    | SyntaxKind::KW_AND
+                    | SyntaxKind::KW_ANY
+                    | SyntaxKind::KW_AS
+                    | SyntaxKind::KW_ASC
+                    | SyntaxKind::KW_ASCENDING
+                    | SyntaxKind::KW_BREAK
+                    | SyntaxKind::KW_BY
+                    | SyntaxKind::KW_CALL
+                    | SyntaxKind::KW_CASE
+                    | SyntaxKind::KW_CONTAINS
+                    | SyntaxKind::KW_CONTINUE
+                    | SyntaxKind::KW_CONSTRAINT
+                    | SyntaxKind::KW_CONSTRAINTS
+                    | SyntaxKind::KW_CREATE
+                    | SyntaxKind::KW_DATABASE
+                    | SyntaxKind::KW_DATABASES
+                    | SyntaxKind::KW_DELETE
+                    | SyntaxKind::KW_DESC
+                    | SyntaxKind::KW_DESCENDING
+                    | SyntaxKind::KW_DETACH
+                    | SyntaxKind::KW_DISTINCT
+                    | SyntaxKind::KW_DO
+                    | SyntaxKind::KW_DROP
+                    | SyntaxKind::KW_ELSE
+                    | SyntaxKind::KW_END
+                    | SyntaxKind::KW_ENDS
+                    | SyntaxKind::KW_ERROR
+                    | SyntaxKind::KW_EXISTS
+                    | SyntaxKind::KW_EXTRACT
+                    | SyntaxKind::KW_FAIL
+                    | SyntaxKind::KW_FILTER
+                    | SyntaxKind::KW_FOR
+                    | SyntaxKind::KW_FOREACH
+                    | SyntaxKind::KW_EACH
+                    | SyntaxKind::KW_FUNCTIONS
+                    | SyntaxKind::KW_FULLTEXT
+                    | SyntaxKind::KW_IF
+                    | SyntaxKind::KW_IN
+                    | SyntaxKind::KW_INDEX
+                    | SyntaxKind::KW_INDEXES
+                    | SyntaxKind::KW_IS
+                    | SyntaxKind::KW_KEY
+                    | SyntaxKind::KW_LIMIT
+                    | SyntaxKind::KW_LOOKUP
+                    | SyntaxKind::KW_MANDATORY
+                    | SyntaxKind::KW_MATCH
+                    | SyntaxKind::KW_MERGE
+                    | SyntaxKind::KW_NODE
+                    | SyntaxKind::KW_NONE
+                    | SyntaxKind::KW_NOT
+                    | SyntaxKind::KW_OF
+                    | SyntaxKind::KW_ON
+                    | SyntaxKind::KW_OPTIONAL
+                    | SyntaxKind::KW_OPTIONS
+                    | SyntaxKind::KW_OR
+                    | SyntaxKind::KW_ORDER
+                    | SyntaxKind::KW_POINT
+                    | SyntaxKind::KW_PROCEDURES
+                    | SyntaxKind::KW_PROPERTY
+                    | SyntaxKind::KW_RANGE
+                    | SyntaxKind::KW_REMOVE
+                    | SyntaxKind::KW_REQUIRE
+                    | SyntaxKind::KW_RETURN
+                    | SyntaxKind::KW_ROWS
+                    | SyntaxKind::KW_SCALAR
+                    | SyntaxKind::KW_SET
+                    | SyntaxKind::KW_SHOW
+                    | SyntaxKind::KW_SINGLE
+                    | SyntaxKind::KW_SKIP
+                    | SyntaxKind::KW_STARTS
+                    | SyntaxKind::KW_TEXT
+                    | SyntaxKind::KW_THEN
+                    | SyntaxKind::KW_TRANSACTIONS
+                    | SyntaxKind::KW_TYPE
+                    | SyntaxKind::KW_TYPES
+                    | SyntaxKind::KW_UNION
+                    | SyntaxKind::KW_UNIQUE
+                    | SyntaxKind::KW_UNWIND
+                    | SyntaxKind::KW_USE
+                    | SyntaxKind::KW_WHEN
+                    | SyntaxKind::KW_WHERE
+                    | SyntaxKind::KW_WITH
+                    | SyntaxKind::KW_XOR
+                    | SyntaxKind::KW_YIELD
+                    | SyntaxKind::KW_COUNT
+                    | SyntaxKind::KW_CALL_SUBQUERY
+                    | SyntaxKind::KW_IN_TRANSACTIONS
+                    | SyntaxKind::KW_CONCURRENTLY
+            )
+        }
+        let mut lx = self.lexer.clone();
+        // Advance lx one token at a time, skipping WHITESPACE. Returns None at EOF.
+        fn next_nt(lx: &mut lexer::Lexer) -> Option<SyntaxKind> {
+            loop {
+                match lx.advance() {
+                    Some(t) if t.kind == SyntaxKind::WHITESPACE => continue,
+                    Some(t) => return Some(t.kind),
+                    None => return None,
+                }
+            }
+        }
+        let mut saw_dot_name = false;
+        // First `.IDENT` pair
+        if next_nt(&mut lx) != Some(SyntaxKind::DOT) {
+            return false;
+        }
+        if is_name_part(next_nt(&mut lx).unwrap_or(SyntaxKind::ERROR)) {
+            saw_dot_name = true;
+        } else {
+            return false;
+        }
+        // After the first `.IDENT`, scan for more `.IDENT`s or terminal `(`
+        loop {
+            match next_nt(&mut lx) {
+                Some(SyntaxKind::L_PAREN) => return saw_dot_name,
+                Some(SyntaxKind::DOT) => {
+                    if !is_name_part(next_nt(&mut lx).unwrap_or(SyntaxKind::ERROR)) {
+                        return false;
+                    }
+                    continue;
+                }
+                _ => return false,
             }
         }
     }

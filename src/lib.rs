@@ -69,8 +69,8 @@ pub fn parse(input: &str) -> Result<Query> {
 
 /// Parse a Cypher query string with a source label for diagnostics.
 pub fn parse_with_label(input: &str, label: impl Into<Arc<str>>) -> Result<Query> {
-    use crate::pest_parser::CypherParser;
-    use pest::Parser;
+    use crate::syntax::ast::top_level::SourceFile;
+    use crate::syntax::ast::AstNode;
 
     if input.trim().is_empty() {
         return Err(CypherError {
@@ -85,23 +85,27 @@ pub fn parse_with_label(input: &str, label: impl Into<Arc<str>>) -> Result<Query
     let source: Arc<str> = label.into();
     let original_source: Arc<str> = Arc::from(input);
 
-    let pairs = CypherParser::parse(crate::pest_parser::Rule::Cypher, input).map_err(|e| {
-        let mut err = error::translate_pest_error(e, original_source.clone());
-        err.source_label = Some(source.clone());
-        err
-    })?;
+    let parse = crate::parser::parse(input);
 
-    let top = pairs.into_iter().next().ok_or_else(|| CypherError {
+    if !parse.errors.is_empty() {
+        let mut err = parse.errors.into_iter().next().unwrap();
+        err.source_label = Some(source.clone());
+        if err.source.is_none() {
+            err.source = Some(original_source.clone());
+        }
+        return Err(err);
+    }
+
+    let source_file = SourceFile::cast(parse.tree).ok_or_else(|| CypherError {
         kind: ErrorKind::Internal {
-            message: "empty parse result".into(),
+            message: "failed to cast to SourceFile".into(),
         },
         span: Span::new(0, 0),
         source_label: Some(source.clone()),
         notes: Vec::new(),
         source: Some(original_source.clone()),
     })?;
-
-    crate::ast::build::build_query(top).map_err(|mut e| {
+    crate::ast::build_cst::build_source_file(source_file).map_err(|mut e| {
         e.source_label = e.source_label.or_else(|| Some(source.clone()));
         if e.source.is_none() {
             e.source = Some(original_source.clone());
@@ -121,30 +125,8 @@ pub fn parse_all(input: &str) -> (Option<Query>, Diagnostics) {
     )
 }
 
-#[cfg(any(test, feature = "cst-parser"))]
+/// Parse a Cypher query string using the rowan-based CST→AST path.
+/// This is an alias for [`parse`] which now uses the rowan parser.
 pub fn parse_cst(input: &str) -> Result<Query> {
-    use crate::syntax::ast::top_level::SourceFile;
-    use crate::syntax::ast::AstNode;
-
-    if input.trim().is_empty() {
-        return Err(CypherError {
-            kind: ErrorKind::EmptyInput,
-            span: Span::new(0, 0),
-            source_label: None,
-            notes: Vec::new(),
-            source: Some(Arc::from(input)),
-        });
-    }
-
-    let parse = crate::parser::parse(input);
-    let source = SourceFile::cast(parse.tree).ok_or_else(|| CypherError {
-        kind: ErrorKind::Internal {
-            message: "failed to cast to SourceFile".into(),
-        },
-        span: Span::new(0, 0),
-        source_label: None,
-        notes: Vec::new(),
-        source: Some(Arc::from(input)),
-    })?;
-    crate::ast::build_cst::build_source_file(source)
+    parse(input)
 }

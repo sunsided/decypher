@@ -47,7 +47,11 @@ fn symbolic_name_text(sym: &SymbolicName) -> String {
     if let Some(ident) = sym.ident_token() {
         ident.unescape()
     } else {
-        String::new()
+        // Fallback: get text from any child token (handles keyword-based names like COUNT)
+        sym.syntax()
+            .children_with_tokens()
+            .find_map(|el| el.as_token().map(|t| t.text().to_string()))
+            .unwrap_or_default()
     }
 }
 
@@ -512,8 +516,22 @@ fn build_return(c: ReturnClause) -> Result<ast_c::Return> {
     let proj = c
         .projection_body()
         .map(|b| build_projection_body(b))
-        .transpose()?
-        .ok_or_else(|| internal("missing projection in RETURN", sp))?;
+        .transpose()?;
+    let proj = match proj {
+        Some(p) if !p.items.is_empty() => p,
+        _ => {
+            return Err(CypherError {
+                kind: ErrorKind::MissingClause {
+                    clause: "projection",
+                    after: "RETURN",
+                },
+                span: sp,
+                source_label: None,
+                notes: Vec::new(),
+                source: None,
+            })
+        }
+    };
     Ok(ast_c::Return {
         distinct: proj.distinct,
         items: proj.items,
@@ -818,9 +836,55 @@ fn build_relationship_detail(rd: RelationshipDetail) -> Result<ast_c::Relationsh
 
 fn build_range_literal(rl: RangeLiteral) -> Result<ast_c::RangeLiteral> {
     let sp = span_of(rl.syntax());
+    // The CST stores a RANGE_LITERAL as `*` plus up to two INTEGER tokens,
+    // separated by a DOT_DOT token. Determine which INTEGER is start vs end
+    // by its position relative to the DOT_DOT.
+    let mut start: Option<i64> = None;
+    let mut end: Option<i64> = None;
+    let mut seen_dot_dot = false;
+    let mut seen_star = false;
+    for child in rl.syntax().children_with_tokens() {
+        if let Some(tok) = child.as_token() {
+            match tok.kind() {
+                SyntaxKind::STAR => seen_star = true,
+                SyntaxKind::DOT_DOT => seen_dot_dot = true,
+                SyntaxKind::INTEGER => {
+                    if let Some(val) = parse_integer(tok.text()) {
+                        if !seen_dot_dot {
+                            start = Some(val);
+                        } else {
+                            end = Some(val);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        } else if let Some(node) = child.as_node() {
+            // Some grammars wrap integers in NUMBER_LITERAL nodes; descend.
+            for inner in node.children_with_tokens() {
+                if let Some(tok) = inner.as_token() {
+                    if tok.kind() == SyntaxKind::INTEGER {
+                        if let Some(val) = parse_integer(tok.text()) {
+                            if !seen_dot_dot {
+                                start = Some(val);
+                            } else {
+                                end = Some(val);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // If no DOT_DOT was present, a single integer after `*` means both bounds
+    // are the same (e.g. `*3` is shorthand for `*3..3`). Cypher also allows
+    // `*` alone for unbounded; leave both as None in that case.
+    if !seen_dot_dot && seen_star && start.is_some() {
+        end = start;
+    }
     Ok(ast_c::RangeLiteral {
-        start: None,
-        end: None,
+        start,
+        end,
         span: sp,
     })
 }
@@ -1005,11 +1069,52 @@ fn build_binary_expr(b: BinaryExpr) -> Result<ast_c::Expression> {
                     rhs: Box::new(rhs),
                     span: sp,
                 }),
-                Some(BinOp::Index) => Ok(ast_c::Expression::ListIndex {
-                    list: Box::new(lhs),
-                    index: Box::new(rhs),
-                    span: sp,
-                }),
+                Some(BinOp::Index) => {
+                    // Detect slice form `[start..end]` / `[start..]` / `[..end]`
+                    // by presence of a DOT_DOT token inside the LIST_OP_EXPR.
+                    let has_dot_dot = b.syntax().children_with_tokens().any(|c| {
+                        c.as_token()
+                            .map_or(false, |t| t.kind() == SyntaxKind::DOT_DOT)
+                    });
+                    if !has_dot_dot {
+                        Ok(ast_c::Expression::ListIndex {
+                            list: Box::new(lhs),
+                            index: Box::new(rhs),
+                            span: sp,
+                        })
+                    } else {
+                        // Walk children_with_tokens, partitioning expressions
+                        // before and after DOT_DOT into start/end.
+                        let mut seen_dot_dot = false;
+                        let mut start_expr: Option<ast_c::Expression> = None;
+                        let mut end_expr: Option<ast_c::Expression> = None;
+                        // Skip the opening L_BRACKET; LIST_OP_EXPR starts with `[`.
+                        for child in b.syntax().children_with_tokens() {
+                            if let Some(tok) = child.as_token() {
+                                if tok.kind() == SyntaxKind::DOT_DOT {
+                                    seen_dot_dot = true;
+                                }
+                                continue;
+                            }
+                            if let Some(node) = child.as_node() {
+                                if let Some(e) = Expression::cast(node.clone()) {
+                                    let built = build_expression(e)?;
+                                    if !seen_dot_dot {
+                                        start_expr = Some(built);
+                                    } else {
+                                        end_expr = Some(built);
+                                    }
+                                }
+                            }
+                        }
+                        Ok(ast_c::Expression::ListSlice {
+                            list: Box::new(lhs),
+                            start: start_expr.map(Box::new),
+                            end: end_expr.map(Box::new),
+                            span: sp,
+                        })
+                    }
+                }
                 Some(BinOp::PropertyLookup) => Ok(ast_c::Expression::PropertyLookup {
                     base: Box::new(lhs),
                     property: extract_property_key(&rhs)?,
@@ -1100,6 +1205,29 @@ fn build_atom(a: Atom) -> Result<ast_c::Expression> {
             let proc = build_implicit_procedure_invocation(ipi)?;
             Ok(ast_c::Expression::FunctionCall(proc.name))
         }
+        Atom::PropertyLookup(pl) => {
+            let sp = span_of(pl.syntax());
+            let key = pl
+                .key()
+                .ok_or_else(|| internal("missing property key", sp))?;
+            let base = pl
+                .base()
+                .and_then(|e| build_expression(e).ok())
+                .ok_or_else(|| internal("missing base in property lookup", sp))?;
+            Ok(ast_c::Expression::PropertyLookup {
+                base: Box::new(base),
+                property: ast_c::PropertyKeyName {
+                    name: ast_c::SymbolicName {
+                        name: symbolic_name_text(&key.symbolic_name().ok_or_else(|| {
+                            internal("missing symbolic name", span_of(key.syntax()))
+                        })?),
+                        span: span_of(key.syntax()),
+                    },
+                },
+                span: sp,
+            })
+        }
+        Atom::Null(_n) => Ok(ast_c::Expression::Literal(ast_c::Literal::Null)),
     }
 }
 
@@ -1161,12 +1289,23 @@ fn build_string_literal(s: StringLiteral) -> Result<ast_c::StringLiteral> {
     Err(internal("missing string token", sp))
 }
 
-fn build_parameter(_p: expressions::Parameter) -> Result<ast_c::Expression> {
-    // TODO: extract parameter name from CST
-    Err(internal(
-        "parameter parsing not yet implemented",
-        Span::new(0, 0),
-    ))
+fn build_parameter(p: expressions::Parameter) -> Result<ast_c::Expression> {
+    let sp = span_of(p.syntax());
+    let tok = p
+        .name_token()
+        .ok_or_else(|| internal("missing parameter name", sp))?;
+    let name_span = Span::new(
+        tok.text_range().start().into(),
+        tok.text_range().end().into(),
+    );
+    let name_text = tok.text().to_string();
+    Ok(ast_c::Expression::Parameter(ast_c::Parameter {
+        name: ast_c::SymbolicName {
+            name: name_text,
+            span: name_span,
+        },
+        span: sp,
+    }))
 }
 
 fn build_function_invocation(f: FunctionInvocation) -> Result<ast_c::Expression> {

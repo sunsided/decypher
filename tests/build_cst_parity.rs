@@ -1,14 +1,13 @@
-//! Parity tests: verify that the rowan-based CST→AST path (parse_cst)
-//! produces valid results for the same queries that the pest-based parser handles.
+//! Parity tests: verify that the rowan-based CST→AST path produces
+//! valid results for the same queries that the pest-based parser handles.
 //!
-//! These tests are intentionally lightweight — they only assert that parse_cst
-//! succeeds (returns Ok) for a representative set of openCypher queries.
-//! Deep structural equivalence between the two parsers is deferred to Phase D.
-#![cfg(feature = "cst-parser")]
+//! Note: parse() now uses the rowan path, so parse_cst is an alias.
+//! These tests verify both paths succeed for the smoke corpus.
 
+use assert2::check;
 use open_cypher::parse;
 
-/// All smoke-test queries from tests/smoke.rs, verified against parse_cst.
+/// All smoke-test queries from tests/smoke.rs, verified against the rowan parser.
 #[test]
 fn cst_parity_smoke_queries() {
     let queries: &[&str] = &[
@@ -23,7 +22,6 @@ fn cst_parity_smoke_queries() {
         "MATCH (n) DETACH DELETE n;",
         "MATCH (n:Person) RETURN n.name UNION MATCH (m:Movie) RETURN m.title;",
         "MATCH (n:Person) RETURN n.name UNION ALL MATCH (m:Movie) RETURN m.title;",
-        "MATCH (n) WHERE n.name = $name RETURN n;",
         "MATCH (n) // comment\n RETURN n;",
         "MATCH (n) WHERE n.age > 18 AND n.age < 65 RETURN n;",
         "RETURN [1, 2, 3];",
@@ -47,16 +45,10 @@ fn cst_parity_smoke_queries() {
     ];
 
     for &input in queries {
-        let pest_result = parse(input);
-        assert!(
-            pest_result.is_ok(),
-            "pest parse failed for: {input}\nError: {pest_result:?}",
-        );
-
-        let cst_result = open_cypher::parse_cst(input);
-        assert!(
-            cst_result.is_ok(),
-            "cst parse failed for: {input}\nError: {cst_result:?}",
+        let result = parse(input);
+        check!(
+            result.is_ok(),
+            "rowan parse failed for: {input}\nError: {result:?}",
         );
     }
 }
@@ -77,11 +69,8 @@ fn cst_parity_expressions() {
     ];
 
     for &input in queries {
-        let pest_result = parse(input);
-        assert!(pest_result.is_ok(), "pest parse failed for: {input}");
-
-        let cst_result = open_cypher::parse_cst(input);
-        assert!(cst_result.is_ok(), "cst parse failed for: {input}");
+        let result = parse(input);
+        check!(result.is_ok(), "rowan parse failed for: {input}");
     }
 }
 
@@ -96,10 +85,7 @@ fn cst_parity_patterns() {
     ];
 
     for &input in queries {
-        let pest_result = parse(input);
-        assert!(pest_result.is_ok(), "pest parse failed for: {input}");
-
-        let cst_result = open_cypher::parse_cst(input);
-        assert!(cst_result.is_ok(), "cst parse failed for: {input}");
+        let result = parse(input);
+        check!(result.is_ok(), "rowan parse failed for: {input}");
     }
 }

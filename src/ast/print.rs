@@ -138,8 +138,13 @@ impl ToCypher for SingleQueryKind {
 
 impl ToCypher for SinglePartQuery {
     fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
-        for rc in &self.reading_clauses {
+        for (i, rc) in self.reading_clauses.iter().enumerate() {
+            if i > 0 {
+                write!(w, " ")?;
+            }
             rc.write_cypher(w)?;
+        }
+        if !self.reading_clauses.is_empty() {
             write!(w, " ")?;
         }
         self.body.write_cypher(w)
@@ -154,9 +159,11 @@ impl ToCypher for SinglePartBody {
                 updating,
                 return_clause,
             } => {
-                for uc in updating {
+                for (i, uc) in updating.iter().enumerate() {
+                    if i > 0 {
+                        write!(w, " ")?;
+                    }
                     uc.write_cypher(w)?;
-                    write!(w, " ")?;
                 }
                 if let Some(rc) = return_clause {
                     write!(w, " ")?;
@@ -170,10 +177,13 @@ impl ToCypher for SinglePartBody {
 
 impl ToCypher for MultiPartQuery {
     fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
-        for part in &self.parts {
+        for (i, part) in self.parts.iter().enumerate() {
+            if i > 0 {
+                write!(w, " ")?;
+            }
             part.write_cypher(w)?;
-            write!(w, " ")?;
         }
+        write!(w, " ")?;
         self.final_part.write_cypher(w)
     }
 }
