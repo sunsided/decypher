@@ -1013,6 +1013,11 @@ fn build_binary_expr(b: BinaryExpr) -> Result<ast_c::Expression> {
                     operators: vec![(ast_c::ComparisonOperator::Ge, Box::new(rhs))],
                     span: sp,
                 }),
+                Some(BinOp::RegexMatch) => Ok(ast_c::Expression::Comparison {
+                    lhs: Box::new(lhs),
+                    operators: vec![(ast_c::ComparisonOperator::RegexMatch, Box::new(rhs))],
+                    span: sp,
+                }),
                 Some(BinOp::Add) => Ok(ast_c::Expression::BinaryOp {
                     op: ast_c::BinaryOperator::Add,
                     lhs: Box::new(lhs),
@@ -1805,12 +1810,29 @@ fn build_create_index(c: cst_c::schema_cst::CreateIndex) -> Result<ast_c::Create
         .and_then(|o| o.map())
         .map(|m| build_map_literal_cst(m))
         .transpose()?;
+    // Extract target from FOR pattern (NODE_PATTERN or RELATIONSHIP_DETAIL)
     let target = c
         .label()
         .and_then(|l| l.variable())
         .map(|v| build_top_variable(v))
         .map(|v| v.name)
-        .ok_or_else(|| internal("missing index target", sp))?;
+        .or_else(|| {
+            c.syntax()
+                .children()
+                .find(|n| n.kind() == SyntaxKind::RELATIONSHIP_DETAIL)
+                .and_then(|rd| cst_c::RelationshipDetail::cast(rd))
+                .and_then(|d| d.variable())
+                .map(|v| ast_c::SymbolicName {
+                    name: symbolic_name_text(
+                        &v.name().unwrap_or_else(|| panic!("rel var missing name")),
+                    ),
+                    span: span_of(v.syntax()),
+                })
+        })
+        .unwrap_or_else(|| ast_c::SymbolicName {
+            name: String::new(),
+            span: Span::new(0, 0),
+        });
     Ok(ast_c::CreateIndex {
         kind: None,
         if_not_exists,
@@ -1883,13 +1905,81 @@ fn build_create_constraint(
             name: symbolic_name_text(&s),
             span: span_of(s.syntax()),
         });
+    // Extract variable from FOR pattern (NODE_PATTERN or RELATIONSHIP_DETAIL)
     let variable = c
-        .options()
-        .and_then(|o| o.map())
-        .and_then(|m| m.entries().next())
-        .map(|e| build_variable_from_entry(e))
-        .ok_or_else(|| internal("missing constraint variable", sp))?;
-    let kind = ast_c::ConstraintKind::Unique;
+        .syntax()
+        .children()
+        .find(|n| n.kind() == SyntaxKind::NODE_PATTERN)
+        .and_then(|np| cst_c::NodePattern::cast(np).and_then(|n| n.variable()))
+        .map(|v| ast_c::Variable {
+            name: ast_c::SymbolicName {
+                name: symbolic_name_text(&v.name().unwrap()),
+                span: span_of(v.syntax()),
+            },
+        })
+        .or_else(|| {
+            c.syntax()
+                .children()
+                .find(|n| n.kind() == SyntaxKind::RELATIONSHIP_DETAIL)
+                .and_then(|rd| cst_c::RelationshipDetail::cast(rd))
+                .and_then(|d| d.variable())
+                .map(|v| ast_c::Variable {
+                    name: ast_c::SymbolicName {
+                        name: symbolic_name_text(&v.name().unwrap()),
+                        span: span_of(v.syntax()),
+                    },
+                })
+        })
+        .unwrap_or_else(|| ast_c::Variable {
+            name: ast_c::SymbolicName {
+                name: String::new(),
+                span: Span::new(0, 0),
+            },
+        });
+    // Determine constraint kind from REQUIRE expression's CONSTRAINT_KIND
+    let kind = c
+        .constraint_kind()
+        .map(|ck| {
+            let syntax = ck.syntax();
+            let tokens: Vec<_> = syntax
+                .children_with_tokens()
+                .filter_map(|e| e.into_token())
+                .collect();
+            if tokens.iter().any(|t| t.kind() == SyntaxKind::KW_UNIQUE) {
+                ast_c::ConstraintKind::Unique
+            } else if tokens.iter().any(|t| t.kind() == SyntaxKind::NULL_KW) {
+                ast_c::ConstraintKind::NotNull
+            } else if tokens.iter().any(|t| t.kind() == SyntaxKind::KW_KEY) {
+                let props: Vec<ast_c::PropertyKeyName> = syntax
+                    .children()
+                    .filter(|n| n.kind() == SyntaxKind::SYMBOLIC_NAME)
+                    .filter_map(|n| {
+                        cst_c::SymbolicName::cast(n.clone()).map(|sn| ast_c::PropertyKeyName {
+                            name: ast_c::SymbolicName {
+                                name: symbolic_name_text(&sn),
+                                span: span_of(&n),
+                            },
+                        })
+                    })
+                    .collect();
+                ast_c::ConstraintKind::NodeKey { properties: props }
+            } else {
+                // Property type or default
+                let types: Vec<ast_c::SymbolicName> = ck
+                    .property_types()
+                    .map(|sn| ast_c::SymbolicName {
+                        name: symbolic_name_text(&sn),
+                        span: span_of(sn.syntax()),
+                    })
+                    .collect();
+                if types.is_empty() {
+                    ast_c::ConstraintKind::Unique
+                } else {
+                    ast_c::ConstraintKind::PropertyType { types }
+                }
+            }
+        })
+        .unwrap_or(ast_c::ConstraintKind::Unique);
     Ok(ast_c::CreateConstraint {
         name,
         variable,

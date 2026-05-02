@@ -86,8 +86,8 @@ fn test_error_kind_is_matchable() {
     let err = result.unwrap_err();
     match err.kind() {
         ErrorKind::MissingClause { clause, after } => {
-            assert_eq!(*clause, "projection");
-            assert_eq!(*after, "RETURN");
+            check!(*clause == "projection");
+            check!(*after == "RETURN");
         }
         _ => panic!("expected MissingClause, got {:?}", err.kind()),
     }
@@ -124,7 +124,7 @@ fn test_diagnostics_wrapper() {
     let (query, diags) = parse_all("RETURN;");
     check!(query.is_none());
     check!(!diags.is_empty());
-    assert_eq!(diags.len(), 1);
+    check!(diags.len() == 1);
 }
 
 #[test]
@@ -136,5 +136,5 @@ fn test_parse_with_label() {
     let result = parse_with_label("RETURN;", "test.cypher");
     check!(result.is_err());
     let err = result.unwrap_err();
-    assert_eq!(err.source_label(), Some("test.cypher"));
+    check!(err.source_label() == Some("test.cypher"));
 }

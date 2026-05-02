@@ -139,6 +139,7 @@ pub enum ComparisonOperator {
     Gt,
     Le,
     Ge,
+    RegexMatch,
     StartsWith,
     EndsWith,
     Contains,

@@ -102,6 +102,8 @@ impl BinaryExpr {
                     Some(BinOp::Le)
                 } else if child_token(&self.0, SyntaxKind::GE).is_some() {
                     Some(BinOp::Ge)
+                } else if child_token(&self.0, SyntaxKind::TILDE_EQ).is_some() {
+                    Some(BinOp::RegexMatch)
                 } else {
                     None
                 }
@@ -205,6 +207,7 @@ pub enum BinOp {
     Gt,
     Le,
     Ge,
+    RegexMatch,
     Add,
     Sub,
     Mul,
@@ -1077,11 +1080,7 @@ impl ListComprehension {
     }
 
     pub fn body(&self) -> Option<Expression> {
-        self.0
-            .children()
-            .skip_while(|n| !matches!(n.kind(), SyntaxKind::PIPE | SyntaxKind::FILTER_EXPRESSION))
-            .filter_map(Expression::cast)
-            .last()
+        self.0.children().filter_map(Expression::cast).last()
     }
 }
 
@@ -1138,11 +1137,7 @@ impl PatternComprehension {
     }
 
     pub fn body(&self) -> Option<Expression> {
-        self.0
-            .children()
-            .skip_while(|n| n.kind() != SyntaxKind::PIPE)
-            .filter_map(Expression::cast)
-            .last()
+        self.0.children().filter_map(Expression::cast).last()
     }
 }
 

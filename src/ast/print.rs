@@ -930,6 +930,7 @@ impl ToCypher for ComparisonOperator {
             ComparisonOperator::StartsWith => write!(w, "STARTS WITH"),
             ComparisonOperator::EndsWith => write!(w, "ENDS WITH"),
             ComparisonOperator::Contains => write!(w, "CONTAINS"),
+            ComparisonOperator::RegexMatch => write!(w, "=~"),
         }
     }
 }

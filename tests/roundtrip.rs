@@ -1,3 +1,4 @@
+use assert2::check;
 use open_cypher::ast::ToCypher;
 use open_cypher::parse;
 
@@ -5,10 +6,11 @@ fn roundtrip(input: &str) {
     let parsed = parse(input).expect("parse should succeed");
     let emitted = parsed.to_cypher();
     let reparsed = parse(&emitted).expect("reparse should succeed");
-    assert_eq!(
-        parsed, reparsed,
+    check!(
+        parsed == reparsed,
         "round-trip failed.\noriginal:  {}\nemitted:   {}\nparsed ASTs differ",
-        input, emitted
+        input,
+        emitted
     );
 }
 

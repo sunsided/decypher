@@ -208,7 +208,15 @@ impl<'a> Lexer<'a> {
                 }
                 '=' => {
                     self.bump();
+                    if self.peek() == Some('~') {
+                        self.bump();
+                        return Some(self.make_token(SyntaxKind::TILDE_EQ, start));
+                    }
                     return Some(self.make_token(SyntaxKind::EQ, start));
+                }
+                '~' => {
+                    self.bump();
+                    return Some(self.make_token(SyntaxKind::TILDE, start));
                 }
                 '+' => {
                     self.bump();
@@ -553,6 +561,7 @@ fn keyword_kind(s: &str) -> SyntaxKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert2::check;
 
     fn tokenize(input: &str) -> Vec<(SyntaxKind, &str)> {
         let mut lexer = Lexer::new(input);
@@ -568,19 +577,19 @@ mod tests {
     fn test_simple_match_return() {
         let tokens = tokenize("MATCH (n) RETURN n");
         let kinds: Vec<_> = tokens.iter().map(|(k, _)| *k).collect();
-        assert_eq!(
-            kinds,
-            vec![
-                SyntaxKind::KW_MATCH,
-                SyntaxKind::WHITESPACE,
-                SyntaxKind::L_PAREN,
-                SyntaxKind::IDENT,
-                SyntaxKind::R_PAREN,
-                SyntaxKind::WHITESPACE,
-                SyntaxKind::KW_RETURN,
-                SyntaxKind::WHITESPACE,
-                SyntaxKind::IDENT,
-            ]
+        check!(
+            kinds
+                == vec![
+                    SyntaxKind::KW_MATCH,
+                    SyntaxKind::WHITESPACE,
+                    SyntaxKind::L_PAREN,
+                    SyntaxKind::IDENT,
+                    SyntaxKind::R_PAREN,
+                    SyntaxKind::WHITESPACE,
+                    SyntaxKind::KW_RETURN,
+                    SyntaxKind::WHITESPACE,
+                    SyntaxKind::IDENT,
+                ]
         );
     }
 
@@ -588,19 +597,19 @@ mod tests {
     fn test_operators() {
         let tokens = tokenize("<= >= <> += ..");
         let kinds: Vec<_> = tokens.iter().map(|(k, _)| *k).collect();
-        assert_eq!(
-            kinds,
-            vec![
-                SyntaxKind::LE,
-                SyntaxKind::WHITESPACE,
-                SyntaxKind::GE,
-                SyntaxKind::WHITESPACE,
-                SyntaxKind::NE,
-                SyntaxKind::WHITESPACE,
-                SyntaxKind::PLUSEQ,
-                SyntaxKind::WHITESPACE,
-                SyntaxKind::DOT_DOT,
-            ]
+        check!(
+            kinds
+                == vec![
+                    SyntaxKind::LE,
+                    SyntaxKind::WHITESPACE,
+                    SyntaxKind::GE,
+                    SyntaxKind::WHITESPACE,
+                    SyntaxKind::NE,
+                    SyntaxKind::WHITESPACE,
+                    SyntaxKind::PLUSEQ,
+                    SyntaxKind::WHITESPACE,
+                    SyntaxKind::DOT_DOT,
+                ]
         );
     }
 
@@ -608,13 +617,13 @@ mod tests {
     fn test_comments() {
         let tokens = tokenize("// line comment\nMATCH");
         let kinds: Vec<_> = tokens.iter().map(|(k, _)| *k).collect();
-        assert_eq!(
-            kinds,
-            vec![
-                SyntaxKind::COMMENT,
-                SyntaxKind::WHITESPACE,
-                SyntaxKind::KW_MATCH,
-            ]
+        check!(
+            kinds
+                == vec![
+                    SyntaxKind::COMMENT,
+                    SyntaxKind::WHITESPACE,
+                    SyntaxKind::KW_MATCH,
+                ]
         );
     }
 
@@ -622,17 +631,17 @@ mod tests {
     fn test_keywords_case_insensitive() {
         let tokens = tokenize("match where MATCH WHERE");
         let kinds: Vec<_> = tokens.iter().map(|(k, _)| *k).collect();
-        assert_eq!(
-            kinds,
-            vec![
-                SyntaxKind::KW_MATCH,
-                SyntaxKind::WHITESPACE,
-                SyntaxKind::KW_WHERE,
-                SyntaxKind::WHITESPACE,
-                SyntaxKind::KW_MATCH,
-                SyntaxKind::WHITESPACE,
-                SyntaxKind::KW_WHERE,
-            ]
+        check!(
+            kinds
+                == vec![
+                    SyntaxKind::KW_MATCH,
+                    SyntaxKind::WHITESPACE,
+                    SyntaxKind::KW_WHERE,
+                    SyntaxKind::WHITESPACE,
+                    SyntaxKind::KW_MATCH,
+                    SyntaxKind::WHITESPACE,
+                    SyntaxKind::KW_WHERE,
+                ]
         );
     }
 }

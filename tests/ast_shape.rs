@@ -9,7 +9,7 @@ fn test_match_return_has_return_body() {
         QueryBody::SingleQuery(sq) => match &sq.kind {
             open_cypher::ast::query::SingleQueryKind::SinglePart(spq) => match &spq.body {
                 SinglePartBody::Return(ret) => {
-                    assert_eq!(ret.items.len(), 1);
+                    check!(ret.items.len() == 1);
                 }
                 _ => panic!("expected Return body"),
             },
@@ -29,7 +29,7 @@ fn test_match_create_has_updating_body() {
                     updating,
                     return_clause,
                 } => {
-                    assert_eq!(updating.len(), 1);
+                    check!(updating.len() == 1);
                     check!(return_clause.is_none());
                 }
                 _ => panic!("expected Updating body"),
@@ -67,7 +67,7 @@ fn test_unwind_has_expression_and_variable() {
             open_cypher::ast::query::SingleQueryKind::SinglePart(spq) => {
                 match &spq.reading_clauses[0] {
                     open_cypher::ast::query::ReadingClause::Unwind(u) => {
-                        assert_eq!(u.variable.name.name, "x");
+                        check!(u.variable.name.name == "x");
                     }
                     _ => panic!("expected Unwind clause"),
                 }
@@ -87,7 +87,7 @@ fn test_pattern_has_node() {
                 open_cypher::ast::query::SingleQueryKind::SinglePart(spq) => {
                     match &spq.reading_clauses[0] {
                         open_cypher::ast::query::ReadingClause::Match(m) => {
-                            assert_eq!(m.pattern.parts.len(), 1);
+                            check!(m.pattern.parts.len() == 1);
                             let part = &m.pattern.parts[0];
                             // The node variable is inside the anonymous pattern part
                             match &part.anonymous.element {
@@ -95,8 +95,8 @@ fn test_pattern_has_node() {
                                     start, ..
                                 } => {
                                     check!(start.variable.is_some());
-                                    assert_eq!(start.variable.as_ref().unwrap().name.name, "n");
-                                    assert_eq!(start.labels.len(), 1);
+                                    check!(start.variable.as_ref().unwrap().name.name == "n");
+                                    check!(start.labels.len() == 1);
                                 }
                                 _ => panic!("expected Path pattern element"),
                             }
