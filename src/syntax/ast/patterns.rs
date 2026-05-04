@@ -446,6 +446,10 @@ impl Properties {
     pub fn map_literal(&self) -> Option<super::expressions::MapLiteral> {
         child(&self.0)
     }
+
+    pub fn list_literal(&self) -> Option<super::expressions::ListLiteral> {
+        child(&self.0)
+    }
 }
 
 // ============================================================

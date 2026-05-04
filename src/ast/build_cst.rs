@@ -1957,23 +1957,62 @@ fn build_create_constraint(
                 .children_with_tokens()
                 .filter_map(|e| e.into_token())
                 .collect();
+            // Helper: extract property names from property chains under a node
+            let extract_props = |node: &rowan::SyntaxNode<crate::syntax::CypherLang>| {
+                node.children()
+                    .filter(|n| n.kind() == SyntaxKind::PROPERTY_LOOKUP)
+                    .filter_map(|pl| {
+                        pl.children()
+                            .find(|n| n.kind() == SyntaxKind::PROPERTY_KEY_NAME)
+                            .and_then(|pk| {
+                                pk.children()
+                                    .find(|n| n.kind() == SyntaxKind::SYMBOLIC_NAME)
+                            })
+                            .and_then(|sn| cst_c::SymbolicName::cast(sn.clone()))
+                            .map(|sn| ast_c::PropertyKeyName {
+                                name: ast_c::SymbolicName {
+                                    name: symbolic_name_text(&sn),
+                                    span: span_of(sn.syntax()),
+                                },
+                            })
+                    })
+                    .collect::<Vec<_>>()
+            };
+            // For composite: look inside PROPERTIES → LIST_LITERAL
+            let composite_props = c.properties().and_then(|p| p.list_literal()).map(|ll| {
+                ll.elements()
+                    .filter_map(|expr| {
+                        expr.syntax()
+                            .children()
+                            .find(|n| n.kind() == SyntaxKind::PROPERTY_LOOKUP)
+                            .and_then(|pl| {
+                                pl.children()
+                                    .find(|n| n.kind() == SyntaxKind::PROPERTY_KEY_NAME)
+                                    .and_then(|pk| {
+                                        pk.children()
+                                            .find(|n| n.kind() == SyntaxKind::SYMBOLIC_NAME)
+                                    })
+                                    .and_then(|sn| cst_c::SymbolicName::cast(sn.clone()))
+                                    .map(|sn| ast_c::PropertyKeyName {
+                                        name: ast_c::SymbolicName {
+                                            name: symbolic_name_text(&sn),
+                                            span: span_of(sn.syntax()),
+                                        },
+                                    })
+                            })
+                    })
+                    .collect::<Vec<_>>()
+            });
             if tokens.iter().any(|t| t.kind() == SyntaxKind::KW_UNIQUE) {
                 ast_c::ConstraintKind::Unique
             } else if tokens.iter().any(|t| t.kind() == SyntaxKind::NULL_KW) {
                 ast_c::ConstraintKind::NotNull
             } else if tokens.iter().any(|t| t.kind() == SyntaxKind::KW_KEY) {
-                let props: Vec<ast_c::PropertyKeyName> = syntax
-                    .children()
-                    .filter(|n| n.kind() == SyntaxKind::SYMBOLIC_NAME)
-                    .filter_map(|n| {
-                        cst_c::SymbolicName::cast(n.clone()).map(|sn| ast_c::PropertyKeyName {
-                            name: ast_c::SymbolicName {
-                                name: symbolic_name_text(&sn),
-                                span: span_of(&n),
-                            },
-                        })
-                    })
-                    .collect();
+                let props = if let Some(p) = composite_props {
+                    p
+                } else {
+                    extract_props(c.syntax())
+                };
                 ast_c::ConstraintKind::NodeKey { properties: props }
             } else {
                 // Property type or default

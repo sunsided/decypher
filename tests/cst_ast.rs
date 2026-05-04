@@ -917,3 +917,122 @@ fn debug_cst_dump_null() {
         println!("  expr(): {:?}", proj.expr());
     }
 }
+
+#[test]
+fn constraint_composite_node_key() {
+    use open_cypher::cst::parse as cst_parse;
+    let result = cst_parse(
+        "CREATE CONSTRAINT composite_key FOR (p:Person) REQUIRE (p.country, p.id) IS NODE KEY;",
+    );
+    check!(
+        result.errors.is_empty(),
+        "parse errors: {:?}",
+        result.errors
+    );
+    let source = result.tree();
+    let cmd = source
+        .schema_commands()
+        .next()
+        .expect("expected schema command");
+    match cmd {
+        open_cypher::cst::SchemaCommand::CreateConstraint(cc) => {
+            let ck = cc.constraint_kind().expect("expected constraint kind");
+            let tokens: Vec<_> = ck
+                .syntax()
+                .children_with_tokens()
+                .filter_map(|e| e.into_token())
+                .collect();
+            check!(
+                tokens.iter().any(|t| t.to_string() == "NODE"),
+                "expected NODE token in constraint kind"
+            );
+            check!(
+                tokens.iter().any(|t| t.to_string() == "KEY"),
+                "expected KEY token in constraint kind"
+            );
+        }
+        other => panic!("expected CreateConstraint, got {:?}", other),
+    }
+}
+
+#[test]
+fn index_label_alternatives() {
+    use open_cypher::cst::parse as cst_parse;
+    let result =
+        cst_parse("CREATE FULLTEXT INDEX person_names FOR (p:Person|Employee) ON EACH [p.name];");
+    check!(
+        result.errors.is_empty(),
+        "parse errors: {:?}",
+        result.errors
+    );
+    let source = result.tree();
+    let cmd = source
+        .schema_commands()
+        .next()
+        .expect("expected schema command");
+    match cmd {
+        open_cypher::cst::SchemaCommand::CreateIndex(ci) => {
+            let labels: Vec<_> = ci
+                .syntax()
+                .descendants()
+                .filter(|n| n.kind() == open_cypher::syntax::SyntaxKind::NODE_LABEL)
+                .collect();
+            check!(labels.len() == 2, "expected 2 labels, got {}", labels.len());
+        }
+        other => panic!("expected CreateIndex, got {:?}", other),
+    }
+}
+
+#[test]
+fn index_relationship_type_alternatives() {
+    use open_cypher::cst::parse as cst_parse;
+    let result =
+        cst_parse("CREATE FULLTEXT INDEX rel_names FOR ()-[r:KNOWS|LIKES]-() ON EACH [r.since];");
+    check!(
+        result.errors.is_empty(),
+        "parse errors: {:?}",
+        result.errors
+    );
+    let source = result.tree();
+    let cmd = source
+        .schema_commands()
+        .next()
+        .expect("expected schema command");
+    match cmd {
+        open_cypher::cst::SchemaCommand::CreateIndex(ci) => {
+            let rel_type_names: Vec<_> = ci
+                .syntax()
+                .descendants()
+                .filter(|n| n.kind() == open_cypher::syntax::SyntaxKind::REL_TYPE_NAME)
+                .collect();
+            check!(
+                rel_type_names.len() == 2,
+                "expected 2 rel type names, got {}",
+                rel_type_names.len()
+            );
+        }
+        other => panic!("expected CreateIndex, got {:?}", other),
+    }
+}
+
+#[test]
+fn collect_subquery_expr() {
+    use open_cypher::cst::parse as cst_parse;
+    let result = cst_parse("RETURN COLLECT { MATCH (n) RETURN n };");
+    check!(
+        result.errors.is_empty(),
+        "parse errors: {:?}",
+        result.errors
+    );
+    let source = result.tree();
+    let exists_subqueries: Vec<_> = source
+        .syntax()
+        .descendants()
+        .filter(|n| n.kind() == open_cypher::syntax::SyntaxKind::EXISTS_SUBQUERY)
+        .collect();
+    check!(
+        exists_subqueries.len() == 1,
+        "expected 1 EXISTS_SUBQUERY node, got {}",
+        exists_subqueries.len()
+    );
+}

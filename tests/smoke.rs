@@ -210,3 +210,24 @@ fn test_property_access() {
     let result = parse("MATCH (n) RETURN n.name.first;");
     check!(result.is_ok());
 }
+
+#[test]
+fn test_composite_node_key() {
+    let result = parse(
+        "CREATE CONSTRAINT composite_key FOR (p:Person) REQUIRE (p.country, p.id) IS NODE KEY;",
+    );
+    check!(result.is_ok(), "{:?}", result.err());
+}
+
+#[test]
+fn test_index_label_alternatives() {
+    let result =
+        parse("CREATE FULLTEXT INDEX person_names FOR (p:Person|Employee) ON EACH [p.name];");
+    check!(result.is_ok(), "{:?}", result.err());
+}
+
+#[test]
+fn test_collect_subquery() {
+    let result = parse("RETURN COLLECT { MATCH (n) RETURN n };");
+    check!(result.is_ok(), "{:?}", result.err());
+}

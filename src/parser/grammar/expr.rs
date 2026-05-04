@@ -401,6 +401,28 @@ fn parse_atom(p: &mut Parser) {
             p.expect(SyntaxKind::R_BRACE);
             p.builder.finish_node();
         }
+        SyntaxKind::IDENT
+            if is_collect_keyword(p) && p.peek_next_non_trivia() == Some(SyntaxKind::L_BRACE) =>
+        {
+            // COLLECT { subquery } expression
+            p.start_node(SyntaxKind::EXISTS_SUBQUERY);
+            p.bump(); // COLLECT
+            p.skip_trivia();
+            p.bump(); // {
+            p.skip_trivia();
+            while !p.at(SyntaxKind::R_BRACE) && p.current_len() > 0 {
+                if is_clause_start_for_subquery(p) {
+                    parse_clause(p);
+                } else {
+                    p.start_node(SyntaxKind::ERROR);
+                    p.bump();
+                    p.builder.finish_node();
+                }
+                p.skip_trivia();
+            }
+            p.expect(SyntaxKind::R_BRACE);
+            p.builder.finish_node();
+        }
         SyntaxKind::KW_COUNT if is_count_star(p) => {
             p.start_node(SyntaxKind::FUNCTION_INVOCATION);
             p.start_node(SyntaxKind::FUNCTION_NAME);
@@ -2532,7 +2554,7 @@ fn parse_index_pattern(p: &mut Parser) {
         p.bump();
         p.skip_trivia();
         // Optional variable
-        if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) {
+        if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) || is_keyword_as_name(p) {
             p.start_node(SyntaxKind::VARIABLE);
             p.start_node(SyntaxKind::SYMBOLIC_NAME);
             p.bump();
@@ -2540,19 +2562,30 @@ fn parse_index_pattern(p: &mut Parser) {
             p.builder.finish_node();
             p.skip_trivia();
         }
-        // Optional labels
+        // Optional labels with alternatives: :Label|Label2
         while p.at(SyntaxKind::COLON) {
             p.start_node(SyntaxKind::NODE_LABELS);
             p.bump();
             p.skip_trivia();
-            if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) {
-                p.start_node(SyntaxKind::NODE_LABEL);
-                p.start_node(SyntaxKind::LABEL_NAME);
-                p.start_node(SyntaxKind::SYMBOLIC_NAME);
+            loop {
+                if p.at(SyntaxKind::IDENT)
+                    || p.at(SyntaxKind::ESCAPED_IDENT)
+                    || is_keyword_as_name(p)
+                {
+                    p.start_node(SyntaxKind::NODE_LABEL);
+                    p.start_node(SyntaxKind::LABEL_NAME);
+                    p.start_node(SyntaxKind::SYMBOLIC_NAME);
+                    p.bump();
+                    p.builder.finish_node();
+                    p.builder.finish_node();
+                    p.builder.finish_node();
+                }
+                p.skip_trivia();
+                if !p.at(SyntaxKind::PIPE) {
+                    break;
+                }
                 p.bump();
-                p.builder.finish_node();
-                p.builder.finish_node();
-                p.builder.finish_node();
+                p.skip_trivia();
             }
             p.builder.finish_node();
             p.skip_trivia();
@@ -2635,7 +2668,7 @@ fn parse_create_constraint(p: &mut Parser) {
     p.expect(SyntaxKind::KW_CONSTRAINT);
     p.skip_trivia();
     // Optional constraint name
-    if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) {
+    if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) || is_keyword_as_name(p) {
         p.start_node(SyntaxKind::SCHEMA_NAME);
         p.start_node(SyntaxKind::SYMBOLIC_NAME);
         p.bump();
@@ -2669,21 +2702,62 @@ fn parse_create_constraint(p: &mut Parser) {
 }
 
 fn parse_constraint_expression(p: &mut Parser) {
-    // Parse: property_expression IS [NOT] (UNIQUE|NULL|TYPED)
-    // Parse property chain directly to avoid expr_bp consuming IS as IS NULL
-    parse_constraint_property(p);
+    // Check for composite property list: (p.a, p.b)
+    if p.at(SyntaxKind::L_PAREN) {
+        p.start_node(SyntaxKind::PROPERTIES);
+        p.start_node(SyntaxKind::LIST_LITERAL);
+        p.bump(); // (
+        p.skip_trivia();
+        loop {
+            parse_constraint_property(p);
+            p.skip_trivia();
+            if !p.at(SyntaxKind::COMMA) {
+                break;
+            }
+            p.bump(); // ,
+            p.skip_trivia();
+        }
+        p.expect(SyntaxKind::R_PAREN);
+        p.builder.finish_node(); // LIST_LITERAL
+        p.builder.finish_node(); // PROPERTIES
+    } else {
+        parse_constraint_property(p);
+    }
     p.skip_trivia();
-    // IS [NOT] constraint_type
-    if p.at(SyntaxKind::KW_IS) {
-        p.start_node(SyntaxKind::CONSTRAINT_KIND);
-        p.bump(); // IS
+    parse_constraint_kind_tail(p);
+}
+
+fn parse_constraint_kind_tail(p: &mut Parser) {
+    if !p.at(SyntaxKind::KW_IS) {
+        return;
+    }
+    p.start_node(SyntaxKind::CONSTRAINT_KIND);
+    p.bump(); // IS
+    p.skip_trivia();
+    p.eat(SyntaxKind::KW_NOT);
+    p.skip_trivia();
+
+    if p.at(SyntaxKind::KW_NODE) {
+        // NODE KEY
+        p.bump();
         p.skip_trivia();
-        p.eat(SyntaxKind::KW_NOT);
-        p.skip_trivia();
-        if p.at(SyntaxKind::KW_UNIQUE) || p.at(SyntaxKind::NULL_KW) || p.at(SyntaxKind::KW_TYPE) {
+        p.eat(SyntaxKind::KW_KEY);
+    } else if p.at(SyntaxKind::KW_UNIQUE)
+        || p.at(SyntaxKind::NULL_KW)
+        || p.at(SyntaxKind::KW_KEY)
+        || p.at(SyntaxKind::KW_TYPE)
+    {
+        p.bump();
+        if p.at(SyntaxKind::L_PAREN) {
             p.bump();
-            // PROPERTY TYPE IS (type | type | ...)
-            if p.at(SyntaxKind::L_PAREN) {
+            p.skip_trivia();
+            if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) || is_keyword_as_name(p) {
+                p.start_node(SyntaxKind::SYMBOLIC_NAME);
+                p.bump();
+                p.builder.finish_node();
+                p.skip_trivia();
+            }
+            while p.at(SyntaxKind::PIPE) {
                 p.bump();
                 p.skip_trivia();
                 if p.at(SyntaxKind::IDENT)
@@ -2695,24 +2769,11 @@ fn parse_constraint_expression(p: &mut Parser) {
                     p.builder.finish_node();
                     p.skip_trivia();
                 }
-                while p.at(SyntaxKind::PIPE) {
-                    p.bump();
-                    p.skip_trivia();
-                    if p.at(SyntaxKind::IDENT)
-                        || p.at(SyntaxKind::ESCAPED_IDENT)
-                        || is_keyword_as_name(p)
-                    {
-                        p.start_node(SyntaxKind::SYMBOLIC_NAME);
-                        p.bump();
-                        p.builder.finish_node();
-                        p.skip_trivia();
-                    }
-                }
-                p.expect(SyntaxKind::R_PAREN);
             }
+            p.expect(SyntaxKind::R_PAREN);
         }
-        p.builder.finish_node();
     }
+    p.builder.finish_node();
 }
 
 fn parse_constraint_property(p: &mut Parser) {

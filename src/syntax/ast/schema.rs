@@ -175,6 +175,10 @@ impl CreateConstraint {
         child(&self.0)
     }
 
+    pub fn properties(&self) -> Option<super::patterns::Properties> {
+        child(&self.0)
+    }
+
     pub fn options(&self) -> Option<OptionsClause> {
         child(&self.0)
     }
