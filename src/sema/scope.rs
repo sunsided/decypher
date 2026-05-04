@@ -52,9 +52,11 @@ impl ScopeStack {
         self.scopes.push(HashMap::new());
     }
 
-    /// Pop the innermost scope.
+    /// Pop the innermost scope while preserving the base scope.
     pub fn pop_scope(&mut self) {
-        self.scopes.pop();
+        if self.scopes.len() > 1 {
+            self.scopes.pop();
+        }
     }
 
     /// Bind a variable in the current (innermost) scope.
@@ -102,5 +104,25 @@ impl ScopeStack {
 impl Default for ScopeStack {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ScopeStack, SymbolKind};
+    use crate::error::Span;
+
+    #[test]
+    fn pop_scope_preserves_base_scope() {
+        let mut scopes = ScopeStack::new();
+
+        scopes.pop_scope();
+
+        assert!(
+            scopes
+                .bind("n", SymbolKind::PatternBound, Span::new(0, 1))
+                .is_ok()
+        );
+        assert!(scopes.is_bound("n"));
     }
 }
