@@ -156,6 +156,15 @@ impl<'ast> Visit<'ast> for NameResolver {
         // only the projected bindings.
         let mut projected = Vec::new();
 
+        if node.star {
+            projected.extend(
+                self.scopes
+                    .visible_bindings()
+                    .into_iter()
+                    .map(|(name, entry)| (name, entry.span)),
+            );
+        }
+
         for item in &node.items {
             self.visit_expression(&item.expression);
 
@@ -173,9 +182,9 @@ impl<'ast> Visit<'ast> for NameResolver {
         self.scopes = ScopeStack::new();
 
         for (bind_name, bind_span) in projected {
-            if let Err(first_span) =
-                self.scopes
-                    .bind(&bind_name, SymbolKind::WithAlias, bind_span)
+            if let Err(first_span) = self
+                .scopes
+                .bind(&bind_name, SymbolKind::WithAlias, bind_span)
             {
                 self.emit(SemaError::RedeclaredVariable {
                     name: bind_name,
@@ -522,14 +531,13 @@ fn bind_relationships_pattern(
 }
 
 /// Derive the projected name from an unaliased expression.
-/// Returns (name, span) for variable or property lookups, None for other expressions.
+/// Returns (name, span) only for plain variable projections.
+///
+/// openCypher requires `AS` to introduce a new variable for property lookups
+/// and other expressions.
 fn derive_projection_name(expr: &Expression) -> Option<(String, crate::error::Span)> {
     match expr {
         Expression::Variable(v) => Some((v.name.name.clone(), v.name.span)),
-        Expression::PropertyLookup { property, .. } => {
-            // For `n.name`, bind as `name`
-            Some((property.name.name.clone(), property.name.span))
-        }
-        _ => None, // Literals, function calls, etc. — not bindable
+        _ => None, // Property lookups, literals, function calls, etc. need `AS`
     }
 }

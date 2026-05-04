@@ -23,12 +23,23 @@ fn with_hides_previous_variables() {
 }
 
 #[test]
-fn with_unaliased_projection_binds() {
-    // MATCH (n) WITH n.name RETURN name — unaliased projection binds as 'name'
+fn with_unaliased_property_projection_requires_alias() {
+    // MATCH (n) WITH n.name RETURN name — property lookups do not bind `name`
+    // unless they are explicitly aliased.
     let query = parse("MATCH (n) WITH n.name RETURN name").expect("should parse");
     let result = analyze(&query);
-    // Should succeed — 'name' is bound by the unaliased projection
-    assert!(result.is_ok(), "analysis failed: {:?}", result);
+    assert!(result.is_err());
+    let errs = result.unwrap_err();
+    assert_eq!(errs.len(), 1);
+    match errs.errors[0].kind() {
+        ErrorKind::UnresolvedVariable { name } => {
+            assert_eq!(name, "name");
+        }
+        _ => panic!(
+            "expected UnresolvedVariable, got {:?}",
+            errs.errors[0].kind()
+        ),
+    }
 }
 
 #[test]
@@ -69,10 +80,8 @@ fn with_scope_prevents_access_to_earlier_vars() {
 
 #[test]
 fn with_star_projection() {
-    // WITH * should pass through all current bindings (not tested here, placeholder)
-    // For now just check it doesn't crash
+    // WITH * should preserve the current visible bindings.
     let query = parse("MATCH (n) WITH * RETURN n").expect("should parse");
     let result = analyze(&query);
-    // * is not yet implemented, so this will likely fail — document expected behavior
-    let _ = result; // Don't assert for now
+    assert!(result.is_ok(), "analysis failed: {:?}", result);
 }

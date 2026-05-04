@@ -31,7 +31,10 @@ impl ProjectionBody {
     }
 
     pub fn star_token(&self) -> Option<SyntaxToken> {
-        child_token(&self.0, SyntaxKind::STAR)
+        self.0
+            .children()
+            .find(|n| n.kind() == SyntaxKind::PROJECTION_ITEMS)
+            .and_then(|n| child_token(&n, SyntaxKind::STAR))
     }
 
     pub fn items(&self) -> impl Iterator<Item = ProjectionItem> {

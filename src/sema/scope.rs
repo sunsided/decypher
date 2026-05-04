@@ -1,7 +1,7 @@
 //! Lexical scope stack for Cypher variable tracking.
 
 use crate::error::Span;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// What kind of symbol a variable represents.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -119,6 +119,30 @@ impl ScopeStack {
     /// Check whether a variable is bound in any visible scope.
     pub fn is_bound(&self, name: &str) -> bool {
         self.resolve(name).is_some()
+    }
+
+    /// Collect visible bindings from the current scope view.
+    ///
+    /// If multiple scopes bind the same name, only the innermost visible
+    /// binding is returned.
+    pub fn visible_bindings(&self) -> Vec<(String, SymbolEntry)> {
+        let start = self.barriers.last().copied().unwrap_or(0);
+        let mut seen = HashSet::new();
+        let mut bindings = Vec::new();
+
+        for (depth, scope) in self.scopes.iter().enumerate().rev() {
+            if depth < start {
+                break;
+            }
+
+            for (name, entry) in scope {
+                if seen.insert(name.clone()) {
+                    bindings.push((name.clone(), entry.clone()));
+                }
+            }
+        }
+
+        bindings
     }
 
     /// Collect all currently bound variable names (for grouping key checks).

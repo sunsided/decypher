@@ -83,14 +83,11 @@ fn redeclare_in_foreach() {
 
 #[test]
 fn shadowing_across_scopes_allowed() {
-    // Note: WITH doesn't currently push/pop scope (that's A.3), so this will fail for now
-    // This test documents expected future behavior
+    // WITH replaces the visible scope, so reusing the same name in the
+    // projected scope should be allowed.
     let query = parse("MATCH (x) WITH x.name AS x RETURN x").expect("should parse");
     let result = analyze(&query);
-    // Currently fails because WITH doesn't implement scoping yet (A.3)
-    // We'll mark this as expected to fail until A.3 is done
-    // For now, just check it doesn't panic
-    let _ = result;
+    assert!(result.is_ok(), "analysis failed: {:?}", result);
 }
 
 #[test]
