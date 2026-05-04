@@ -93,7 +93,7 @@ impl InMemoryGraph {
 fn build_graph() -> InMemoryGraph {
     let mut g = InMemoryGraph::new();
 
-    // ── Actors (Person) ────────────────────────────────────────────────
+    // Actors (Person)
     let indy = g.add_node(
         &["Person"],
         &[("name", Value::String("Harrison Ford".to_string()))],
@@ -135,7 +135,7 @@ fn build_graph() -> InMemoryGraph {
         &[("name", Value::String("Cate Blanchett".to_string()))],
     );
 
-    // ── Movies ─────────────────────────────────────────────────────────
+    // Movies
     let raiders = g.add_node(
         &["Movie"],
         &[("name", Value::String("Raiders of the Lost Ark".to_string()))],
@@ -153,7 +153,7 @@ fn build_graph() -> InMemoryGraph {
         &[("name", Value::String("Crystal Skull".to_string()))],
     );
 
-    // ── Artifacts ──────────────────────────────────────────────────────
+    // Artifacts
     let ark = g.add_node(
         &["Artifact"],
         &[("name", Value::String("Ark of the Covenant".to_string()))],
@@ -167,7 +167,7 @@ fn build_graph() -> InMemoryGraph {
         &[("name", Value::String("Holy Grail".to_string()))],
     );
 
-    // ── Roles (characters played) ──────────────────────────────────────
+    // Roles (characters played)
     let role_indy = g.add_node(
         &["Role"],
         &[("name", Value::String("Indiana Jones".to_string()))],
@@ -206,7 +206,7 @@ fn build_graph() -> InMemoryGraph {
         &[("name", Value::String("Irina Spalko".to_string()))],
     );
 
-    // ── Person -> PLAYS_IN -> Movie ────────────────────────────────────
+    // Person -> PLAYS_IN -> Movie
     g.add_edge(indy, raiders, "PLAYS_IN", &[]);
     g.add_edge(indy, temple, "PLAYS_IN", &[]);
     g.add_edge(indy, crusade, "PLAYS_IN", &[]);
@@ -227,7 +227,7 @@ fn build_graph() -> InMemoryGraph {
     g.add_edge(vogel, crusade, "PLAYS_IN", &[]);
     g.add_edge(spalko, crystal, "PLAYS_IN", &[]);
 
-    // ── Person -> PLAYS_AS -> Role ─────────────────────────────────────
+    // Person -> PLAYS_AS -> Role
     g.add_edge(indy, role_indy, "PLAYS_AS", &[]);
     g.add_edge(marcus, role_marcus, "PLAYS_AS", &[]);
     g.add_edge(sallah, role_sallah, "PLAYS_AS", &[]);
@@ -239,7 +239,7 @@ fn build_graph() -> InMemoryGraph {
     g.add_edge(vogel, role_vogel, "PLAYS_AS", &[]);
     g.add_edge(spalko, role_spalko, "PLAYS_AS", &[]);
 
-    // ── Role -> SEEKS -> Artifact ──────────────────────────────────────
+    // Role -> SEEKS -> Artifact
     g.add_edge(role_indy, ark, "SEEKS", &[]);
     g.add_edge(role_indy, sankara, "SEEKS", &[]);
     g.add_edge(role_indy, grail, "SEEKS", &[]);
@@ -248,7 +248,7 @@ fn build_graph() -> InMemoryGraph {
     g.add_edge(role_mola_ram, sankara, "SEEKS", &[]);
     g.add_edge(role_vogel, grail, "SEEKS", &[]);
 
-    // ── Artifact -> IN_MOVIE -> Movie ──────────────────────────────────
+    // Artifact -> IN_MOVIE -> Movie
     g.add_edge(ark, raiders, "IN_MOVIE", &[]);
     g.add_edge(sankara, temple, "IN_MOVIE", &[]);
     g.add_edge(grail, crusade, "IN_MOVIE", &[]);
@@ -324,10 +324,15 @@ fn execute_match(
     if pattern.relationships.is_empty() && !pattern.nodes.is_empty() {
         // Single node pattern
         let node_pat = &pattern.nodes[0];
-        let label_filter = node_pat.labels.first().and_then(|lid| arenas.labels.name_of(*lid));
+        let label_filter = node_pat
+            .labels
+            .first()
+            .and_then(|lid| arenas.labels.name_of(*lid));
 
         for node in graph.nodes.values() {
-            if let Some(lbl) = label_filter && !node.labels.iter().any(|l| l == lbl) {
+            if let Some(lbl) = label_filter
+                && !node.labels.iter().any(|l| l == lbl)
+            {
                 continue;
             }
             let mut ctx = HashMap::new();
@@ -342,14 +347,23 @@ fn execute_match(
         let right_pat = &pattern.nodes[1];
         let rel_pat = &pattern.relationships[0];
 
-        let left_label = left_pat.labels.first().and_then(|lid| arenas.labels.name_of(*lid));
-        let right_label = right_pat.labels.first().and_then(|lid| arenas.labels.name_of(*lid));
-        let rel_type = rel_pat.types.first().and_then(|tid| {
-            arenas.relationship_types.name_of(*tid)
-        });
+        let left_label = left_pat
+            .labels
+            .first()
+            .and_then(|lid| arenas.labels.name_of(*lid));
+        let right_label = right_pat
+            .labels
+            .first()
+            .and_then(|lid| arenas.labels.name_of(*lid));
+        let rel_type = rel_pat
+            .types
+            .first()
+            .and_then(|tid| arenas.relationship_types.name_of(*tid));
 
         for edge in &graph.edges {
-            if let Some(rt) = rel_type && edge.rel_type != *rt {
+            if let Some(rt) = rel_type
+                && edge.rel_type != *rt
+            {
                 continue;
             }
 
@@ -365,10 +379,14 @@ fn execute_match(
                 let left_node = graph.nodes.get(&left_id).unwrap();
                 let right_node = graph.nodes.get(&right_id).unwrap();
 
-                if let Some(lbl) = left_label && !left_node.labels.iter().any(|l| l == lbl) {
+                if let Some(lbl) = left_label
+                    && !left_node.labels.iter().any(|l| l == lbl)
+                {
                     continue;
                 }
-                if let Some(lbl) = right_label && !right_node.labels.iter().any(|l| l == lbl) {
+                if let Some(lbl) = right_label
+                    && !right_node.labels.iter().any(|l| l == lbl)
+                {
                     continue;
                 }
 
@@ -443,7 +461,8 @@ fn eval_hir_expr(
                     HirComparisonOperator::Lt => value_less_than(&left_val, &right_val),
                     HirComparisonOperator::Gt => value_greater_than(&left_val, &right_val),
                     HirComparisonOperator::Le => {
-                        values_equal(&left_val, &right_val) || value_less_than(&left_val, &right_val)
+                        values_equal(&left_val, &right_val)
+                            || value_less_than(&left_val, &right_val)
                     }
                     HirComparisonOperator::Ge => {
                         values_equal(&left_val, &right_val)
@@ -468,12 +487,8 @@ fn eval_hir_expr(
                 BinaryOp::Ne => Value::Bool(!values_equal(&l, &r)),
                 BinaryOp::Lt => Value::Bool(value_less_than(&l, &r)),
                 BinaryOp::Gt => Value::Bool(value_greater_than(&l, &r)),
-                BinaryOp::Le => {
-                    Value::Bool(values_equal(&l, &r) || value_less_than(&l, &r))
-                }
-                BinaryOp::Ge => {
-                    Value::Bool(values_equal(&l, &r) || value_greater_than(&l, &r))
-                }
+                BinaryOp::Le => Value::Bool(values_equal(&l, &r) || value_less_than(&l, &r)),
+                BinaryOp::Ge => Value::Bool(values_equal(&l, &r) || value_greater_than(&l, &r)),
                 _ => panic!("Unsupported binary operator: {:?}", op),
             }
         }
@@ -487,7 +502,10 @@ fn eval_hir_expr_bool(
     expr_id: ExprId,
     arenas: &HirArenas,
 ) -> bool {
-    matches!(eval_hir_expr(graph, ctx, expr_id, arenas), Value::Bool(true))
+    matches!(
+        eval_hir_expr(graph, ctx, expr_id, arenas),
+        Value::Bool(true)
+    )
 }
 
 fn values_equal(a: &Value, b: &Value) -> bool {

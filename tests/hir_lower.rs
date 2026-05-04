@@ -33,8 +33,8 @@ fn analyze_optional_match() {
 
 #[test]
 fn analyze_from_preparsed_query() {
-    let query = cypher::parse("MATCH (p:Person)-[:KNOWS]->(f) WHERE p.age > 18 RETURN f.name")
-        .unwrap();
+    let query =
+        cypher::parse("MATCH (p:Person)-[:KNOWS]->(f) WHERE p.age > 18 RETURN f.name").unwrap();
     let hir = analyze(query).unwrap();
     assert_eq!(hir.parts.len(), 1);
 }
