@@ -1,10 +1,11 @@
 //! CST → typed AST lowering.
 //!
-//! Walks the rowan-based CST wrappers produced by Phase B and builds the
-//! existing `ast::query::Query` tree. No public API change — `parse()`
-//! stays on pest until Phase D.
+//! Walks the rowan-based CST wrappers and builds the existing
+//! `ast::query::Query` tree. This is the path used by `parse()`.
 
-use crate::ast::build_shared::{decode_string_content, parse_double, parse_integer};
+mod shared;
+
+use self::shared::{decode_string_content, parse_double, parse_integer};
 use crate::error::{CypherError, ErrorKind, Result, Span};
 use crate::syntax::ast::AstNode;
 use crate::syntax::SyntaxKind;
