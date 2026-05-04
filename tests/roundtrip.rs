@@ -1,6 +1,6 @@
 use assert2::check;
-use open_cypher::ast::ToCypher;
-use open_cypher::parse;
+use cypher::ast::ToCypher;
+use cypher::parse;
 
 fn roundtrip(input: &str) {
     let parsed = parse(input).expect("parse should succeed");

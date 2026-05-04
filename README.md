@@ -14,7 +14,7 @@ open-cypher = "0.2"
 ```
 
 ```rust
-use open_cypher::parse;
+use cypher::parse;
 
 let query = parse("MATCH (n:Person) WHERE n.age > 18 RETURN n.name;").unwrap();
 println!("{:#?}", query);
@@ -27,12 +27,12 @@ println!("{:#?}", query);
 - **Ergonomic errors** — `CypherError` with syntax, AST build, and unsupported-production variants via `thiserror`.
 - **Cypher emission** — The `ToCypher` trait renders any AST node back into valid openCypher text, enabling round-trips (`parse → ast → to_cypher → parse`).
 - **`serde` support** — Optional `serde` feature for `Serialize`/`Deserialize` derives on all AST nodes.
-- **Typed CST (unstable)** — A rust-analyzer-style typed wrapper layer over a lossless rowan CST, available under `open_cypher::cst`. Each CST node (`SourceFile`, `MatchClause`, `Expression`, …) exposes typed accessor methods instead of raw `SyntaxKind` matches. This is what the public `parse()` function uses internally.
+- **Typed CST (unstable)** — A rust-analyzer-style typed wrapper layer over a lossless rowan CST, available under `cypher::cst`. Each CST node (`SourceFile`, `MatchClause`, `Expression`, …) exposes typed accessor methods instead of raw `SyntaxKind` matches. This is what the public `parse()` function uses internally.
 
 ### Typed CST example
 
 ```rust
-use open_cypher::cst::{parse, AstNode, BinOp, Expression};
+use cypher::cst::{parse, AstNode, BinOp, Expression};
 
 let result = parse("MATCH (n:Person) WHERE n.age > 18 RETURN n.name");
 let source = result.tree();
@@ -49,8 +49,8 @@ for stmt in source.statements() {
 The `ToCypher` trait converts AST nodes back into openCypher text. This is useful for query rewriting, formatting, and round-trip testing.
 
 ```rust
-use open_cypher::ast::ToCypher;
-use open_cypher::parse;
+use cypher::ast::ToCypher;
+use cypher::parse;
 
 let query = parse("MATCH (n:Person) WHERE n.age > 18 RETURN n.name;").unwrap();
 let cypher = query.to_cypher();

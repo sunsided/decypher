@@ -8,9 +8,9 @@ mod error;
 mod resolve;
 mod scope;
 
-pub use aggregation::{check_aggregation, AggregationViolation};
+pub use aggregation::{AggregationViolation, check_aggregation};
 pub use error::SemaError;
-pub use resolve::{resolve_names, ResolutionResult};
+pub use resolve::{ResolutionResult, resolve_names};
 pub use scope::{ScopeStack, SymbolKind};
 
 use crate::ast::query::Query;

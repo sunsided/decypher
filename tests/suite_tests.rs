@@ -1,5 +1,5 @@
 use assert2::check;
-use open_cypher::parse;
+use cypher::parse;
 
 fn run_suite(name: &str, source: &str) {
     let queries: Vec<String> = source

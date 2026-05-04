@@ -10,7 +10,7 @@ mod miette_impl {
 
     impl Diagnostic for CypherError {
         fn code<'a>(&'a self) -> Option<Box<dyn std::fmt::Display + 'a>> {
-            Some(Box::new(format!("open_cypher::{:?}", self.kind)))
+            Some(Box::new(format!("cypher::{:?}", self.kind)))
         }
 
         fn severity(&self) -> Option<miette::Severity> {

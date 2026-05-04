@@ -6,7 +6,7 @@
 //!
 //! # Example: matching on error kinds
 //! ```ignore
-//! use open_cypher::{parse, ErrorKind, CypherError};
+//! use cypher::{parse, ErrorKind, CypherError};
 //!
 //! match parse("RETURN;") {
 //!     Err(CypherError { kind, .. }) => {

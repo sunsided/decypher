@@ -23,7 +23,7 @@ pub mod syntax;
 /// # Example
 ///
 /// ```ignore
-/// use open_cypher::cst::{parse, AstNode};
+/// use cypher::cst::{parse, AstNode};
 ///
 /// let result = parse("MATCH (n:Person) RETURN n.name");
 /// let source = result.tree();
@@ -34,14 +34,14 @@ pub mod syntax;
 /// }
 /// ```
 pub mod cst {
-    pub use crate::parser::{parse, Parse};
+    pub use crate::parser::{Parse, parse};
     pub use crate::syntax::ast::clauses::*;
     pub use crate::syntax::ast::expressions::*;
     pub use crate::syntax::ast::patterns::*;
     pub use crate::syntax::ast::projection::*;
     pub use crate::syntax::ast::schema::*;
     pub use crate::syntax::ast::support::{
-        child, child_token, child_tokens, children, AstChildren,
+        AstChildren, child, child_token, child_tokens, children,
     };
     pub use crate::syntax::ast::tokens::*;
     pub use crate::syntax::ast::top_level::*;
@@ -50,7 +50,7 @@ pub mod cst {
 
 pub use crate::ast::query::Query;
 pub use crate::error::{CypherError, Diagnostics, ErrorKind, Expected, Note, Result, Span};
-pub use crate::recover::{parse_with_options, ParseOptions};
+pub use crate::recover::{ParseOptions, parse_with_options};
 
 use std::sync::Arc;
 
@@ -61,8 +61,8 @@ pub fn parse(input: &str) -> Result<Query> {
 
 /// Parse a Cypher query string with a source label for diagnostics.
 pub fn parse_with_label(input: &str, label: impl Into<Arc<str>>) -> Result<Query> {
-    use crate::syntax::ast::top_level::SourceFile;
     use crate::syntax::ast::AstNode;
+    use crate::syntax::ast::top_level::SourceFile;
 
     if input.trim().is_empty() {
         return Err(CypherError {

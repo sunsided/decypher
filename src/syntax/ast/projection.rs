@@ -1,7 +1,7 @@
 use crate::syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 
 use super::expressions::Expression;
-use super::support::{child, child_token, children, AstChildren};
+use super::support::{AstChildren, child, child_token, children};
 use super::traits::AstNode;
 
 #[derive(Clone, Debug)]

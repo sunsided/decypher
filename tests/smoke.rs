@@ -1,5 +1,5 @@
 use assert2::check;
-use open_cypher::parse;
+use cypher::parse;
 
 #[test]
 fn test_exists_pattern_function() {

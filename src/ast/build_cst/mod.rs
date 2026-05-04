@@ -7,8 +7,8 @@ mod shared;
 
 use self::shared::{decode_string_content, parse_double, parse_integer};
 use crate::error::{CypherError, ErrorKind, Result, Span};
-use crate::syntax::ast::AstNode;
 use crate::syntax::SyntaxKind;
+use crate::syntax::ast::AstNode;
 
 // ── CST module aliases (source) ─────────────────────────────────────
 use cst_c::*;
@@ -104,7 +104,7 @@ fn build_statement(stmt: Statement) -> Result<Vec<ast_c::QueryBody>> {
             Clause::StandaloneCall(c) => {
                 return Ok(vec![ast_c::QueryBody::Standalone(build_standalone_call(
                     c.clone(),
-                )?)])
+                )?)]);
             }
             _ => {}
         }
@@ -542,7 +542,7 @@ fn build_return(c: ReturnClause) -> Result<ast_c::Return> {
                 source_label: None,
                 notes: Vec::new(),
                 source: None,
-            })
+            });
         }
     };
     Ok(ast_c::Return {

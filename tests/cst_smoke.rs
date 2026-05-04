@@ -2,7 +2,7 @@
 //! common openCypher queries correctly.
 
 use assert2::check;
-use open_cypher::parse;
+use cypher::parse;
 
 /// All smoke-test queries, verified against the rowan parser.
 #[test]

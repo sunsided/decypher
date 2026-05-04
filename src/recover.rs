@@ -1,7 +1,7 @@
 //! Multi-error recovery via resync-at-statement-boundary.
 
 use crate::error::{CypherError, Diagnostics, Span};
-use crate::{parse_with_label, Query};
+use crate::{Query, parse_with_label};
 use std::sync::Arc;
 
 #[derive(Debug, Clone, Default)]

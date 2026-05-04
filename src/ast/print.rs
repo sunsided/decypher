@@ -49,8 +49,8 @@ pub trait ToCypher {
     /// # Example
     ///
     /// ```
-    /// use open_cypher::ast::ToCypher;
-    /// use open_cypher::parse;
+    /// use cypher::ast::ToCypher;
+    /// use cypher::parse;
     ///
     /// let query = parse("MATCH (n) RETURN n;").unwrap();
     /// println!("{}", query.display());

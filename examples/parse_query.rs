@@ -1,4 +1,4 @@
-use open_cypher::parse;
+use cypher::parse;
 
 fn main() {
     let code = "MATCH (n:Person) WHERE n.age > 18 RETURN n.name;";

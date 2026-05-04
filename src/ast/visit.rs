@@ -11,9 +11,9 @@
 //!
 //! # Example: counting labels
 //! ```
-//! use open_cypher::parse;
-//! use open_cypher::ast::visit::{Visit, walk_node_pattern};
-//! use open_cypher::ast::pattern::NodePattern;
+//! use cypher::parse;
+//! use cypher::ast::visit::{Visit, walk_node_pattern};
+//! use cypher::ast::pattern::NodePattern;
 //!
 //! struct LabelCounter { count: usize }
 //!

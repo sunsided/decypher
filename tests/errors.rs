@@ -1,7 +1,7 @@
 use assert2::check;
-use open_cypher::parse;
-use open_cypher::CypherError;
-use open_cypher::ErrorKind;
+use cypher::CypherError;
+use cypher::ErrorKind;
+use cypher::parse;
 
 #[test]
 fn test_empty_string() {
@@ -120,7 +120,7 @@ fn test_render_produces_output() {
 
 #[test]
 fn test_diagnostics_wrapper() {
-    use open_cypher::parse_all;
+    use cypher::parse_all;
     let (query, diags) = parse_all("RETURN;");
     check!(query.is_none());
     check!(!diags.is_empty());
@@ -129,7 +129,7 @@ fn test_diagnostics_wrapper() {
 
 #[test]
 fn test_parse_with_label() {
-    use open_cypher::parse_with_label;
+    use cypher::parse_with_label;
     let result = parse_with_label("RETURN 1", "test.cypher");
     check!(result.is_ok());
 
