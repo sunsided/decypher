@@ -52,8 +52,12 @@ impl ScopeStack {
         self.scopes.push(HashMap::new());
     }
 
-    /// Pop the innermost scope while preserving the base scope.
+    /// Pop the innermost scope.
+    ///
+    /// Does nothing if only the base scope remains (to prevent stack underflow).
+    /// A `debug_assert!` fires in tests if this guard is triggered unexpectedly.
     pub fn pop_scope(&mut self) {
+        debug_assert!(self.scopes.len() > 1, "attempted to pop the base scope");
         if self.scopes.len() > 1 {
             self.scopes.pop();
         }

@@ -251,21 +251,3 @@ fn extract_variable_name(expr: &Expression) -> Option<String> {
         _ => None,
     }
 }
-
-impl SemaError {
-    fn into_error(self) -> crate::error::CypherError {
-        crate::error::CypherError {
-            kind: self.to_error_kind(),
-            span: match &self {
-                SemaError::UnresolvedVariable { span, .. } => *span,
-                SemaError::RedeclaredVariable { redecl_span, .. } => *redecl_span,
-                SemaError::AggregationMix { span, .. } => *span,
-                SemaError::DistinctNotAllowed { span } => *span,
-                SemaError::InvalidReference { span, .. } => *span,
-            },
-            source_label: None,
-            notes: Vec::new(),
-            source: None,
-        }
-    }
-}

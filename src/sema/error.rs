@@ -1,6 +1,6 @@
 //! SemaError wrapper that maps semantic issues to ErrorKind.
 
-use crate::error::{ErrorKind, Span};
+use crate::error::{CypherError, ErrorKind, Span};
 
 /// A semantic analysis error.
 ///
@@ -53,6 +53,23 @@ impl SemaError {
                 name: name.clone(),
                 reason,
             },
+        }
+    }
+
+    /// Convert to a full `CypherError`.
+    pub fn into_error(self) -> CypherError {
+        CypherError {
+            kind: self.to_error_kind(),
+            span: match &self {
+                SemaError::UnresolvedVariable { span, .. } => *span,
+                SemaError::RedeclaredVariable { redecl_span, .. } => *redecl_span,
+                SemaError::AggregationMix { span, .. } => *span,
+                SemaError::DistinctNotAllowed { span } => *span,
+                SemaError::InvalidReference { span, .. } => *span,
+            },
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
         }
     }
 }
