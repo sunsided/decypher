@@ -1,8 +1,10 @@
-use cypher::ast::expr::{ComparisonOperator, Expression, Literal};
-use cypher::ast::pattern::{
-    LabelExpression, NodePattern, PatternElement, RelationshipDirection, RelationshipPattern,
+use cypher::hir::arena::{BindingId, ExprId, HirArenas};
+use cypher::hir::expr::{
+    BinaryOp, ComparisonOperator as HirComparisonOperator, ExprKind, Literal as HirLiteral,
 };
-use cypher::ast::query::{Query, QueryBody, ReadingClause, SinglePartBody, SingleQueryKind};
+use cypher::hir::ops::MatchOp;
+use cypher::hir::pattern::RelationshipDirection;
+use cypher::hir::{HirQuery, Operation};
 use std::collections::HashMap;
 
 type NodeId = usize;
@@ -14,6 +16,8 @@ enum Value {
     Float(f64),
     Bool(bool),
     Null,
+    Node(NodeId),
+    Edge(NodeId, NodeId, String),
 }
 
 impl std::fmt::Display for Value {
@@ -24,6 +28,8 @@ impl std::fmt::Display for Value {
             Value::Float(fl) => write!(f, "{}", fl),
             Value::Bool(b) => write!(f, "{}", b),
             Value::Null => write!(f, "NULL"),
+            Value::Node(id) => write!(f, "Node({})", id),
+            Value::Edge(from, to, rel_type) => write!(f, "[:{} {}->{}]", rel_type, from, to),
         }
     }
 }
@@ -250,175 +256,56 @@ fn build_graph() -> InMemoryGraph {
     g
 }
 
-fn interpret(graph: &InMemoryGraph, query: &Query) -> Vec<Vec<Value>> {
-    let statement = &query.statements[0];
-    let QueryBody::SingleQuery(sq) = statement else {
-        panic!("Only single queries are supported");
-    };
-    let SingleQueryKind::SinglePart(sp) = &sq.kind else {
-        panic!("Only single-part queries are supported");
-    };
+fn interpret(graph: &InMemoryGraph, hir: &HirQuery) -> Vec<Vec<Value>> {
+    let mut rows: Vec<HashMap<BindingId, Value>> = Vec::new();
 
-    let match_clause = sp.reading_clauses.iter().find_map(|rc| match rc {
-        ReadingClause::Match(m) => Some(m),
-        _ => None,
-    });
-
-    let QueryBody::SingleQuery(ret_sq) = statement else {
-        unreachable!()
-    };
-    let SingleQueryKind::SinglePart(ret_sp) = &ret_sq.kind else {
-        unreachable!()
-    };
-    let SinglePartBody::Return(ret) = &ret_sp.body else {
-        panic!("Only RETURN body is supported");
-    };
-
-    let mut rows: Vec<HashMap<String, Binding>> = Vec::new();
-
-    if let Some(m) = match_clause {
-        let part = m.pattern.parts.first().expect("MATCH must have a pattern");
-        let anonymous = &part.anonymous;
-        let PatternElement::Path { start, chains } = &anonymous.element else {
-            panic!("Only path patterns are supported");
-        };
-
-        let start_label = get_node_label(start);
-        let start_var = get_node_variable(start);
-
-        if chains.is_empty() {
-            for node in graph.nodes.values() {
-                if let Some(ref lbl) = start_label {
-                    if !node.labels.contains(lbl) {
-                        continue;
-                    }
+    for part in &hir.parts {
+        for op in &part.operations {
+            match op {
+                Operation::Match(match_op) | Operation::OptionalMatch(match_op) => {
+                    let matched = execute_match(graph, match_op, &hir.arenas);
+                    rows.extend(matched);
                 }
-                let mut ctx = HashMap::new();
-                if let Some(ref v) = start_var {
-                    ctx.insert(v.clone(), Binding::Node(node.id));
+                Operation::Filter(filter_op) => {
+                    rows.retain(|ctx| {
+                        eval_hir_expr_bool(graph, ctx, filter_op.predicate, &hir.arenas)
+                    });
                 }
-                if evaluate_where(graph, &ctx, m.where_clause.as_ref()) {
-                    rows.push(ctx);
-                }
-            }
-        } else if chains.len() == 1 {
-            let chain = &chains[0];
-            let end = &chain.node;
-            let end_label = get_node_label(end);
-            let end_var = get_node_variable(end);
-            let rel_var = get_rel_variable(&chain.relationship);
-            let rel_type = get_rel_type(&chain.relationship);
-            let dir = &chain.relationship.direction;
-
-            for edge in &graph.edges {
-                if let Some(ref rt) = rel_type {
-                    if edge.rel_type != *rt {
-                        continue;
-                    }
-                }
-
-                let (from_node_id, to_node_id) = match dir {
-                    RelationshipDirection::Left => (edge.to, edge.from),
-                    RelationshipDirection::Right => (edge.from, edge.to),
-                    RelationshipDirection::Both | RelationshipDirection::Undirected => {
-                        let from_node = graph.nodes.get(&edge.from).unwrap();
-                        let to_node = graph.nodes.get(&edge.to).unwrap();
-
-                        let start_ok = start_label
-                            .as_ref()
-                            .map_or(true, |l| from_node.labels.contains(l));
-                        let end_ok = end_label
-                            .as_ref()
-                            .map_or(true, |l| to_node.labels.contains(l));
-
-                        if start_ok && end_ok {
-                            let mut ctx1 = HashMap::new();
-                            if let Some(ref v) = start_var {
-                                ctx1.insert(v.clone(), Binding::Node(edge.from));
-                            }
-                            if let Some(ref v) = end_var {
-                                ctx1.insert(v.clone(), Binding::Node(edge.to));
-                            }
-                            if let Some(ref v) = rel_var {
-                                ctx1.insert(
-                                    v.clone(),
-                                    Binding::Edge(edge.from, edge.to, edge.rel_type.clone()),
-                                );
-                            }
-                            if evaluate_where(graph, &ctx1, m.where_clause.as_ref()) {
-                                rows.push(ctx1);
-                            }
+                Operation::Project(project_op) => {
+                    let mut new_rows = Vec::new();
+                    for ctx in rows {
+                        let mut new_ctx = HashMap::new();
+                        for item in &project_op.items {
+                            let val = eval_hir_expr(graph, &ctx, item.expression, &hir.arenas);
+                            new_ctx.insert(item.alias, val);
                         }
-
-                        let start_ok2 = start_label
-                            .as_ref()
-                            .map_or(true, |l| to_node.labels.contains(l));
-                        let end_ok2 = end_label
-                            .as_ref()
-                            .map_or(true, |l| from_node.labels.contains(l));
-
-                        if start_ok2 && end_ok2 {
-                            let mut ctx2 = HashMap::new();
-                            if let Some(ref v) = start_var {
-                                ctx2.insert(v.clone(), Binding::Node(edge.to));
-                            }
-                            if let Some(ref v) = end_var {
-                                ctx2.insert(v.clone(), Binding::Node(edge.from));
-                            }
-                            if let Some(ref v) = rel_var {
-                                ctx2.insert(
-                                    v.clone(),
-                                    Binding::Edge(edge.to, edge.from, edge.rel_type.clone()),
-                                );
-                            }
-                            if evaluate_where(graph, &ctx2, m.where_clause.as_ref()) {
-                                rows.push(ctx2);
-                            }
-                        }
-                        continue;
+                        new_rows.push(new_ctx);
                     }
-                };
-
-                let from_node = graph.nodes.get(&from_node_id).unwrap();
-                let to_node = graph.nodes.get(&to_node_id).unwrap();
-                let start_ok = start_label
-                    .as_ref()
-                    .map_or(true, |l| from_node.labels.contains(l));
-                let end_ok = end_label
-                    .as_ref()
-                    .map_or(true, |l| to_node.labels.contains(l));
-
-                if start_ok && end_ok {
-                    let mut ctx = HashMap::new();
-                    if let Some(ref v) = start_var {
-                        ctx.insert(v.clone(), Binding::Node(from_node_id));
-                    }
-                    if let Some(ref v) = end_var {
-                        ctx.insert(v.clone(), Binding::Node(to_node_id));
-                    }
-                    if let Some(ref v) = rel_var {
-                        ctx.insert(
-                            v.clone(),
-                            Binding::Edge(edge.from, edge.to, edge.rel_type.clone()),
-                        );
-                    }
-                    if evaluate_where(graph, &ctx, m.where_clause.as_ref()) {
-                        rows.push(ctx);
-                    }
+                    rows = new_rows;
                 }
+                Operation::Return(_) => {
+                    // Terminal — results are already projected
+                }
+                _ => {}
             }
-        } else {
-            panic!("Only single-relationship patterns are supported");
         }
-    } else {
-        panic!("No MATCH clause found");
+    }
+
+    // Determine column order from the last Project operation
+    let mut col_bindings: Vec<BindingId> = Vec::new();
+    for part in &hir.parts {
+        for op in &part.operations {
+            if let Operation::Project(project_op) = op {
+                col_bindings = project_op.items.iter().map(|item| item.alias).collect();
+            }
+        }
     }
 
     let mut results = Vec::new();
     for ctx in rows {
         let mut row = Vec::new();
-        for item in &ret.items {
-            row.push(eval_expr(graph, &ctx, &item.expression));
+        for binding_id in &col_bindings {
+            row.push(ctx.get(binding_id).cloned().unwrap_or(Value::Null));
         }
         results.push(row);
     }
@@ -426,129 +313,181 @@ fn interpret(graph: &InMemoryGraph, query: &Query) -> Vec<Vec<Value>> {
     results
 }
 
-#[derive(Debug, Clone)]
-enum Binding {
-    Node(NodeId),
-    Edge(NodeId, NodeId, String),
-}
-
-fn get_node_label(node: &NodePattern) -> Option<String> {
-    node.labels.first().and_then(|l| match l {
-        LabelExpression::Static(s) => Some(s.name.clone()),
-        _ => None,
-    })
-}
-
-fn get_node_variable(node: &NodePattern) -> Option<String> {
-    node.variable.as_ref().map(|v| v.name.name.clone())
-}
-
-fn get_rel_variable(rel: &RelationshipPattern) -> Option<String> {
-    rel.detail
-        .as_ref()
-        .and_then(|d| d.variable.as_ref().map(|v| v.name.name.clone()))
-}
-
-fn get_rel_type(rel: &RelationshipPattern) -> Option<String> {
-    rel.detail.as_ref().and_then(|d| {
-        d.types.as_ref().and_then(|t| match t {
-            LabelExpression::Static(s) => Some(s.name.clone()),
-            _ => None,
-        })
-    })
-}
-
-fn evaluate_where(
+fn execute_match(
     graph: &InMemoryGraph,
-    ctx: &HashMap<String, Binding>,
-    where_clause: Option<&Expression>,
-) -> bool {
-    let Some(expr) = where_clause else {
-        return true;
-    };
-    match expr {
-        Expression::Comparison { lhs, operators, .. } => {
-            let left_val = eval_expr(graph, ctx, lhs);
-            for (op, rhs) in operators {
-                let right_val = eval_expr(graph, ctx, rhs);
-                match op {
-                    ComparisonOperator::Eq => {
-                        if !values_equal(&left_val, &right_val) {
-                            return false;
-                        }
-                    }
-                    _ => panic!("Only = operator is supported in WHERE"),
-                }
+    match_op: &MatchOp,
+    arenas: &HirArenas,
+) -> Vec<HashMap<BindingId, Value>> {
+    let pattern = &match_op.pattern;
+    let mut rows = Vec::new();
+
+    if pattern.relationships.is_empty() && !pattern.nodes.is_empty() {
+        // Single node pattern
+        let node_pat = &pattern.nodes[0];
+        let label_filter = node_pat.labels.first().and_then(|lid| arenas.labels.name_of(*lid));
+
+        for node in graph.nodes.values() {
+            if let Some(lbl) = label_filter && !node.labels.iter().any(|l| l == lbl) {
+                continue;
             }
-            true
+            let mut ctx = HashMap::new();
+            if let Some(binding_id) = node_pat.binding {
+                ctx.insert(binding_id, Value::Node(node.id));
+            }
+            rows.push(ctx);
         }
-        _ => panic!("Unsupported WHERE expression"),
+    } else if pattern.relationships.len() == 1 && pattern.nodes.len() == 2 {
+        // Single relationship pattern
+        let left_pat = &pattern.nodes[0];
+        let right_pat = &pattern.nodes[1];
+        let rel_pat = &pattern.relationships[0];
+
+        let left_label = left_pat.labels.first().and_then(|lid| arenas.labels.name_of(*lid));
+        let right_label = right_pat.labels.first().and_then(|lid| arenas.labels.name_of(*lid));
+        let rel_type = rel_pat.types.first().and_then(|tid| {
+            arenas.relationship_types.name_of(*tid)
+        });
+
+        for edge in &graph.edges {
+            if let Some(rt) = rel_type && edge.rel_type != *rt {
+                continue;
+            }
+
+            let candidates = match rel_pat.direction {
+                RelationshipDirection::LeftToRight => vec![(edge.from, edge.to)],
+                RelationshipDirection::RightToLeft => vec![(edge.to, edge.from)],
+                RelationshipDirection::Undirected | RelationshipDirection::Both => {
+                    vec![(edge.from, edge.to), (edge.to, edge.from)]
+                }
+            };
+
+            for (left_id, right_id) in candidates {
+                let left_node = graph.nodes.get(&left_id).unwrap();
+                let right_node = graph.nodes.get(&right_id).unwrap();
+
+                if let Some(lbl) = left_label && !left_node.labels.iter().any(|l| l == lbl) {
+                    continue;
+                }
+                if let Some(lbl) = right_label && !right_node.labels.iter().any(|l| l == lbl) {
+                    continue;
+                }
+
+                let mut ctx = HashMap::new();
+                if let Some(bid) = left_pat.binding {
+                    ctx.insert(bid, Value::Node(left_id));
+                }
+                if let Some(bid) = right_pat.binding {
+                    ctx.insert(bid, Value::Node(right_id));
+                }
+                if let Some(bid) = rel_pat.binding {
+                    ctx.insert(bid, Value::Edge(edge.from, edge.to, edge.rel_type.clone()));
+                }
+                rows.push(ctx);
+            }
+        }
+    } else {
+        panic!("Only single-node and single-rel patterns are supported");
+    }
+
+    // Apply predicates (WHERE expressions folded into MatchOp)
+    for pred_id in &match_op.predicates {
+        rows.retain(|ctx| eval_hir_expr_bool(graph, ctx, *pred_id, arenas));
+    }
+
+    rows
+}
+
+fn eval_hir_expr(
+    graph: &InMemoryGraph,
+    ctx: &HashMap<BindingId, Value>,
+    expr_id: ExprId,
+    arenas: &HirArenas,
+) -> Value {
+    let expr = arenas.expressions.get(expr_id);
+    match &expr.kind {
+        ExprKind::Literal(lit) => match lit {
+            HirLiteral::String(s) => Value::String(s.clone()),
+            HirLiteral::Integer(i) => Value::Integer(*i),
+            HirLiteral::Float(f) => Value::Float(*f),
+            HirLiteral::Boolean(b) => Value::Bool(*b),
+            HirLiteral::Null => Value::Null,
+        },
+        ExprKind::Binding(binding_id) => ctx.get(binding_id).cloned().unwrap_or(Value::Null),
+        ExprKind::Property { base, key } => {
+            let base_val = eval_hir_expr(graph, ctx, *base, arenas);
+            let key_name = arenas.property_keys.name_of(*key).unwrap_or("?");
+            match base_val {
+                Value::Node(id) => graph
+                    .nodes
+                    .get(&id)
+                    .and_then(|n| n.props.get(key_name))
+                    .cloned()
+                    .unwrap_or(Value::Null),
+                Value::Edge(from, to, rel_type) => graph
+                    .edges
+                    .iter()
+                    .find(|e| e.from == from && e.to == to && e.rel_type == rel_type)
+                    .and_then(|e| e.props.get(key_name))
+                    .cloned()
+                    .unwrap_or(Value::Null),
+                _ => Value::Null,
+            }
+        }
+        ExprKind::Comparison { left, operators } => {
+            let mut left_val = eval_hir_expr(graph, ctx, *left, arenas);
+            for (op, right_id) in operators {
+                let right_val = eval_hir_expr(graph, ctx, *right_id, arenas);
+                let matched = match op {
+                    HirComparisonOperator::Eq => values_equal(&left_val, &right_val),
+                    HirComparisonOperator::Ne => !values_equal(&left_val, &right_val),
+                    HirComparisonOperator::Lt => value_less_than(&left_val, &right_val),
+                    HirComparisonOperator::Gt => value_greater_than(&left_val, &right_val),
+                    HirComparisonOperator::Le => {
+                        values_equal(&left_val, &right_val) || value_less_than(&left_val, &right_val)
+                    }
+                    HirComparisonOperator::Ge => {
+                        values_equal(&left_val, &right_val)
+                            || value_greater_than(&left_val, &right_val)
+                    }
+                    _ => panic!("Unsupported comparison operator: {:?}", op),
+                };
+                if !matched {
+                    return Value::Bool(false);
+                }
+                left_val = right_val;
+            }
+            Value::Bool(true)
+        }
+        ExprKind::Binary { op, left, right } => {
+            let l = eval_hir_expr(graph, ctx, *left, arenas);
+            let r = eval_hir_expr(graph, ctx, *right, arenas);
+            match op {
+                BinaryOp::Add => value_add(&l, &r),
+                BinaryOp::Subtract => value_sub(&l, &r),
+                BinaryOp::Eq => Value::Bool(values_equal(&l, &r)),
+                BinaryOp::Ne => Value::Bool(!values_equal(&l, &r)),
+                BinaryOp::Lt => Value::Bool(value_less_than(&l, &r)),
+                BinaryOp::Gt => Value::Bool(value_greater_than(&l, &r)),
+                BinaryOp::Le => {
+                    Value::Bool(values_equal(&l, &r) || value_less_than(&l, &r))
+                }
+                BinaryOp::Ge => {
+                    Value::Bool(values_equal(&l, &r) || value_greater_than(&l, &r))
+                }
+                _ => panic!("Unsupported binary operator: {:?}", op),
+            }
+        }
+        _ => panic!("Unsupported expression kind: {:?}", expr.kind),
     }
 }
 
-fn eval_expr(graph: &InMemoryGraph, ctx: &HashMap<String, Binding>, expr: &Expression) -> Value {
-    match expr {
-        Expression::Literal(lit) => match lit {
-            Literal::String(s) => Value::String(s.value.clone()),
-            Literal::Number(n) => match n {
-                cypher::ast::expr::NumberLiteral::Integer(i) => Value::Integer(*i),
-                cypher::ast::expr::NumberLiteral::Float(f) => Value::Float(*f),
-            },
-            Literal::Boolean(b) => Value::Bool(*b),
-            Literal::Null => Value::Null,
-            _ => panic!("Unsupported literal"),
-        },
-        Expression::Variable(v) => {
-            let name = &v.name.name;
-            if let Some(binding) = ctx.get(name) {
-                match binding {
-                    Binding::Node(id) => {
-                        let node = graph.nodes.get(id).unwrap();
-                        if let Some(v) = node.props.get("name") {
-                            v.clone()
-                        } else {
-                            Value::Null
-                        }
-                    }
-                    Binding::Edge(from, to, rel_type) => {
-                        Value::String(format!("[:{} {}->{}]", rel_type, from, to))
-                    }
-                }
-            } else {
-                Value::Null
-            }
-        }
-        Expression::PropertyLookup { base, property, .. } => {
-            let prop_name = &property.name.name;
-            match base.as_ref() {
-                Expression::Variable(v) => {
-                    let var_name = &v.name.name;
-                    if let Some(binding) = ctx.get(var_name) {
-                        match binding {
-                            Binding::Node(id) => {
-                                let node = graph.nodes.get(id).unwrap();
-                                node.props.get(prop_name).cloned().unwrap_or(Value::Null)
-                            }
-                            Binding::Edge(from, to, rel_type) => {
-                                let edge = graph
-                                    .edges
-                                    .iter()
-                                    .find(|e| {
-                                        e.from == *from && e.to == *to && e.rel_type == *rel_type
-                                    })
-                                    .expect("Edge must exist");
-                                edge.props.get(prop_name).cloned().unwrap_or(Value::Null)
-                            }
-                        }
-                    } else {
-                        Value::Null
-                    }
-                }
-                _ => panic!("Unsupported base expression in property lookup"),
-            }
-        }
-        _ => panic!("Unsupported expression in RETURN"),
-    }
+fn eval_hir_expr_bool(
+    graph: &InMemoryGraph,
+    ctx: &HashMap<BindingId, Value>,
+    expr_id: ExprId,
+    arenas: &HirArenas,
+) -> bool {
+    matches!(eval_hir_expr(graph, ctx, expr_id, arenas), Value::Bool(true))
 }
 
 fn values_equal(a: &Value, b: &Value) -> bool {
@@ -559,6 +498,40 @@ fn values_equal(a: &Value, b: &Value) -> bool {
         (Value::Bool(a), Value::Bool(b)) => a == b,
         (Value::Null, Value::Null) => true,
         _ => false,
+    }
+}
+
+fn value_less_than(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Integer(a), Value::Integer(b)) => a < b,
+        (Value::Float(a), Value::Float(b)) => a < b,
+        (Value::String(a), Value::String(b)) => a < b,
+        _ => false,
+    }
+}
+
+fn value_greater_than(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Integer(a), Value::Integer(b)) => a > b,
+        (Value::Float(a), Value::Float(b)) => a > b,
+        (Value::String(a), Value::String(b)) => a > b,
+        _ => false,
+    }
+}
+
+fn value_add(a: &Value, b: &Value) -> Value {
+    match (a, b) {
+        (Value::Integer(a), Value::Integer(b)) => Value::Integer(a + b),
+        (Value::Float(a), Value::Float(b)) => Value::Float(a + b),
+        _ => Value::Null,
+    }
+}
+
+fn value_sub(a: &Value, b: &Value) -> Value {
+    match (a, b) {
+        (Value::Integer(a), Value::Integer(b)) => Value::Integer(a - b),
+        (Value::Float(a), Value::Float(b)) => Value::Float(a - b),
+        _ => Value::Null,
     }
 }
 
@@ -601,55 +574,47 @@ fn print_table(headers: &[String], rows: &[Vec<Value>]) {
 
 fn run_query(graph: &InMemoryGraph, query_str: &str) {
     println!("\n--- Query: {} ---", query_str);
-    match cypher::parse(query_str) {
-        Ok(query) => {
-            let results = interpret(graph, &query);
-
-            let query_clone = match cypher::parse(query_str) {
-                Ok(q) => q,
-                Err(_) => {
-                    println!("Parse error");
-                    return;
-                }
-            };
-            let statement = &query_clone.statements[0];
-            let QueryBody::SingleQuery(sq) = statement else {
-                println!("Not a single query");
-                return;
-            };
-            let SingleQueryKind::SinglePart(sp) = &sq.kind else {
-                println!("Not a single-part query");
-                return;
-            };
-            let SinglePartBody::Return(ret) = &sp.body else {
-                println!("No RETURN clause");
-                return;
-            };
-
-            let headers: Vec<String> = ret
-                .items
-                .iter()
-                .map(|item| expr_to_string(&item.expression))
-                .collect();
-
+    match cypher::analyze(query_str) {
+        Ok(hir) => {
+            let results = interpret(graph, &hir);
+            let headers = extract_headers(&hir);
             print_table(&headers, &results);
         }
         Err(err) => {
-            eprintln!("Parse error: {}", err);
+            eprintln!("Analyze error: {}", err);
         }
     }
 }
 
-fn expr_to_string(expr: &Expression) -> String {
-    match expr {
-        Expression::Variable(v) => v.name.name.clone(),
-        Expression::PropertyLookup { base, property, .. } => {
-            format!("{}.{} {}", expr_to_string(base), property.name.name, "")
+fn extract_headers(hir: &HirQuery) -> Vec<String> {
+    for part in &hir.parts {
+        for op in &part.operations {
+            if let Operation::Project(project_op) = op {
+                return project_op
+                    .items
+                    .iter()
+                    .map(|item| hir_expr_to_string(item.expression, &hir.arenas))
+                    .collect();
+            }
+        }
+    }
+    Vec::new()
+}
+
+fn hir_expr_to_string(expr_id: ExprId, arenas: &HirArenas) -> String {
+    let expr = arenas.expressions.get(expr_id);
+    match &expr.kind {
+        ExprKind::Binding(binding_id) => {
+            let binding = arenas.bindings.get(*binding_id);
+            binding.name.clone()
+        }
+        ExprKind::Property { base, key } => {
+            let base_str = hir_expr_to_string(*base, arenas);
+            let key_name = arenas.property_keys.name_of(*key).unwrap_or("?");
+            format!("{}.{}", base_str, key_name)
         }
         _ => "?".to_string(),
     }
-    .trim()
-    .to_string()
 }
 
 fn main() {

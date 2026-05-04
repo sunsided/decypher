@@ -3,6 +3,7 @@
 
 pub mod ast;
 pub mod error;
+pub mod hir;
 mod parser;
 mod recover;
 pub mod sema;
@@ -124,4 +125,23 @@ pub fn parse_all(input: &str) -> (Option<Query>, Diagnostics) {
 /// and any parser diagnostics. For the typed AST, use [`parse`] instead.
 pub fn parse_cst(input: &str) -> Parse {
     crate::parser::parse(input)
+}
+
+/// Parse and lower a Cypher query string into a HIR [`HirQuery`].
+pub fn analyze(input: &str) -> Result<hir::HirQuery> {
+    let query = parse(input)?;
+    hir::lower::lower(&query).map_err(|diagnostics| {
+        diagnostics
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| CypherError {
+                kind: ErrorKind::Internal {
+                    message: "unknown HIR lowering error".into(),
+                },
+                span: Span::new(0, 0),
+                source_label: None,
+                notes: Vec::new(),
+                source: None,
+            })
+    })
 }
