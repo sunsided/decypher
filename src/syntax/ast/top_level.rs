@@ -1,7 +1,7 @@
 use crate::syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 
 use super::clauses::Clause;
-use super::support::{AstChildren, child, child_token, children};
+use super::support::{AstChildren, child_token, children};
 use super::traits::AstNode;
 
 #[derive(Clone, Debug)]
@@ -65,33 +65,6 @@ impl Statement {
 }
 
 #[derive(Clone, Debug)]
-pub struct Variable(SyntaxNode);
-
-impl AstNode for Variable {
-    fn can_cast(kind: SyntaxKind) -> bool {
-        kind == SyntaxKind::VARIABLE
-    }
-
-    fn cast(syntax: SyntaxNode) -> Option<Self> {
-        if Self::can_cast(syntax.kind()) {
-            Some(Variable(syntax))
-        } else {
-            None
-        }
-    }
-
-    fn syntax(&self) -> &SyntaxNode {
-        &self.0
-    }
-}
-
-impl Variable {
-    pub fn name(&self) -> Option<SymbolicName> {
-        child(&self.0)
-    }
-}
-
-#[derive(Clone, Debug)]
 pub struct SymbolicName(SyntaxNode);
 
 impl AstNode for SymbolicName {
@@ -119,27 +92,6 @@ impl SymbolicName {
             .children_with_tokens()
             .filter_map(|el| el.into_token())
             .find_map(super::tokens::Ident::cast)
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct Parameter(SyntaxNode);
-
-impl AstNode for Parameter {
-    fn can_cast(kind: SyntaxKind) -> bool {
-        kind == SyntaxKind::PARAMETER
-    }
-
-    fn cast(syntax: SyntaxNode) -> Option<Self> {
-        if Self::can_cast(syntax.kind()) {
-            Some(Parameter(syntax))
-        } else {
-            None
-        }
-    }
-
-    fn syntax(&self) -> &SyntaxNode {
-        &self.0
     }
 }
 

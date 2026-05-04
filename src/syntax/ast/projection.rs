@@ -120,14 +120,15 @@ impl ProjectionItem {
                 continue;
             }
             if let Some(node) = child.as_node()
-                && let Some(e) = Expression::cast(node.clone()) {
-                    last = Some(e);
-                }
+                && let Some(e) = Expression::cast(node.clone())
+            {
+                last = Some(e);
+            }
         }
         last
     }
 
-    pub fn as_name(&self) -> Option<super::top_level::Variable> {
+    pub fn as_name(&self) -> Option<super::expressions::Variable> {
         // Look for a VARIABLE that appears after a KW_AS token
         let mut found_as = false;
         for child in self.0.children_with_tokens() {
@@ -137,9 +138,10 @@ impl ProjectionItem {
                 }
             } else if found_as
                 && let Some(node) = child.as_node()
-                    && let Some(v) = super::top_level::Variable::cast(node.clone()) {
-                        return Some(v);
-                    }
+                && let Some(v) = super::expressions::Variable::cast(node.clone())
+            {
+                return Some(v);
+            }
         }
         None
     }

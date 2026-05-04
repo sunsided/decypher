@@ -300,25 +300,6 @@ impl<'a> Parser<'a> {
         });
     }
 
-    /// Emit a diagnostic at an explicit span. Does not consume any tokens.
-    pub(crate) fn error_at(&mut self, span: Span, expected: &[Expected]) {
-        let found = if span.start < span.end && span.end <= self.input.len() {
-            self.input[span.start..span.end].to_string()
-        } else {
-            String::from("<end of input>")
-        };
-        self.errors.push(CypherError {
-            kind: ErrorKind::UnexpectedToken {
-                expected: expected.to_vec(),
-                found,
-            },
-            span,
-            source_label: None,
-            notes: Vec::new(),
-            source: None,
-        });
-    }
-
     /// Advances to the next token.
     pub(crate) fn bump(&mut self) {
         let kind = self.current_kind;
@@ -632,11 +613,6 @@ fn kind_to_str(kind: SyntaxKind) -> &'static str {
             Box::leak(debug.into_boxed_str())
         }
     }
-}
-
-/// Check whether a syntax tree contains any ERROR nodes.
-pub(crate) fn tree_has_error_node(tree: &SyntaxNode) -> bool {
-    tree.descendants().any(|n| n.kind() == SyntaxKind::ERROR)
 }
 
 #[cfg(test)]

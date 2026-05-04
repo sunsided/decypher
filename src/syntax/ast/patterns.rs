@@ -52,7 +52,7 @@ impl AstNode for PatternPart {
 }
 
 impl PatternPart {
-    pub fn variable(&self) -> Option<super::top_level::Variable> {
+    pub fn variable(&self) -> Option<super::expressions::Variable> {
         child(&self.0)
     }
 
@@ -176,7 +176,7 @@ impl AstNode for NodePattern {
 }
 
 impl NodePattern {
-    pub fn variable(&self) -> Option<super::top_level::Variable> {
+    pub fn variable(&self) -> Option<super::expressions::Variable> {
         child(&self.0)
     }
 
@@ -248,7 +248,7 @@ impl AstNode for RelationshipDetail {
 }
 
 impl RelationshipDetail {
-    pub fn variable(&self) -> Option<super::top_level::Variable> {
+    pub fn variable(&self) -> Option<super::expressions::Variable> {
         child(&self.0)
     }
 

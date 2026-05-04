@@ -8,6 +8,7 @@
 
 use crate::ast::clause::*;
 use crate::ast::expr::*;
+use crate::ast::pattern::PatternElement;
 use crate::ast::query::*;
 use crate::error::{Diagnostics, Span};
 use crate::sema::error::SemaError;
@@ -73,15 +74,18 @@ impl AggregationChecker<'_> {
             let part_keys = collect_grouping_keys(&part.reading_clauses);
             grouping_keys.extend(part_keys);
 
-            // Check WITH clause
-            let with_keys: HashSet<String> = part
-                .with
-                .items
-                .iter()
-                .filter_map(|item| item.alias.as_ref().map(|a| a.name.name.clone()))
-                .collect();
+            // Derive effective column names from the WITH projection
+            let mut with_keys: HashSet<String> = if part.with.star {
+                grouping_keys.clone()
+            } else {
+                HashSet::new()
+            };
+            for item in &part.with.items {
+                if let Some(name) = projection_column_name(item) {
+                    with_keys.insert(name);
+                }
+            }
 
-            // The WITH projection items become the grouping keys for the next part
             // Check if WITH mixes aggregates and non-aggregates
             let has_agg = part
                 .with
@@ -97,7 +101,7 @@ impl AggregationChecker<'_> {
                         if !has_aggregate(&item.expression)
                             && !is_literal_or_param(&item.expression)
                         {
-                            item.alias.as_ref().map(|a| a.name.name.clone())
+                            projection_column_name(item)
                         } else {
                             None
                         }
@@ -157,9 +161,11 @@ impl AggregationChecker<'_> {
             .iter()
             .filter_map(|item| {
                 if !has_aggregate(&item.expression) && !is_literal_or_param(&item.expression) {
-                    // Extract the variable name if possible
-                    extract_variable_name(&item.expression)
-                        .filter(|name| !grouping_keys.contains(name))
+                    let col = projection_column_name(item);
+                    let var = extract_variable_name(&item.expression);
+                    let is_grouped = col.as_ref().is_some_and(|n| grouping_keys.contains(n))
+                        || var.as_ref().is_some_and(|n| grouping_keys.contains(n));
+                    if is_grouped { None } else { col.or(var) }
                 } else {
                     None
                 }
@@ -179,8 +185,11 @@ fn collect_grouping_keys(clauses: &[ReadingClause]) -> HashSet<String> {
     for clause in clauses {
         match clause {
             ReadingClause::Match(m) => {
-                if let Some(var) = &m.pattern.parts.first().and_then(|p| p.variable.as_ref()) {
-                    keys.insert(var.name.name.clone());
+                for part in &m.pattern.parts {
+                    if let Some(var) = &part.variable {
+                        keys.insert(var.name.name.clone());
+                    }
+                    collect_element_vars(&part.anonymous.element, &mut keys);
                 }
             }
             ReadingClause::Unwind(u) => {
@@ -193,6 +202,43 @@ fn collect_grouping_keys(clauses: &[ReadingClause]) -> HashSet<String> {
         }
     }
     keys
+}
+
+fn collect_element_vars(element: &PatternElement, keys: &mut HashSet<String>) {
+    match element {
+        PatternElement::Path { start, chains } => {
+            if let Some(var) = &start.variable {
+                keys.insert(var.name.name.clone());
+            }
+            for chain in chains {
+                if let Some(var) = chain
+                    .relationship
+                    .detail
+                    .as_ref()
+                    .and_then(|d| d.variable.as_ref())
+                {
+                    keys.insert(var.name.name.clone());
+                }
+                if let Some(var) = &chain.node.variable {
+                    keys.insert(var.name.name.clone());
+                }
+            }
+        }
+        PatternElement::Parenthesized(inner) => {
+            collect_element_vars(inner, keys);
+        }
+    }
+}
+
+fn projection_column_name(item: &ProjectionItem) -> Option<String> {
+    if let Some(alias) = &item.alias {
+        return Some(alias.name.name.clone());
+    }
+    match &item.expression {
+        Expression::Variable(v) => Some(v.name.name.clone()),
+        Expression::PropertyLookup { property, .. } => Some(property.name.name.clone()),
+        _ => None,
+    }
 }
 
 fn has_aggregate(expr: &Expression) -> bool {

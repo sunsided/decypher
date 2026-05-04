@@ -42,10 +42,6 @@ impl<'a> Lexer<'a> {
         ch
     }
 
-    fn rest(&self) -> &'a str {
-        &self.input[self.pos..]
-    }
-
     fn start_pos(&self) -> usize {
         self.pos
     }

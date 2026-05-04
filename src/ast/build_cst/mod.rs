@@ -180,9 +180,9 @@ fn build_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_c::Single
                 Clause::InQueryCall(ic) => {
                     reading.push(ast_c::ReadingClause::InQueryCall(build_in_query_call(ic)?))
                 }
-                Clause::CallSubquery(cs) => {
-                    reading.push(ast_c::ReadingClause::CallSubquery(build_call_subquery(cs)?))
-                }
+                Clause::CallSubquery(cs) => reading.push(ast_c::ReadingClause::CallSubquery(
+                    Box::new(build_call_subquery(cs)?),
+                )),
                 Clause::LoadCsv(lc) => {
                     reading.push(ast_c::ReadingClause::LoadCsv(build_load_csv(lc)?))
                 }
@@ -247,9 +247,9 @@ fn build_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_c::Single
                 Clause::InQueryCall(ic) => {
                     reading.push(ast_c::ReadingClause::InQueryCall(build_in_query_call(ic)?))
                 }
-                Clause::CallSubquery(cs) => {
-                    reading.push(ast_c::ReadingClause::CallSubquery(build_call_subquery(cs)?))
-                }
+                Clause::CallSubquery(cs) => reading.push(ast_c::ReadingClause::CallSubquery(
+                    Box::new(build_call_subquery(cs)?),
+                )),
                 Clause::LoadCsv(lc) => {
                     reading.push(ast_c::ReadingClause::LoadCsv(build_load_csv(lc)?))
                 }
@@ -280,6 +280,7 @@ fn build_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_c::Single
                         reading_clauses: std::mem::take(&mut reading),
                         body: ast_c::SinglePartBody::Return(ast_c::Return {
                             distinct: wc.distinct,
+                            star: wc.star,
                             items: wc.items,
                             order: wc.order,
                             skip: wc.skip,
@@ -395,30 +396,31 @@ fn build_set_item(item: SetItem) -> Result<ast_c::SetItem> {
     let sp = span_of(item.syntax());
 
     if let Some(labels) = item.node_labels()
-        && let Some(_prop_expr) = item.property_expr() {
-            let ast_labels: Result<Vec<_>> = labels
-                .labels()
-                .map(|l| {
-                    l.name()
-                        .and_then(|ln| ln.symbolic_name())
-                        .map(|s| ast_c::SymbolicName {
-                            name: symbolic_name_text(&s),
-                            span: span_of(s.syntax()),
-                        })
-                        .ok_or_else(|| internal("missing label name", sp))
-                })
-                .collect();
-            let v = ast_c::Variable {
-                name: ast_c::SymbolicName {
-                    name: String::new(),
-                    span: sp,
-                },
-            };
-            return Ok(ast_c::SetItem::Labels {
-                variable: v,
-                labels: ast_labels?,
-            });
-        }
+        && let Some(_prop_expr) = item.property_expr()
+    {
+        let ast_labels: Result<Vec<_>> = labels
+            .labels()
+            .map(|l| {
+                l.name()
+                    .and_then(|ln| ln.symbolic_name())
+                    .map(|s| ast_c::SymbolicName {
+                        name: symbolic_name_text(&s),
+                        span: span_of(s.syntax()),
+                    })
+                    .ok_or_else(|| internal("missing label name", sp))
+            })
+            .collect();
+        let v = ast_c::Variable {
+            name: ast_c::SymbolicName {
+                name: String::new(),
+                span: sp,
+            },
+        };
+        return Ok(ast_c::SetItem::Labels {
+            variable: v,
+            labels: ast_labels?,
+        });
+    }
 
     let property = item
         .property_expr()
@@ -471,30 +473,31 @@ fn build_remove(c: RemoveClause) -> Result<ast_c::Remove> {
 fn build_remove_item(item: RemoveItem) -> Result<ast_c::RemoveItem> {
     let sp = span_of(item.syntax());
     if let Some(labels) = item.node_labels()
-        && let Some(_prop_expr) = item.property_expr() {
-            let ast_labels: Result<Vec<_>> = labels
-                .labels()
-                .map(|l| {
-                    l.name()
-                        .and_then(|ln| ln.symbolic_name())
-                        .map(|s| ast_c::SymbolicName {
-                            name: symbolic_name_text(&s),
-                            span: span_of(s.syntax()),
-                        })
-                        .ok_or_else(|| internal("missing label name", sp))
-                })
-                .collect();
-            let v = ast_c::Variable {
-                name: ast_c::SymbolicName {
-                    name: String::new(),
-                    span: sp,
-                },
-            };
-            return Ok(ast_c::RemoveItem::Labels {
-                variable: v,
-                labels: ast_labels?,
-            });
-        }
+        && let Some(_prop_expr) = item.property_expr()
+    {
+        let ast_labels: Result<Vec<_>> = labels
+            .labels()
+            .map(|l| {
+                l.name()
+                    .and_then(|ln| ln.symbolic_name())
+                    .map(|s| ast_c::SymbolicName {
+                        name: symbolic_name_text(&s),
+                        span: span_of(s.syntax()),
+                    })
+                    .ok_or_else(|| internal("missing label name", sp))
+            })
+            .collect();
+        let v = ast_c::Variable {
+            name: ast_c::SymbolicName {
+                name: String::new(),
+                span: sp,
+            },
+        };
+        return Ok(ast_c::RemoveItem::Labels {
+            variable: v,
+            labels: ast_labels?,
+        });
+    }
     let prop = item
         .property_expr()
         .ok_or_else(|| internal("missing property in REMOVE item", sp))?;
@@ -516,6 +519,7 @@ fn build_with(c: WithClause) -> Result<ast_c::With> {
         .transpose()?;
     Ok(ast_c::With {
         distinct: proj.distinct,
+        star: proj.star,
         items: proj.items,
         order: proj.order,
         skip: proj.skip,
@@ -529,7 +533,7 @@ fn build_return(c: ReturnClause) -> Result<ast_c::Return> {
     let sp = span_of(c.syntax());
     let proj = c.projection_body().map(build_projection_body).transpose()?;
     let proj = match proj {
-        Some(p) if !p.items.is_empty() => p,
+        Some(p) if !p.items.is_empty() || p.star => p,
         _ => {
             return Err(CypherError {
                 kind: ErrorKind::MissingClause {
@@ -545,6 +549,7 @@ fn build_return(c: ReturnClause) -> Result<ast_c::Return> {
     };
     Ok(ast_c::Return {
         distinct: proj.distinct,
+        star: proj.star,
         items: proj.items,
         order: proj.order,
         skip: proj.skip,
@@ -588,6 +593,7 @@ fn build_foreach(c: ForeachClause) -> Result<ast_c::Foreach> {
 
 struct ProjResult {
     distinct: bool,
+    star: bool,
     items: Vec<ast_c::ProjectionItem>,
     order: Option<ast_c::Order>,
     skip: Option<ast_c::Expression>,
@@ -596,6 +602,7 @@ struct ProjResult {
 
 fn build_projection_body(body: ProjectionBody) -> Result<ProjResult> {
     let distinct = body.distinct_token().is_some();
+    let star = body.star_token().is_some();
     let items: Result<Vec<_>> = body.items().map(build_projection_item).collect();
     let order = body.order_by().map(build_order).transpose()?;
     let skip = body
@@ -608,6 +615,7 @@ fn build_projection_body(body: ProjectionBody) -> Result<ProjResult> {
         .transpose()?;
     Ok(ProjResult {
         distinct,
+        star,
         items: items?,
         order,
         skip,
@@ -721,12 +729,13 @@ fn build_pattern_element(pe: PatternElement) -> Result<ast_c::PatternElement> {
         .or_else(|| pe.node());
     let chains: Vec<_> = pe.chains().collect();
     if chains.is_empty()
-        && let Some(n) = node {
-            return Ok(ast_c::PatternElement::Path {
-                start: build_node_pattern(n)?,
-                chains: Vec::new(),
-            });
-        }
+        && let Some(n) = node
+    {
+        return Ok(ast_c::PatternElement::Path {
+            start: build_node_pattern(n)?,
+            chains: Vec::new(),
+        });
+    }
     let start = node
         .map(build_node_pattern)
         .transpose()?
@@ -801,23 +810,6 @@ fn build_pattern_element_chain(pec: PatternElementChain) -> Result<ast_c::Patter
     Ok(ast_c::PatternElementChain { relationship, node })
 }
 
-fn build_relationship_pattern(rp: RelationshipPattern) -> Result<ast_c::RelationshipPattern> {
-    let sp = span_of(rp.syntax());
-    let direction = if rp.left_arrow().is_some() {
-        ast_c::RelationshipDirection::Left
-    } else if rp.right_arrow().is_some() {
-        ast_c::RelationshipDirection::Right
-    } else {
-        ast_c::RelationshipDirection::Undirected
-    };
-    let detail = rp.detail().map(build_relationship_detail).transpose()?;
-    Ok(ast_c::RelationshipPattern {
-        direction,
-        detail,
-        span: sp,
-    })
-}
-
 fn build_relationship_detail(rd: RelationshipDetail) -> Result<ast_c::RelationshipDetail> {
     let sp = span_of(rd.syntax());
     let variable = rd.variable().map(build_top_variable);
@@ -877,13 +869,14 @@ fn build_range_literal(rl: RangeLiteral) -> Result<ast_c::RangeLiteral> {
             for inner in node.children_with_tokens() {
                 if let Some(tok) = inner.as_token()
                     && tok.kind() == SyntaxKind::INTEGER
-                        && let Some(val) = parse_integer(tok.text()) {
-                            if !seen_dot_dot {
-                                start = Some(val);
-                            } else {
-                                end = Some(val);
-                            }
-                        }
+                    && let Some(val) = parse_integer(tok.text())
+                {
+                    if !seen_dot_dot {
+                        start = Some(val);
+                    } else {
+                        end = Some(val);
+                    }
+                }
             }
         }
     }
@@ -1113,14 +1106,15 @@ fn build_binary_expr(b: BinaryExpr) -> Result<ast_c::Expression> {
                                 continue;
                             }
                             if let Some(node) = child.as_node()
-                                && let Some(e) = Expression::cast(node.clone()) {
-                                    let built = build_expression(e)?;
-                                    if !seen_dot_dot {
-                                        start_expr = Some(built);
-                                    } else {
-                                        end_expr = Some(built);
-                                    }
+                                && let Some(e) = Expression::cast(node.clone())
+                            {
+                                let built = build_expression(e)?;
+                                if !seen_dot_dot {
+                                    start_expr = Some(built);
+                                } else {
+                                    end_expr = Some(built);
                                 }
+                            }
                         }
                         Ok(ast_c::Expression::ListSlice {
                             list: Box::new(lhs),
@@ -1272,9 +1266,10 @@ fn build_number_literal(n: NumberLiteral) -> Result<ast_c::NumberLiteral> {
                 return Ok(ast_c::NumberLiteral::Integer(val));
             }
         } else if tok.kind() == SyntaxKind::FLOAT
-            && let Some(val) = parse_double(text) {
-                return Ok(ast_c::NumberLiteral::Float(val));
-            }
+            && let Some(val) = parse_double(text)
+        {
+            return Ok(ast_c::NumberLiteral::Float(val));
+        }
     }
     Err(internal("invalid number", sp))
 }
@@ -1592,9 +1587,10 @@ fn build_map_projection_item(mi: MapProjectionItem) -> Result<ast_c::MapProjecti
         if let Some(expr) = mi.expression() {
             let expr_ast = build_expression(expr)?;
             if let ast_c::Expression::Variable(v) = &expr_ast
-                && v.name.name == pk.name.name {
-                    return Ok(ast_c::MapProjectionItem::PropertyLookup { property: pk });
-                }
+                && v.name.name == pk.name.name
+            {
+                return Ok(ast_c::MapProjectionItem::PropertyLookup { property: pk });
+            }
             return Ok(ast_c::MapProjectionItem::Literal {
                 key: pk,
                 value: expr_ast,
@@ -2032,21 +2028,6 @@ fn build_create_constraint(
     })
 }
 
-fn build_variable_from_entry(e: MapEntry) -> ast_c::Variable {
-    let name = e
-        .key()
-        .and_then(|k| k.symbolic_name())
-        .map(|s| ast_c::SymbolicName {
-            name: symbolic_name_text(&s),
-            span: span_of(s.syntax()),
-        })
-        .unwrap_or_else(|| ast_c::SymbolicName {
-            name: String::new(),
-            span: Span::new(0, 0),
-        });
-    ast_c::Variable { name }
-}
-
 fn build_drop_constraint(d: cst_c::schema_cst::DropConstraint) -> Result<ast_c::DropConstraint> {
     let sp = span_of(d.syntax());
     let if_exists = d.if_exists();
@@ -2220,7 +2201,7 @@ fn build_variable(v: expressions::Variable) -> ast_c::Variable {
     ast_c::Variable { name }
 }
 
-fn build_top_variable(v: top_level::Variable) -> ast_c::Variable {
+fn build_top_variable(v: expressions::Variable) -> ast_c::Variable {
     let name = v
         .name()
         .map(|s| ast_c::SymbolicName {
