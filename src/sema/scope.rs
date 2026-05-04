@@ -149,6 +149,7 @@ mod tests {
     #[test]
     fn pop_scope_preserves_base_scope() {
         let mut scopes = ScopeStack::new();
+        scopes.push_scope();
 
         scopes.pop_scope();
 
