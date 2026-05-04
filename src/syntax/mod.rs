@@ -2,6 +2,7 @@ use rowan::Language;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 #[repr(u16)]
+#[allow(non_camel_case_types)]
 pub enum SyntaxKind {
     /* Trivia */
     WHITESPACE = 0,

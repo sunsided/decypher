@@ -300,25 +300,6 @@ impl<'a> Parser<'a> {
         });
     }
 
-    /// Emit a diagnostic at an explicit span. Does not consume any tokens.
-    pub(crate) fn error_at(&mut self, span: Span, expected: &[Expected]) {
-        let found = if span.start < span.end && span.end <= self.input.len() {
-            self.input[span.start..span.end].to_string()
-        } else {
-            String::from("<end of input>")
-        };
-        self.errors.push(CypherError {
-            kind: ErrorKind::UnexpectedToken {
-                expected: expected.to_vec(),
-                found,
-            },
-            span,
-            source_label: None,
-            notes: Vec::new(),
-            source: None,
-        });
-    }
-
     /// Advances to the next token.
     pub(crate) fn bump(&mut self) {
         let kind = self.current_kind;
@@ -496,20 +477,17 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        let mut saw_dot_name = false;
         // First `.IDENT` pair
         if next_nt(&mut lx) != Some(SyntaxKind::DOT) {
             return false;
         }
-        if is_name_part(next_nt(&mut lx).unwrap_or(SyntaxKind::ERROR)) {
-            saw_dot_name = true;
-        } else {
+        if !is_name_part(next_nt(&mut lx).unwrap_or(SyntaxKind::ERROR)) {
             return false;
         }
         // After the first `.IDENT`, scan for more `.IDENT`s or terminal `(`
         loop {
             match next_nt(&mut lx) {
-                Some(SyntaxKind::L_PAREN) => return saw_dot_name,
+                Some(SyntaxKind::L_PAREN) => return true,
                 Some(SyntaxKind::DOT) => {
                     if !is_name_part(next_nt(&mut lx).unwrap_or(SyntaxKind::ERROR)) {
                         return false;
@@ -620,8 +598,6 @@ fn kind_to_str(kind: SyntaxKind) -> &'static str {
         SyntaxKind::KW_ASCENDING => "ASCENDING",
         SyntaxKind::KW_DESC => "DESC",
         SyntaxKind::KW_DESCENDING => "DESCENDING",
-        SyntaxKind::KW_EACH => "EACH",
-        SyntaxKind::KW_CONCURRENTLY => "CONCURRENTLY",
         SyntaxKind::KW_GRAPH => "GRAPH",
         SyntaxKind::KW_HEADERS => "HEADERS",
         SyntaxKind::KW_FROM => "FROM",
@@ -638,15 +614,6 @@ fn kind_to_str(kind: SyntaxKind) -> &'static str {
         }
     }
 }
-
-/// Check whether a syntax tree contains any ERROR nodes.
-pub(crate) fn tree_has_error_node(tree: &SyntaxNode) -> bool {
-    tree.descendants().any(|n| n.kind() == SyntaxKind::ERROR)
-}
-
-/// Re-exported for integration tests.
-#[cfg(test)]
-pub(crate) use tree_has_error_node as has_errors;
 
 #[cfg(test)]
 mod tests {

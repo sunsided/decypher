@@ -86,6 +86,7 @@ pub enum RemoveItem {
 #[derive(Debug, Clone, PartialEq)]
 pub struct With {
     pub distinct: bool,
+    pub star: bool,
     pub items: Vec<ProjectionItem>,
     pub order: Option<Order>,
     pub skip: Option<Expression>,
@@ -97,6 +98,7 @@ pub struct With {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Return {
     pub distinct: bool,
+    pub star: bool,
     pub items: Vec<ProjectionItem>,
     pub order: Option<Order>,
     pub skip: Option<Expression>,

@@ -67,7 +67,7 @@ pub enum ReadingClause {
     Match(Match),
     Unwind(Unwind),
     InQueryCall(InQueryCall),
-    CallSubquery(CallSubquery),
+    CallSubquery(Box<CallSubquery>),
     LoadCsv(LoadCsv),
 }
 

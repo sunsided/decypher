@@ -1,7 +1,7 @@
 //! Lexical scope stack for Cypher variable tracking.
 
 use crate::error::Span;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 /// What kind of symbol a variable represents.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,12 +38,16 @@ pub struct SymbolEntry {
 #[derive(Debug, Clone)]
 pub struct ScopeStack {
     scopes: Vec<HashMap<String, SymbolEntry>>,
+    /// Barriers mark scope boundaries (e.g. after WITH). Resolution only
+    /// searches scopes from the topmost barrier onward.
+    barriers: Vec<usize>,
 }
 
 impl ScopeStack {
     pub fn new() -> Self {
         Self {
             scopes: vec![HashMap::new()],
+            barriers: Vec::new(),
         }
     }
 
@@ -53,8 +57,35 @@ impl ScopeStack {
     }
 
     /// Pop the innermost scope.
+    ///
+    /// Does nothing if only the base scope remains (to prevent stack underflow).
+    /// A `debug_assert!` fires in tests if this guard is triggered unexpectedly.
     pub fn pop_scope(&mut self) {
-        self.scopes.pop();
+        debug_assert!(self.scopes.len() > 1, "attempted to pop the base scope");
+        if self.scopes.len() > 1 {
+            self.scopes.pop();
+        }
+        // Remove any barriers that now point beyond the stack.
+        while let Some(&barrier) = self.barriers.last() {
+            if barrier >= self.scopes.len() {
+                self.barriers.pop();
+            } else {
+                break;
+            }
+        }
+    }
+
+    /// Push a barrier that hides all scopes below the current innermost one.
+    ///
+    /// Used after a WITH clause so that only variables projected by the WITH
+    /// are visible to subsequent clauses.
+    pub fn push_barrier(&mut self) {
+        self.barriers.push(self.scopes.len().saturating_sub(1));
+    }
+
+    /// Pop the most recent barrier.
+    pub fn pop_barrier(&mut self) {
+        self.barriers.pop();
     }
 
     /// Bind a variable in the current (innermost) scope.
@@ -70,9 +101,14 @@ impl ScopeStack {
         Ok(())
     }
 
-    /// Resolve a variable name by searching from innermost to outermost scope.
+    /// Resolve a variable name by searching from innermost to outermost scope,
+    /// stopping at the most recent barrier.
     pub fn resolve(&self, name: &str) -> Option<(&SymbolEntry, usize)> {
+        let start = self.barriers.last().copied().unwrap_or(0);
         for (depth, scope) in self.scopes.iter().enumerate().rev() {
+            if depth < start {
+                break;
+            }
             if let Some(entry) = scope.get(name) {
                 return Some((entry, depth));
             }
@@ -80,9 +116,33 @@ impl ScopeStack {
         None
     }
 
-    /// Check whether a variable is bound in any scope.
+    /// Check whether a variable is bound in any visible scope.
     pub fn is_bound(&self, name: &str) -> bool {
         self.resolve(name).is_some()
+    }
+
+    /// Collect visible bindings from the current scope view.
+    ///
+    /// If multiple scopes bind the same name, only the innermost visible
+    /// binding is returned.
+    pub fn visible_bindings(&self) -> Vec<(String, SymbolEntry)> {
+        let start = self.barriers.last().copied().unwrap_or(0);
+        let mut seen = HashSet::new();
+        let mut bindings = Vec::new();
+
+        for (depth, scope) in self.scopes.iter().enumerate().rev() {
+            if depth < start {
+                break;
+            }
+
+            for (name, entry) in scope {
+                if seen.insert(name.clone()) {
+                    bindings.push((name.clone(), entry.clone()));
+                }
+            }
+        }
+
+        bindings
     }
 
     /// Collect all currently bound variable names (for grouping key checks).
@@ -102,5 +162,26 @@ impl ScopeStack {
 impl Default for ScopeStack {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ScopeStack, SymbolKind};
+    use crate::error::Span;
+
+    #[test]
+    fn pop_scope_preserves_base_scope() {
+        let mut scopes = ScopeStack::new();
+        scopes.push_scope();
+
+        scopes.pop_scope();
+
+        assert!(
+            scopes
+                .bind("n", SymbolKind::PatternBound, Span::new(0, 1))
+                .is_ok()
+        );
+        assert!(scopes.is_bound("n"));
     }
 }

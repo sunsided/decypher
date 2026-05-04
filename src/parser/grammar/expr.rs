@@ -20,10 +20,6 @@ impl Prec {
     const POSTFIX: Self = Self(10);
 }
 
-pub fn parse_expression(p: &mut Parser) {
-    expr_bp(p, Prec::MIN);
-}
-
 fn expr_bp(p: &mut Parser, min_bp: Prec) {
     // Handle prefix unary operators: NOT, +, -
     if is_unary_prefix(p) {
@@ -902,43 +898,36 @@ fn looks_like_relationships_pattern(p: &Parser) -> bool {
     }
     // Now we should be at optional IDENT, or : or )
     // Skip optional identifier
-    if let Some(tok) = lx.advance() {
-        if tok.kind == SyntaxKind::WHITESPACE {
-            loop {
-                match lx.advance() {
-                    Some(t) if t.kind == SyntaxKind::WHITESPACE => continue,
-                    Some(t) => {
-                        if t.kind == SyntaxKind::IDENT || t.kind == SyntaxKind::ESCAPED_IDENT {
-                            // Skip whitespace after ident
-                            loop {
-                                match lx.advance() {
-                                    Some(t2) if t2.kind == SyntaxKind::WHITESPACE => continue,
-                                    _ => break,
-                                }
+    if let Some(tok) = lx.advance()
+        && tok.kind == SyntaxKind::WHITESPACE
+    {
+        loop {
+            match lx.advance() {
+                Some(t) if t.kind == SyntaxKind::WHITESPACE => continue,
+                Some(t) => {
+                    if t.kind == SyntaxKind::IDENT || t.kind == SyntaxKind::ESCAPED_IDENT {
+                        // Skip whitespace after ident
+                        loop {
+                            match lx.advance() {
+                                Some(t2) if t2.kind == SyntaxKind::WHITESPACE => continue,
+                                _ => break,
                             }
                         }
-                        break;
                     }
-                    None => break,
+                    break;
                 }
+                None => break,
             }
         }
     }
     // Simplified heuristic: scan for ) followed by - or <
-    let mut found_close_paren = false;
     loop {
         match lx.advance() {
             Some(tok) if tok.kind == SyntaxKind::WHITESPACE => continue,
-            Some(tok) if tok.kind == SyntaxKind::R_PAREN => {
-                found_close_paren = true;
-                break;
-            }
+            Some(tok) if tok.kind == SyntaxKind::R_PAREN => break,
             Some(_) => continue,
             None => return false,
         }
-    }
-    if !found_close_paren {
-        return false;
     }
     // After ), check if - or < follows
     loop {
@@ -1268,24 +1257,6 @@ fn is_clause_start_for_exists(p: &Parser) -> bool {
             | SyntaxKind::KW_DETACH
             | SyntaxKind::KW_YIELD
     )
-}
-
-fn parse_namespace_and_name(p: &mut Parser) {
-    loop {
-        p.start_node(SyntaxKind::SYMBOLIC_NAME);
-        p.bump();
-        p.builder.finish_node();
-        p.skip_trivia();
-        if p.at(SyntaxKind::DOT) {
-            p.bump();
-            p.skip_trivia();
-            if !p.at(SyntaxKind::IDENT) && !p.at(SyntaxKind::ESCAPED_IDENT) {
-                break;
-            }
-        } else {
-            break;
-        }
-    }
 }
 
 fn parse_map_entry(p: &mut Parser) {
@@ -2231,26 +2202,6 @@ fn parse_procedure_call(p: &mut Parser) {
         p.skip_trivia();
         parse_yield_items(p);
     }
-    p.builder.finish_node();
-}
-
-fn parse_procedure_invocation(p: &mut Parser) {
-    p.start_node(SyntaxKind::EXPLICIT_PROCEDURE_INVOCATION);
-    parse_procedure_name(p);
-    p.skip_trivia();
-    p.expect(SyntaxKind::L_PAREN);
-    p.skip_trivia();
-    // Arguments
-    if !p.at(SyntaxKind::R_PAREN) {
-        expr_bp(p, Prec::MIN);
-        p.skip_trivia();
-        while p.eat(SyntaxKind::COMMA) {
-            p.skip_trivia();
-            expr_bp(p, Prec::MIN);
-            p.skip_trivia();
-        }
-    }
-    p.expect(SyntaxKind::R_PAREN);
     p.builder.finish_node();
 }
 

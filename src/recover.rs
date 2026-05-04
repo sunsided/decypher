@@ -74,15 +74,65 @@ pub fn parse_with_options(input: &str, opts: ParseOptions) -> (Option<Query>, Di
 
 /// Find the next statement boundary after the given position.
 /// Returns the position as an offset from the START of `input` (not from_pos).
+///
+/// The scan respects strings, line/block comments, and bracket nesting so
+/// that a semicolon inside any of those contexts is not treated as a
+/// statement terminator.
 fn find_next_statement_boundary_relative(input: &str, from_pos: usize) -> usize {
     let after = &input[from_pos..];
+    let bytes = after.as_bytes();
+    let mut i = 0;
+    let mut depth: u32 = 0;
 
-    // First try: semicolon at depth 0
-    if let Some(pos) = after.find(';') {
-        let semi_pos = from_pos + pos + 1;
-        let after_semi = &input[semi_pos.min(input.len())..];
-        let trimmed = after_semi.trim_start();
-        return semi_pos + (after_semi.len() - trimmed.len());
+    while i < bytes.len() {
+        match bytes[i] {
+            b'/' if i + 1 < bytes.len() => {
+                if bytes[i + 1] == b'/' {
+                    // Line comment: skip to newline
+                    i += 2;
+                    while i < bytes.len() && bytes[i] != b'\n' {
+                        i += 1;
+                    }
+                    continue;
+                } else if bytes[i + 1] == b'*' {
+                    // Block comment: skip to */
+                    i += 2;
+                    while i + 1 < bytes.len() {
+                        if bytes[i] == b'*' && bytes[i + 1] == b'/' {
+                            i += 2;
+                            break;
+                        }
+                        i += 1;
+                    }
+                    continue;
+                }
+            }
+            b'\'' | b'"' => {
+                let quote = bytes[i];
+                i += 1;
+                while i < bytes.len() {
+                    if bytes[i] == b'\\' {
+                        i = i.saturating_add(2).min(bytes.len());
+                    } else if bytes[i] == quote {
+                        i += 1;
+                        break;
+                    } else {
+                        i += 1;
+                    }
+                }
+                continue;
+            }
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => depth = depth.saturating_sub(1),
+            b';' if depth == 0 => {
+                let semi_pos = from_pos + i + 1;
+                let after_semi = &input[semi_pos.min(input.len())..];
+                let trimmed = after_semi.trim_start();
+                return semi_pos + (after_semi.len() - trimmed.len());
+            }
+            _ => {}
+        }
+        i += 1;
     }
 
     const CLAUSE_KEYWORDS: &[&str] = &[
@@ -92,20 +142,20 @@ fn find_next_statement_boundary_relative(input: &str, from_pos: usize) -> usize 
 
     let mut earliest = input.len();
     for kw in CLAUSE_KEYWORDS {
-        for (i, _) in after.match_indices(kw) {
-            let abs = from_pos + i;
+        for (j, _) in after.match_indices(kw) {
+            let abs = from_pos + j;
             if abs <= from_pos {
                 continue;
             }
             let at_start = !input
-                .chars()
-                .nth(abs - 1)
-                .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_');
+                .as_bytes()
+                .get(abs - 1)
+                .is_some_and(|&b| b.is_ascii_alphanumeric() || b == b'_');
             let at_end = abs + kw.len() >= input.len()
                 || !input
-                    .chars()
-                    .nth(abs + kw.len())
-                    .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_');
+                    .as_bytes()
+                    .get(abs + kw.len())
+                    .is_some_and(|&b| b.is_ascii_alphanumeric() || b == b'_');
             if at_start && at_end && abs < earliest {
                 earliest = abs;
             }

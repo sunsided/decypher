@@ -251,7 +251,7 @@ impl UnwindClause {
         child(&self.0)
     }
 
-    pub fn as_name(&self) -> Option<super::top_level::Variable> {
+    pub fn as_name(&self) -> Option<super::expressions::Variable> {
         child(&self.0)
     }
 }
@@ -417,18 +417,17 @@ impl SetItem {
                 }
                 continue;
             }
-            if let Some(node) = child.as_node() {
-                if matches!(
+            if let Some(node) = child.as_node()
+                && matches!(
                     node.kind(),
                     SyntaxKind::VARIABLE
                         | SyntaxKind::PROPERTY_LOOKUP
                         | SyntaxKind::PROPERTY_OR_LABELS_EXPR
                         | SyntaxKind::PROPERTY_EXPRESSION
-                ) {
-                    if let Some(e) = Expression::cast(node.clone()) {
-                        last = Some(e);
-                    }
-                }
+                )
+                && let Some(e) = Expression::cast(node.clone())
+            {
+                last = Some(e);
             }
         }
         last
@@ -456,12 +455,11 @@ impl SetItem {
                 }
                 continue;
             }
-            if seen_op {
-                if let Some(node) = child.as_node() {
-                    if let Some(e) = Expression::cast(node.clone()) {
-                        last = Some(e);
-                    }
-                }
+            if seen_op
+                && let Some(node) = child.as_node()
+                && let Some(e) = Expression::cast(node.clone())
+            {
+                last = Some(e);
             }
         }
         last
@@ -636,7 +634,7 @@ impl AstNode for ForeachClause {
 }
 
 impl ForeachClause {
-    pub fn variable(&self) -> Option<super::top_level::Variable> {
+    pub fn variable(&self) -> Option<super::expressions::Variable> {
         child(&self.0)
     }
 
@@ -808,7 +806,7 @@ impl YieldItem {
         child(&self.0)
     }
 
-    pub fn alias(&self) -> Option<super::top_level::Variable> {
+    pub fn alias(&self) -> Option<super::expressions::Variable> {
         child(&self.0)
     }
 }
@@ -1049,34 +1047,7 @@ impl AstNode for UseClause {
 }
 
 impl UseClause {
-    pub fn schema_name(&self) -> Option<SchemaName> {
-        child(&self.0)
-    }
-}
-
-#[derive(Clone, Debug)]
-pub struct SchemaName(SyntaxNode);
-
-impl AstNode for SchemaName {
-    fn can_cast(kind: SyntaxKind) -> bool {
-        kind == SyntaxKind::SCHEMA_NAME
-    }
-
-    fn cast(syntax: SyntaxNode) -> Option<Self> {
-        if Self::can_cast(syntax.kind()) {
-            Some(SchemaName(syntax))
-        } else {
-            None
-        }
-    }
-
-    fn syntax(&self) -> &SyntaxNode {
-        &self.0
-    }
-}
-
-impl SchemaName {
-    pub fn symbolic_name(&self) -> Option<super::top_level::SymbolicName> {
+    pub fn schema_name(&self) -> Option<super::schema::SchemaName> {
         child(&self.0)
     }
 }
@@ -1117,7 +1088,7 @@ impl LoadCsvClause {
         self.0.children().filter_map(Expression::cast).next()
     }
 
-    pub fn variable(&self) -> Option<super::top_level::Variable> {
+    pub fn variable(&self) -> Option<super::expressions::Variable> {
         child(&self.0)
     }
 }

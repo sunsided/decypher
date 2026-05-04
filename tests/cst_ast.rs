@@ -469,24 +469,6 @@ fn find_call_subquery(source: &cypher::cst::SourceFile) -> Option<cypher::cst::C
     None
 }
 
-fn find_show_clause(source: &cypher::cst::SourceFile) -> Option<cypher::cst::ShowClause> {
-    for clause in source.statements().next()?.clauses() {
-        if let cypher::cst::Clause::Show(c) = clause {
-            return Some(c);
-        }
-    }
-    None
-}
-
-fn find_use_clause(source: &cypher::cst::SourceFile) -> Option<cypher::cst::UseClause> {
-    for clause in source.statements().next()?.clauses() {
-        if let cypher::cst::Clause::Use(c) = clause {
-            return Some(c);
-        }
-    }
-    None
-}
-
 #[test]
 fn foreach_clause() {
     let result = parse("MATCH (n) FOREACH (x IN [1,2,3] | SET n.val = x) RETURN n");
@@ -543,7 +525,7 @@ fn yield_items_star() {
     let yield_items = source
         .syntax()
         .descendants()
-        .find_map(|n| cypher::cst::YieldItems::cast(n));
+        .find_map(cypher::cst::YieldItems::cast);
     let yield_items = yield_items.expect("YieldItems found");
     let items: Vec<_> = yield_items.items().collect();
     check!(!items.is_empty());
@@ -556,7 +538,7 @@ fn yield_item_with_alias() {
     let item = source
         .syntax()
         .descendants()
-        .find_map(|n| cypher::cst::YieldItem::cast(n));
+        .find_map(cypher::cst::YieldItem::cast);
     check!(item.is_some(), "YieldItem found");
     let item = item.unwrap();
     check!(item.field_name().is_some());
@@ -616,7 +598,7 @@ fn show_clause_with_kind() {
     let show = source
         .syntax()
         .descendants()
-        .find_map(|n| cypher::cst::ShowClause::cast(n))
+        .find_map(cypher::cst::ShowClause::cast)
         .unwrap();
     check!(show.kind().is_some());
 }
@@ -628,7 +610,7 @@ fn use_clause() {
     let use_clause = source
         .syntax()
         .descendants()
-        .find_map(|n| cypher::cst::UseClause::cast(n))
+        .find_map(cypher::cst::UseClause::cast)
         .unwrap();
     check!(use_clause.schema_name().is_some());
     let schema_name = use_clause.schema_name().unwrap();
@@ -642,7 +624,7 @@ fn union_all() {
     let union = source
         .syntax()
         .descendants()
-        .find_map(|n| cypher::cst::Union::cast(n));
+        .find_map(cypher::cst::Union::cast);
     check!(union.is_some(), "Union found");
     let union = union.unwrap();
     check!(union.all_token().is_some());
@@ -655,7 +637,7 @@ fn create_index() {
     let create_index = source
         .syntax()
         .descendants()
-        .find_map(|n| cypher::cst::CreateIndex::cast(n));
+        .find_map(cypher::cst::CreateIndex::cast);
     check!(create_index.is_some(), "CreateIndex found");
     let ci = create_index.unwrap();
     check!(ci.if_not_exists() == false);
@@ -669,7 +651,7 @@ fn create_index_if_not_exists() {
     let ci = source
         .syntax()
         .descendants()
-        .find_map(|n| cypher::cst::CreateIndex::cast(n))
+        .find_map(cypher::cst::CreateIndex::cast)
         .unwrap();
     check!(ci.if_not_exists() == true);
 }
@@ -681,7 +663,7 @@ fn drop_index() {
     let drop_idx = source
         .syntax()
         .descendants()
-        .find_map(|n| cypher::cst::DropIndex::cast(n));
+        .find_map(cypher::cst::DropIndex::cast);
     check!(drop_idx.is_some(), "DropIndex found");
     let di = drop_idx.unwrap();
     check!(di.name().is_some());
@@ -695,7 +677,7 @@ fn drop_index_if_exists() {
     let di = source
         .syntax()
         .descendants()
-        .find_map(|n| cypher::cst::DropIndex::cast(n))
+        .find_map(cypher::cst::DropIndex::cast)
         .unwrap();
     check!(di.if_exists() == true);
 }
@@ -707,7 +689,7 @@ fn create_constraint() {
     let cc = source
         .syntax()
         .descendants()
-        .find_map(|n| cypher::cst::CreateConstraint::cast(n));
+        .find_map(cypher::cst::CreateConstraint::cast);
     check!(cc.is_some(), "CreateConstraint found");
 }
 
@@ -718,7 +700,7 @@ fn drop_constraint() {
     let dc = source
         .syntax()
         .descendants()
-        .find_map(|n| cypher::cst::DropConstraint::cast(n));
+        .find_map(cypher::cst::DropConstraint::cast);
     check!(dc.is_some(), "DropConstraint found");
     let dc = dc.unwrap();
     check!(dc.if_exists() == true);
@@ -755,7 +737,7 @@ fn debug_cst_dump_rel2() {
     for chain in source
         .syntax()
         .descendants()
-        .filter_map(|n| cypher::cst::PatternElementChain::cast(n))
+        .filter_map(cypher::cst::PatternElementChain::cast)
     {
         println!(
             "PatternElementChain syntax kind: {:?}",
@@ -775,7 +757,7 @@ fn debug_cst_dump_rel2() {
         let detail = chain
             .syntax()
             .children()
-            .find_map(|n| cypher::cst::RelationshipDetail::cast(n));
+            .find_map(cypher::cst::RelationshipDetail::cast);
         println!(
             "  detail (direct): {:?}",
             detail.map(|d| d.syntax().text().to_string())
@@ -833,7 +815,7 @@ fn debug_cst_dump_is_not_null() {
     for proj in source
         .syntax()
         .descendants()
-        .filter_map(|n| cypher::cst::ProjectionItem::cast(n))
+        .filter_map(cypher::cst::ProjectionItem::cast)
     {
         if let Some(expr) = proj.expr() {
             println!("Expression: {:?}", expr);
@@ -876,7 +858,7 @@ fn debug_cst_dump_null() {
     for proj in source
         .syntax()
         .descendants()
-        .filter_map(|n| cypher::cst::ProjectionItem::cast(n))
+        .filter_map(cypher::cst::ProjectionItem::cast)
     {
         println!("ProjectionItem children:");
         for child in proj.syntax().children() {

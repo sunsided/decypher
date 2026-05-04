@@ -1,15 +1,5 @@
 use crate::error::{CypherError, ErrorKind, Span};
 
-/// Unescape a backtick-delimited identifier.
-pub fn unescape_ident(raw: &str) -> String {
-    if raw.starts_with('`') && raw.ends_with('`') && raw.len() >= 2 {
-        let inner = &raw[1..raw.len() - 1];
-        inner.replace("``", "`")
-    } else {
-        raw.to_string()
-    }
-}
-
 /// Decode escape sequences from a string literal's content (already stripped of quotes).
 pub fn decode_string_content(content: &str, span: Span) -> (String, Option<CypherError>) {
     let mut result = String::with_capacity(content.len());

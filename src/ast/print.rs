@@ -433,11 +433,17 @@ impl ToCypher for With {
         if self.distinct {
             write!(w, "DISTINCT ")?;
         }
-        for (i, item) in self.items.iter().enumerate() {
-            if i > 0 {
+        let mut needs_comma = false;
+        if self.star {
+            write!(w, "*")?;
+            needs_comma = true;
+        }
+        for item in &self.items {
+            if needs_comma {
                 write!(w, ", ")?;
             }
             item.write_cypher(w)?;
+            needs_comma = true;
         }
         if let Some(order) = &self.order {
             write!(w, " ")?;
@@ -465,11 +471,17 @@ impl ToCypher for Return {
         if self.distinct {
             write!(w, "DISTINCT ")?;
         }
-        for (i, item) in self.items.iter().enumerate() {
-            if i > 0 {
+        let mut needs_comma = false;
+        if self.star {
+            write!(w, "*")?;
+            needs_comma = true;
+        }
+        for item in &self.items {
+            if needs_comma {
                 write!(w, ", ")?;
             }
             item.write_cypher(w)?;
+            needs_comma = true;
         }
         if let Some(order) = &self.order {
             write!(w, " ")?;

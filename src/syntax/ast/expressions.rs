@@ -850,12 +850,11 @@ impl CaseExpr {
                 }
                 continue;
             }
-            if seen_else {
-                if let Some(node) = child.as_node() {
-                    if let Some(e) = Expression::cast(node.clone()) {
-                        last = Some(e);
-                    }
-                }
+            if seen_else
+                && let Some(node) = child.as_node()
+                && let Some(e) = Expression::cast(node.clone())
+            {
+                last = Some(e);
             }
         }
         last
@@ -896,10 +895,10 @@ impl CaseAlternative {
             {
                 break;
             }
-            if let Some(node) = child.as_node() {
-                if let Some(e) = Expression::cast(node.clone()) {
-                    last = Some(e);
-                }
+            if let Some(node) = child.as_node()
+                && let Some(e) = Expression::cast(node.clone())
+            {
+                last = Some(e);
             }
         }
         last
@@ -916,12 +915,11 @@ impl CaseAlternative {
                 }
                 continue;
             }
-            if seen_then {
-                if let Some(node) = child.as_node() {
-                    if let Some(expr) = Expression::cast(node.clone()) {
-                        last = Some(expr);
-                    }
-                }
+            if seen_then
+                && let Some(node) = child.as_node()
+                && let Some(expr) = Expression::cast(node.clone())
+            {
+                last = Some(expr);
             }
         }
         last
