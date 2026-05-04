@@ -1,21 +1,19 @@
 [package]
 name = "open-cypher"
 version = "0.2.0-alpha.1"
-edition = "2021"
+edition = "2024"
 rust-version = "1.95"
-authors = ["Austin Poor <code@austinpoor.com"]
+authors = ["Markus Mayer <widemeadows@gmail.com>", "Austin Poor <code@austinpoor.com"]
 description = "A rust library for parsing openCypher queries."
 documentation = "https://docs.rs/open-cypher"
 readme = "README.md"
-homepage = "https://github.com/a-poor/open-cypher"
-repository = "https://github.com/a-poor/open-cypher"
-license = "MIT OR Apache-2.0"
-keywords = ["sql", "cypher", "graph", "parser"]
+homepage = "https://github.com/sunsided/cypher"
+repository = "https://github.com/sunsided/cypher"
+license = "EUPL-1.2 OR MIT OR Apache-2.0"
+keywords = ["sql", "cypher", "graph", "parser", "opencypher"]
 categories = ["parser-implementations"]
 
 [dependencies]
-pest = "2.0"
-pest_derive = "2.0"
 thiserror = "1"
 serde = { version = "1", optional = true, features = ["derive"] }
 ryu = "1"
@@ -25,10 +23,8 @@ unicode-ident = "1"
 
 [features]
 default = []
-low-level = []
 serde = ["dep:serde"]
 miette = ["dep:miette"]
-cst-parser = []
 
 [dev-dependencies]
 assert2 = "0.3"
