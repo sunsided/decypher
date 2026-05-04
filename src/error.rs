@@ -395,7 +395,5 @@ pub type Result<T> = std::result::Result<T, CypherError>;
 #[cfg(feature = "miette")]
 mod miette_impl;
 mod render;
-mod translate;
 
 pub use render::render_diagnostic;
-pub use translate::{detect_common_mistakes, translate_pest_error};

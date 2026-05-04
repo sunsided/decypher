@@ -1,8 +1,8 @@
 //! Hand-written error-resilient parser for openCypher.
 //!
 //! This module contains the lexer and grammar rules that produce a lossless CST
-//! backed by `rowan`. The pest-based parser lives in `pest_parser` as a
-//! conformance oracle.
+//! backed by `rowan`. This is the only parser in the crate — the public
+//! [`parse`](crate::parse) function uses it exclusively.
 //!
 //! # Diagnostic guarantee
 //!
@@ -10,9 +10,6 @@
 //! query that the rowan grammar accepts. Every `CypherError` has a byte span
 //! pointing at the offending token and an `Expected` set populated from the
 //! call site that raised it.
-//!
-//! Phase 2: diagnostics implemented. Typed AstNode wrappers and wiring the
-//! rowan parser into the public `parse()` are deferred.
 
 pub mod grammar;
 pub mod lexer;

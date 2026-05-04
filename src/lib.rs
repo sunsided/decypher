@@ -4,7 +4,6 @@
 pub mod ast;
 pub mod error;
 mod parser;
-mod pest_parser;
 mod recover;
 pub mod sema;
 pub mod syntax;
@@ -19,8 +18,7 @@ pub mod syntax;
 ///
 /// # Stability
 ///
-/// This API is **unstable** and may change before the rowan parser is wired
-/// into the public [`parse`] function.
+/// This API is **unstable** and may change as the CST matures.
 ///
 /// # Example
 ///
@@ -48,12 +46,6 @@ pub mod cst {
     pub use crate::syntax::ast::tokens::*;
     pub use crate::syntax::ast::top_level::*;
     pub use crate::syntax::ast::{AstNode, AstToken};
-}
-
-#[cfg(feature = "low-level")]
-pub mod low_level {
-    pub use crate::pest_parser::{CypherParser, Rule};
-    pub use pest::iterators::{Pair, Pairs};
 }
 
 pub use crate::ast::query::Query;
@@ -125,8 +117,8 @@ pub fn parse_all(input: &str) -> (Option<Query>, Diagnostics) {
     )
 }
 
-/// Parse a Cypher query string using the rowan-based CST→AST path.
-/// This is an alias for [`parse`] which now uses the rowan parser.
+/// Parse a Cypher query string using the rowan-based CST path.
+/// This is an alias for [`parse`].
 pub fn parse_cst(input: &str) -> Result<Query> {
     parse(input)
 }
