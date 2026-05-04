@@ -396,7 +396,14 @@ fn parse_label_atom(
         }
         p.builder.finish_node();
     } else {
-        p.error_here(&[Expected::Category("label expression")]);
+        p.error_here_with_help(
+            &[
+                Expected::Category("label name"),
+                Expected::Category("dynamic label expression"),
+                Expected::Symbol("("),
+            ],
+            "label expressions use names, parentheses, `!`, `|`, `&`, or dynamic forms like `$(label)`",
+        );
     }
     p.builder.finish_node();
 }
@@ -405,11 +412,13 @@ fn parse_relationship_quantifier(p: &mut Parser) {
     p.start_node(SyntaxKind::RELATIONSHIP_QUANTIFIER);
     p.bump();
     p.skip_trivia();
+    let mut saw_bound = false;
     if p.at(SyntaxKind::INTEGER) {
         p.start_node(SyntaxKind::NUMBER_LITERAL);
         p.bump();
         p.builder.finish_node();
         p.skip_trivia();
+        saw_bound = true;
     }
     if p.eat(SyntaxKind::COMMA) {
         p.skip_trivia();
@@ -418,22 +427,37 @@ fn parse_relationship_quantifier(p: &mut Parser) {
             p.bump();
             p.builder.finish_node();
             p.skip_trivia();
+            saw_bound = true;
         }
+    }
+    if !saw_bound {
+        p.error_here_with_help(
+            &[Expected::Category("quantifier bound")],
+            "quantifiers use `{n}`, `{n,m}`, `{n,}`, or `{,m}`",
+        );
     }
     p.expect(SyntaxKind::R_BRACE);
     p.builder.finish_node();
 }
 
 fn parse_subquery_body(p: &mut Parser) {
+    let mut saw_clause = false;
     while !p.at(SyntaxKind::R_BRACE) && p.current_len() > 0 {
         if is_clause_start_for_subquery(p) {
             parse_clause(p);
+            saw_clause = true;
         } else {
             p.start_node(SyntaxKind::ERROR);
             p.bump();
             p.builder.finish_node();
         }
         p.skip_trivia();
+    }
+    if !saw_clause {
+        p.error_here_with_help(
+            &[Expected::Category("subquery clause")],
+            "subquery bodies usually start with clauses like `MATCH`, `WITH`, `CALL`, or `RETURN`",
+        );
     }
 }
 
@@ -1763,7 +1787,7 @@ fn parse_pattern_element(p: &mut Parser) {
         }
     } else {
         // Not a valid pattern element start — emit error and recover
-        p.error_here(&[Expected::Symbol("(")]);
+        p.expect_one_of(&[Expected::Symbol("("), Expected::Category("node pattern")]);
     }
     // Optional quantified postfix on the whole element: {m,n}
     if p.at(SyntaxKind::L_BRACE) {

@@ -15,8 +15,10 @@ pub mod grammar;
 pub mod lexer;
 
 use crate::error::{CypherError, ErrorKind, Expected, Span};
+use crate::error::{Note, NoteLevel};
 use crate::syntax::{CypherLang, SyntaxKind, SyntaxNode};
 use rowan::{GreenNodeBuilder, Language};
+use std::borrow::Cow;
 
 /// Result of parsing: a CST and any diagnostics.
 pub struct Parse {
@@ -277,9 +279,34 @@ impl<'a> Parser<'a> {
         }
     }
 
+    pub(crate) fn expect_one_of(&mut self, expected: &[Expected]) {
+        self.error_here(expected);
+        self.start_node(SyntaxKind::ERROR);
+        self.builder.finish_node();
+    }
+
     /// Emit a diagnostic at the current byte position using the current token text.
     /// Does not consume any tokens.
     pub(crate) fn error_here(&mut self, expected: &[Expected]) {
+        self.error_here_with_notes(expected, Vec::new());
+    }
+
+    pub(crate) fn error_here_with_help(
+        &mut self,
+        expected: &[Expected],
+        message: impl Into<Cow<'static, str>>,
+    ) {
+        self.error_here_with_notes(
+            expected,
+            vec![Note {
+                span: Span::new(0, 0),
+                message: message.into(),
+                level: NoteLevel::Help,
+            }],
+        );
+    }
+
+    pub(crate) fn error_here_with_notes(&mut self, expected: &[Expected], notes: Vec<Note>) {
         let start = self.byte_pos;
         let end = start + self.current_len;
         let span = Span::new(start, end);
@@ -288,14 +315,17 @@ impl<'a> Parser<'a> {
         } else {
             String::from("<end of input>")
         };
+        let mut normalized = expected.to_vec();
+        normalized.sort();
+        normalized.dedup();
         self.errors.push(CypherError {
             kind: ErrorKind::UnexpectedToken {
-                expected: expected.to_vec(),
+                expected: normalized,
                 found,
             },
             span,
             source_label: None,
-            notes: Vec::new(),
+            notes,
             source: None,
         });
     }
