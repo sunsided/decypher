@@ -161,7 +161,11 @@ impl BinaryExpr {
             SyntaxKind::PROPERTY_OR_LABELS_EXPR => {
                 if child_token(&self.0, SyntaxKind::DOT).is_some() {
                     Some(BinOp::PropertyLookup)
-                } else if child_token(&self.0, SyntaxKind::COLON).is_some() {
+                } else if self
+                    .0
+                    .children()
+                    .any(|child| child.kind() == SyntaxKind::NODE_LABELS)
+                {
                     Some(BinOp::HasLabel)
                 } else {
                     None
@@ -299,6 +303,8 @@ pub enum Atom {
     PatternComprehension(PatternComprehension),
     FilterExpression(FilterExpression),
     ExistsSubquery(ExistsSubquery),
+    CountSubquery(CountSubquery),
+    CollectSubquery(CollectSubquery),
     MapProjection(MapProjection),
     ImplicitProcedureInvocation(ImplicitProcedureInvocation),
     PropertyLookup(PropertyLookup),
@@ -325,6 +331,8 @@ impl AstNode for Atom {
                 | SyntaxKind::PATTERN_COMPREHENSION
                 | SyntaxKind::FILTER_EXPRESSION
                 | SyntaxKind::EXISTS_SUBQUERY
+                | SyntaxKind::COUNT_SUBQUERY
+                | SyntaxKind::COLLECT_SUBQUERY
                 | SyntaxKind::MAP_PROJECTION
                 | SyntaxKind::IMPLICIT_PROCEDURE_INVOCATION
                 | SyntaxKind::PROPERTY_LOOKUP
@@ -359,6 +367,10 @@ impl AstNode for Atom {
                 FilterExpression::cast(syntax).map(Atom::FilterExpression)
             }
             SyntaxKind::EXISTS_SUBQUERY => ExistsSubquery::cast(syntax).map(Atom::ExistsSubquery),
+            SyntaxKind::COUNT_SUBQUERY => CountSubquery::cast(syntax).map(Atom::CountSubquery),
+            SyntaxKind::COLLECT_SUBQUERY => {
+                CollectSubquery::cast(syntax).map(Atom::CollectSubquery)
+            }
             SyntaxKind::MAP_PROJECTION => MapProjection::cast(syntax).map(Atom::MapProjection),
             SyntaxKind::IMPLICIT_PROCEDURE_INVOCATION => {
                 ImplicitProcedureInvocation::cast(syntax).map(Atom::ImplicitProcedureInvocation)
@@ -382,6 +394,8 @@ impl AstNode for Atom {
             Atom::PatternComprehension(it) => it.syntax(),
             Atom::FilterExpression(it) => it.syntax(),
             Atom::ExistsSubquery(it) => it.syntax(),
+            Atom::CountSubquery(it) => it.syntax(),
+            Atom::CollectSubquery(it) => it.syntax(),
             Atom::MapProjection(it) => it.syntax(),
             Atom::ImplicitProcedureInvocation(it) => it.syntax(),
             Atom::PropertyLookup(it) => it.syntax(),
@@ -1258,6 +1272,64 @@ impl ExistsSubquery {
 
     pub fn where_clause(&self) -> Option<super::clauses::WhereClause> {
         child(&self.0)
+    }
+
+    pub fn clauses(&self) -> AstChildren<super::clauses::Clause> {
+        children(&self.0)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct CountSubquery(SyntaxNode);
+
+impl AstNode for CountSubquery {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::COUNT_SUBQUERY
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(CountSubquery(syntax))
+        } else {
+            None
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.0
+    }
+}
+
+impl CountSubquery {
+    pub fn clauses(&self) -> AstChildren<super::clauses::Clause> {
+        children(&self.0)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct CollectSubquery(SyntaxNode);
+
+impl AstNode for CollectSubquery {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::COLLECT_SUBQUERY
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(CollectSubquery(syntax))
+        } else {
+            None
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.0
+    }
+}
+
+impl CollectSubquery {
+    pub fn clauses(&self) -> AstChildren<super::clauses::Clause> {
+        children(&self.0)
     }
 }
 

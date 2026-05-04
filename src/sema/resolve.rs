@@ -477,6 +477,9 @@ fn bind_node_pattern(
         PatternElement::Parenthesized(inner) => {
             bind_node_pattern(scopes, inner, kind, errors);
         }
+        PatternElement::Quantified { element, .. } => {
+            bind_node_pattern(scopes, element, kind, errors);
+        }
     }
 }
 

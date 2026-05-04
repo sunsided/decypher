@@ -251,3 +251,30 @@ RETURN n;
 MATCH (n)
 WHERE n.kind = $label
 RETURN n;
+
+
+// 26 Neo4j 5: postfix label expression predicate
+MATCH (n)
+WHERE n:Person|Company
+RETURN n;
+
+// 26 openCypher: expanded labels() predicate
+MATCH (n)
+WHERE 'Person' IN labels(n) OR 'Company' IN labels(n)
+RETURN n;
+
+
+// 27 Neo4j 5: COUNT subquery expression
+RETURN COUNT { MATCH (n:Person) RETURN n };
+
+// 27 openCypher: count rows through equivalent subquery
+MATCH (n:Person)
+RETURN count(n);
+
+
+// 28 Neo4j 5: COLLECT subquery expression
+RETURN COLLECT { MATCH (n:Person) RETURN n.name };
+
+// 28 openCypher: collect direct projection
+MATCH (n:Person)
+RETURN collect(n.name);

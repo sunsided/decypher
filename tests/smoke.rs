@@ -231,3 +231,39 @@ fn test_collect_subquery() {
     let result = parse("RETURN COLLECT { MATCH (n) RETURN n };");
     check!(result.is_ok(), "{:?}", result.err());
 }
+
+#[test]
+fn test_count_subquery() {
+    let result = parse("RETURN COUNT { MATCH (n:Person) RETURN n };");
+    check!(result.is_ok(), "{:?}", result.err());
+}
+
+#[test]
+fn test_rich_label_expression() {
+    let result = parse("MATCH (n:(Person|Company)&!Deleted) RETURN n;");
+    check!(result.is_ok(), "{:?}", result.err());
+}
+
+#[test]
+fn test_dynamic_node_label() {
+    let result = parse("MATCH (n:$(label)) RETURN n;");
+    check!(result.is_ok(), "{:?}", result.err());
+}
+
+#[test]
+fn test_quantified_path_pattern() {
+    let result = parse("MATCH p = ((a:Stop WHERE a.active)-[:NEXT]->(b:Stop WHERE b.active)){2,5} RETURN p;");
+    check!(result.is_ok(), "{:?}", result.err());
+}
+
+#[test]
+fn test_quantified_relationship() {
+    let result = parse("MATCH p = (:Person)-[r:KNOWS WHERE r.weight > 0.5]->{1,4}(:Person) RETURN p;");
+    check!(result.is_ok(), "{:?}", result.err());
+}
+
+#[test]
+fn test_postfix_label_expression() {
+    let result = parse("MATCH (n) WHERE n:Person|Company RETURN n;");
+    check!(result.is_ok(), "{:?}", result.err());
+}

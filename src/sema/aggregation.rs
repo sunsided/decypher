@@ -227,6 +227,9 @@ fn collect_element_vars(element: &PatternElement, keys: &mut HashSet<String>) {
         PatternElement::Parenthesized(inner) => {
             collect_element_vars(inner, keys);
         }
+        PatternElement::Quantified { element, .. } => {
+            collect_element_vars(element, keys);
+        }
     }
 }
 

@@ -719,6 +719,23 @@ fn build_anonymous_pattern_part(app: AnonymousPatternPart) -> Result<ast_c::Anon
 }
 
 fn build_pattern_element(pe: PatternElement) -> Result<ast_c::PatternElement> {
+    if pe.syntax().kind() == SyntaxKind::QUANTIFIED_PATH_PATTERN {
+        let inner = pe
+            .inner()
+            .map(build_pattern_element)
+            .transpose()?
+            .ok_or_else(|| internal("missing inner quantified path element", span_of(pe.syntax())))?;
+        let quantifier = pe
+            .quantifier()
+            .map(build_quantifier)
+            .transpose()?
+            .ok_or_else(|| internal("missing quantified path quantifier", span_of(pe.syntax())))?;
+        return Ok(ast_c::PatternElement::Quantified {
+            element: Box::new(inner),
+            quantifier,
+            span: span_of(pe.syntax()),
+        });
+    }
     if let Some(inner) = pe.syntax().children().find_map(PatternElement::cast) {
         return build_pattern_element(inner);
     }
@@ -755,15 +772,12 @@ fn build_node_pattern(np: NodePattern) -> Result<ast_c::NodePattern> {
     let variable = np.variable().map(build_top_variable);
     let labels: Result<Vec<_>> = np
         .labels()
-        .flat_map(|container| container.labels())
-        .map(|nl| {
-            nl.name()
-                .and_then(|ln| ln.symbolic_name())
-                .map(|s| ast_c::SymbolicName {
-                    name: symbolic_name_text(&s),
-                    span: span_of(s.syntax()),
-                })
-                .ok_or_else(|| internal("missing label name", sp))
+        .map(|container| {
+            container
+                .expression()
+                .map(build_label_expression)
+                .transpose()?
+                .ok_or_else(|| internal("missing label expression", sp))
         })
         .collect();
     let properties = np.properties().map(build_properties).transpose()?;
@@ -777,11 +791,14 @@ fn build_node_pattern(np: NodePattern) -> Result<ast_c::NodePattern> {
 
 fn build_pattern_element_chain(pec: PatternElementChain) -> Result<ast_c::PatternElementChain> {
     let sp = span_of(pec.syntax());
-    let has_left = pec.syntax().children_with_tokens().any(|t| {
+    let rel = pec
+        .relationship()
+        .ok_or_else(|| internal("missing relationship pattern in chain", sp))?;
+    let has_left = rel.syntax().children_with_tokens().any(|t| {
         t.as_token()
             .is_some_and(|t| t.kind() == SyntaxKind::ARROW_LEFT)
     });
-    let has_right = pec.syntax().children_with_tokens().any(|t| {
+    let has_right = rel.syntax().children_with_tokens().any(|t| {
         t.as_token()
             .is_some_and(|t| t.kind() == SyntaxKind::ARROW_RIGHT || t.kind() == SyntaxKind::GT)
     });
@@ -791,16 +808,15 @@ fn build_pattern_element_chain(pec: PatternElementChain) -> Result<ast_c::Patter
         (false, true) => ast_c::RelationshipDirection::Right,
         (false, false) => ast_c::RelationshipDirection::Undirected,
     };
-    let detail = pec
-        .syntax()
-        .children()
-        .find_map(RelationshipDetail::cast)
+    let detail = rel
+        .detail()
         .map(build_relationship_detail)
         .transpose()?;
     let relationship = ast_c::RelationshipPattern {
         direction,
         detail,
-        span: sp,
+        quantifier: rel.quantifier().map(build_quantifier).transpose()?,
+        span: span_of(rel.syntax()),
     };
     let node = pec
         .node()
@@ -813,30 +829,167 @@ fn build_pattern_element_chain(pec: PatternElementChain) -> Result<ast_c::Patter
 fn build_relationship_detail(rd: RelationshipDetail) -> Result<ast_c::RelationshipDetail> {
     let sp = span_of(rd.syntax());
     let variable = rd.variable().map(build_top_variable);
-    let types: Result<Vec<_>> = rd
+    let types = rd
         .types()
-        .into_iter()
-        .flat_map(|container| container.types())
-        .map(|t| {
-            t.symbolic_name()
-                .map(|s| ast_c::RelTypeName {
-                    name: ast_c::SymbolicName {
-                        name: symbolic_name_text(&s),
-                        span: span_of(s.syntax()),
-                    },
-                })
-                .ok_or_else(|| internal("missing rel type", sp))
+        .map(|container| {
+            container
+                .expression()
+                .map(build_label_expression)
+                .transpose()?
+                .ok_or_else(|| internal("missing relationship type expression", sp))
         })
-        .collect();
+        .transpose()?;
     let range = rd.range().map(build_range_literal).transpose()?;
     let properties = rd.properties().map(build_properties).transpose()?;
     Ok(ast_c::RelationshipDetail {
         variable,
-        types: types?,
+        types,
         range,
         properties,
         span: sp,
     })
+}
+
+fn build_quantifier(rq: RelationshipQuantifier) -> Result<ast_c::Quantifier> {
+    let sp = span_of(rq.syntax());
+    let nums: Result<Vec<i64>> = rq
+        .numbers()
+        .map(|lit| match build_literal(lit)? {
+            ast_c::Expression::Literal(ast_c::Literal::Number(ast_c::NumberLiteral::Integer(i))) => {
+                Ok(i)
+            }
+            _ => Err(internal("expected integer quantifier bound", sp)),
+        })
+        .collect();
+    let nums = nums?;
+    let (start, end) = match nums.as_slice() {
+        [a, b] => (Some(*a), Some(*b)),
+        [a] => (Some(*a), None),
+        _ => (None, None),
+    };
+    Ok(ast_c::Quantifier {
+        start,
+        end,
+        span: sp,
+    })
+}
+
+fn build_label_expression(expr: LabelExpression) -> Result<ast_c::LabelExpression> {
+    let root = expr
+        .root()
+        .ok_or_else(|| internal("missing label expression root", span_of(expr.syntax())))?;
+    build_label_expr_node(root)
+}
+
+fn build_label_expr_node(node: LabelExprNode) -> Result<ast_c::LabelExpression> {
+    let sp = span_of(node.syntax());
+    match node {
+        LabelExprNode::Or(or) => {
+            let mut items = or.items();
+            let lhs = items
+                .next()
+                .map(build_label_expr_node)
+                .transpose()?
+                .ok_or_else(|| internal("missing lhs in label OR", sp))?;
+            let Some(rhs) = items.next().map(build_label_expr_node).transpose()? else {
+                return Ok(lhs);
+            };
+            let mut acc = ast_c::LabelExpression::Or {
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+                span: sp,
+            };
+            for item in items {
+                acc = ast_c::LabelExpression::Or {
+                    lhs: Box::new(acc),
+                    rhs: Box::new(build_label_expr_node(item)?),
+                    span: sp,
+                };
+            }
+            Ok(acc)
+        }
+        LabelExprNode::And(and) => {
+            let mut items = and.items();
+            let lhs = items
+                .next()
+                .map(build_label_expr_node)
+                .transpose()?
+                .ok_or_else(|| internal("missing lhs in label AND", sp))?;
+            let Some(rhs) = items.next().map(build_label_expr_node).transpose()? else {
+                return Ok(lhs);
+            };
+            let mut acc = ast_c::LabelExpression::And {
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+                span: sp,
+            };
+            for item in items {
+                acc = ast_c::LabelExpression::And {
+                    lhs: Box::new(acc),
+                    rhs: Box::new(build_label_expr_node(item)?),
+                    span: sp,
+                };
+            }
+            Ok(acc)
+        }
+        LabelExprNode::Not(not) => Ok(ast_c::LabelExpression::Not {
+            inner: Box::new(build_label_expr_node(
+                not.inner()
+                    .ok_or_else(|| internal("missing inner label NOT", sp))?,
+            )?),
+            span: sp,
+        }),
+        LabelExprNode::Paren(paren) => Ok(ast_c::LabelExpression::Group {
+            inner: Box::new(build_label_expr_node(
+                paren
+                    .inner()
+                    .ok_or_else(|| internal("missing inner label paren", sp))?,
+            )?),
+            span: sp,
+        }),
+        LabelExprNode::Atom(atom) => {
+            if let Some(label) = atom.node_label() {
+                let sym = label
+                    .name()
+                    .and_then(|ln| ln.symbolic_name())
+                    .ok_or_else(|| internal("missing node label name", sp))?;
+                return Ok(ast_c::LabelExpression::Static(ast_c::SymbolicName {
+                    name: symbolic_name_text(&sym),
+                    span: span_of(sym.syntax()),
+                }));
+            }
+            if let Some(rel_type) = atom.rel_type_name() {
+                let sym = rel_type
+                    .symbolic_name()
+                    .ok_or_else(|| internal("missing relationship type name", sp))?;
+                return Ok(ast_c::LabelExpression::Static(ast_c::SymbolicName {
+                    name: symbolic_name_text(&sym),
+                    span: span_of(sym.syntax()),
+                }));
+            }
+            if let Some(dynamic) = atom.dynamic_label() {
+                return Ok(ast_c::LabelExpression::Dynamic {
+                    expression: Box::new(build_expression(
+                        dynamic
+                            .expression()
+                            .ok_or_else(|| internal("missing dynamic label expression", sp))?,
+                    )?),
+                    span: sp,
+                });
+            }
+            if let Some(dynamic) = atom.dynamic_rel_type() {
+                return Ok(ast_c::LabelExpression::Dynamic {
+                    expression: Box::new(build_expression(
+                        dynamic
+                            .expression()
+                            .ok_or_else(|| internal("missing dynamic rel type expression", sp))?,
+                    )?),
+                    span: sp,
+                });
+            }
+            Err(internal("unsupported label atom", sp))
+        }
+    }
 }
 
 fn build_range_literal(rl: RangeLiteral) -> Result<ast_c::RangeLiteral> {
@@ -961,6 +1114,25 @@ fn build_binary_expr(b: BinaryExpr) -> Result<ast_c::Expression> {
             negated: true,
             span: sp,
         }),
+        Some(BinOp::HasLabel) => {
+            let labels: Result<Vec<_>> = b
+                .syntax()
+                .children()
+                .filter_map(NodeLabels::cast)
+                .map(|labels| {
+                    labels
+                        .expression()
+                        .map(build_label_expression)
+                        .transpose()?
+                        .ok_or_else(|| internal("missing postfix label expression", sp))
+                })
+                .collect();
+            Ok(ast_c::Expression::NodeLabels {
+                base: Box::new(lhs),
+                labels: labels?,
+                span: sp,
+            })
+        }
         _ => {
             let rhs = b
                 .rhs()
@@ -1129,14 +1301,6 @@ fn build_binary_expr(b: BinaryExpr) -> Result<ast_c::Expression> {
                     property: extract_property_key(&rhs)?,
                     span: sp,
                 }),
-                Some(BinOp::HasLabel) => {
-                    let labels = extract_labels(&rhs)?;
-                    Ok(ast_c::Expression::NodeLabels {
-                        base: Box::new(lhs),
-                        labels,
-                        span: sp,
-                    })
-                }
                 None => Err(internal("unknown binary op", sp)),
                 _ => Err(internal("unexpected binary op", sp)),
             }
@@ -1159,13 +1323,6 @@ fn extract_property_key(e: &ast_c::Expression) -> Result<ast_c::PropertyKeyName>
     } else {
         Err(internal("expected property key", Span::new(0, 0)))
     }
-}
-
-fn extract_labels(_e: &ast_c::Expression) -> Result<Vec<ast_c::SymbolicName>> {
-    Err(internal(
-        "label extraction from binary expr not implemented",
-        Span::new(0, 0),
-    ))
 }
 
 fn build_unary_expr(u: UnaryExpr) -> Result<ast_c::Expression> {
@@ -1209,6 +1366,8 @@ fn build_atom(a: Atom) -> Result<ast_c::Expression> {
         Atom::PatternComprehension(pc) => build_pattern_comprehension(pc),
         Atom::FilterExpression(fe) => build_filter_expression(fe),
         Atom::ExistsSubquery(es) => build_exists_subquery(es),
+        Atom::CountSubquery(cs) => build_count_subquery(cs),
+        Atom::CollectSubquery(cs) => build_collect_subquery(cs),
         Atom::MapProjection(mp) => build_map_projection(mp),
         Atom::ImplicitProcedureInvocation(ipi) => {
             let proc = build_implicit_procedure_invocation(ipi)?;
@@ -1532,25 +1691,248 @@ fn build_filter_expression(fe: FilterExpression) -> Result<ast_c::Expression> {
 
 fn build_exists_subquery(es: ExistsSubquery) -> Result<ast_c::Expression> {
     let sp = span_of(es.syntax());
-    let _pat = es.pattern();
+    if es.clauses().next().is_some() {
+        return Ok(ast_c::Expression::Exists(Box::new(ast_c::ExistsExpression {
+            inner: Box::new(ast_c::ExistsInner::RegularQuery(Box::new(
+                build_regular_query_from_syntax(es.syntax())?,
+            ))),
+            span: sp,
+        })));
+    }
+
+    let mut parts = Vec::new();
+    if let Some(node) = es.syntax().children().find_map(NodePattern::cast) {
+        let mut text_children: Vec<rowan::SyntaxNode<crate::syntax::CypherLang>> =
+            es.syntax().children().collect();
+        if let Some(first) = text_children.first()
+            && first.kind() == SyntaxKind::NODE_PATTERN
+        {
+            let _ = text_children.remove(0);
+        }
+        let mut chains = Vec::new();
+        for child in text_children {
+            if let Some(chain) = PatternElementChain::cast(child) {
+                chains.push(build_pattern_element_chain(chain)?);
+            }
+        }
+        parts.push(ast_c::PatternPart {
+            variable: None,
+            anonymous: ast_c::AnonymousPatternPart {
+                element: ast_c::PatternElement::Path {
+                    start: build_node_pattern(node)?,
+                    chains,
+                },
+            },
+            span: sp,
+        });
+    }
     let where_clause = es
         .where_clause()
         .and_then(|w| w.expr())
         .map(build_expression)
         .transpose()?;
-    let placeholder = ast_c::Pattern {
-        parts: Vec::new(),
+    Ok(ast_c::Expression::Exists(Box::new(ast_c::ExistsExpression {
+        inner: Box::new(ast_c::ExistsInner::Pattern(
+            ast_c::Pattern { parts, span: sp },
+            where_clause.map(Box::new),
+        )),
         span: sp,
-    };
-    Ok(ast_c::Expression::Exists(Box::new(
-        ast_c::ExistsExpression {
-            inner: Box::new(ast_c::ExistsInner::Pattern(
-                placeholder,
-                where_clause.map(Box::new),
-            )),
-            span: sp,
+    })))
+}
+
+fn build_count_subquery(cs: CountSubquery) -> Result<ast_c::Expression> {
+    Ok(ast_c::Expression::CountSubquery(Box::new(
+        ast_c::CountSubqueryExpression {
+            query: Box::new(build_regular_query_from_syntax(cs.syntax())?),
+            span: span_of(cs.syntax()),
         },
     )))
+}
+
+fn build_collect_subquery(cs: CollectSubquery) -> Result<ast_c::Expression> {
+    Ok(ast_c::Expression::CollectSubquery(Box::new(
+        ast_c::CollectSubqueryExpression {
+            query: Box::new(build_regular_query_from_syntax(cs.syntax())?),
+            span: span_of(cs.syntax()),
+        },
+    )))
+}
+
+fn build_regular_query_from_syntax(
+    node: &rowan::SyntaxNode<crate::syntax::CypherLang>,
+) -> Result<ast_c::RegularQuery> {
+    let clauses: Vec<_> = node.children().filter_map(Clause::cast).collect();
+    let unions: Vec<_> = node.children().filter_map(Union::cast).collect();
+    if clauses.is_empty() {
+        return Err(internal("subquery expression is missing clauses", span_of(node)));
+    }
+    if unions.is_empty() {
+        Ok(ast_c::RegularQuery {
+            single_query: build_subquery_single_query_from_clauses(clauses)?,
+            unions: Vec::new(),
+        })
+    } else {
+        let single_query = build_subquery_single_query_from_clauses(clauses)?;
+        let mut result_unions = Vec::new();
+        for union_node in unions {
+            let all = union_node.all_token().is_some();
+            let union_clauses: Vec<_> = union_node.clauses().collect();
+            result_unions.push(ast_c::Union {
+                all,
+                single_query: build_subquery_single_query_from_clauses(union_clauses)?,
+                span: span_of(union_node.syntax()),
+            });
+        }
+        Ok(ast_c::RegularQuery {
+            single_query,
+            unions: result_unions,
+        })
+    }
+}
+
+fn build_subquery_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_c::SingleQuery> {
+    let with_indices: Vec<_> = clauses
+        .iter()
+        .enumerate()
+        .filter(|(_, c)| matches!(c, Clause::With(_)))
+        .map(|(i, _)| i)
+        .collect();
+
+    let total = clauses.len();
+    let is_multipart_with = |idx: usize| -> bool { idx < total - 1 };
+
+    if with_indices.is_empty() {
+        let mut reading = Vec::new();
+        let mut updating = Vec::new();
+        let mut ret = None;
+
+        for c in clauses {
+            match c {
+                Clause::Match(m) => reading.push(ast_c::ReadingClause::Match(build_match(m)?)),
+                Clause::Unwind(u) => reading.push(ast_c::ReadingClause::Unwind(build_unwind(u)?)),
+                Clause::InQueryCall(ic) => {
+                    reading.push(ast_c::ReadingClause::InQueryCall(build_in_query_call(ic)?))
+                }
+                Clause::CallSubquery(cs) => reading.push(ast_c::ReadingClause::CallSubquery(
+                    Box::new(build_call_subquery(cs)?),
+                )),
+                Clause::LoadCsv(lc) => {
+                    reading.push(ast_c::ReadingClause::LoadCsv(build_load_csv(lc)?))
+                }
+                Clause::Create(c) => updating.push(ast_c::UpdatingClause::Create(build_create(c)?)),
+                Clause::Merge(m) => updating.push(ast_c::UpdatingClause::Merge(build_merge(m)?)),
+                Clause::Set(s) => updating.push(ast_c::UpdatingClause::Set(build_set(s)?)),
+                Clause::Remove(r) => updating.push(ast_c::UpdatingClause::Remove(build_remove(r)?)),
+                Clause::Delete(d) => updating.push(ast_c::UpdatingClause::Delete(build_delete(d)?)),
+                Clause::Foreach(f) => {
+                    updating.push(ast_c::UpdatingClause::Foreach(build_foreach(f)?))
+                }
+                Clause::Return(r) => ret = Some(build_return(r)?),
+                Clause::Finish(f) => {
+                    return Ok(ast_c::SingleQuery {
+                        kind: ast_c::SingleQueryKind::SinglePart(ast_c::SinglePartQuery {
+                            reading_clauses: reading,
+                            body: ast_c::SinglePartBody::Finish(build_finish(f)?),
+                        }),
+                    });
+                }
+                Clause::With(_) | Clause::Where(_) | Clause::Show(_) | Clause::Use(_) | Clause::StandaloneCall(_) => {}
+            }
+        }
+
+        let body = if let Some(ret) = ret {
+            ast_c::SinglePartBody::Return(ret)
+        } else {
+            ast_c::SinglePartBody::Updating {
+                updating,
+                return_clause: None,
+            }
+        };
+
+        Ok(ast_c::SingleQuery {
+            kind: ast_c::SingleQueryKind::SinglePart(ast_c::SinglePartQuery {
+                reading_clauses: reading,
+                body,
+            }),
+        })
+    } else {
+        let mut parts = Vec::new();
+        let mut final_part = None;
+        let mut reading = Vec::new();
+        let mut updating = Vec::new();
+
+        for (i, c) in clauses.into_iter().enumerate() {
+            match c {
+                Clause::With(w) if is_multipart_with(i) => {
+                    let wc = build_with(w)?;
+                    parts.push(ast_c::MultiPartQueryPart {
+                        reading_clauses: std::mem::take(&mut reading),
+                        updating_clauses: std::mem::take(&mut updating),
+                        with: wc,
+                    });
+                }
+                Clause::Match(m) => reading.push(ast_c::ReadingClause::Match(build_match(m)?)),
+                Clause::Unwind(u) => reading.push(ast_c::ReadingClause::Unwind(build_unwind(u)?)),
+                Clause::InQueryCall(ic) => {
+                    reading.push(ast_c::ReadingClause::InQueryCall(build_in_query_call(ic)?))
+                }
+                Clause::CallSubquery(cs) => reading.push(ast_c::ReadingClause::CallSubquery(
+                    Box::new(build_call_subquery(cs)?),
+                )),
+                Clause::LoadCsv(lc) => {
+                    reading.push(ast_c::ReadingClause::LoadCsv(build_load_csv(lc)?))
+                }
+                Clause::Create(c) => updating.push(ast_c::UpdatingClause::Create(build_create(c)?)),
+                Clause::Merge(m) => updating.push(ast_c::UpdatingClause::Merge(build_merge(m)?)),
+                Clause::Set(s) => updating.push(ast_c::UpdatingClause::Set(build_set(s)?)),
+                Clause::Remove(r) => updating.push(ast_c::UpdatingClause::Remove(build_remove(r)?)),
+                Clause::Delete(d) => updating.push(ast_c::UpdatingClause::Delete(build_delete(d)?)),
+                Clause::Foreach(f) => {
+                    updating.push(ast_c::UpdatingClause::Foreach(build_foreach(f)?))
+                }
+                Clause::Return(r) => {
+                    final_part = Some(ast_c::SinglePartQuery {
+                        reading_clauses: std::mem::take(&mut reading),
+                        body: ast_c::SinglePartBody::Return(build_return(r)?),
+                    });
+                }
+                Clause::Finish(f) => {
+                    final_part = Some(ast_c::SinglePartQuery {
+                        reading_clauses: std::mem::take(&mut reading),
+                        body: ast_c::SinglePartBody::Finish(build_finish(f)?),
+                    });
+                }
+                Clause::With(w) => {
+                    let wc = build_with(w)?;
+                    final_part = Some(ast_c::SinglePartQuery {
+                        reading_clauses: std::mem::take(&mut reading),
+                        body: ast_c::SinglePartBody::Return(ast_c::Return {
+                            distinct: wc.distinct,
+                            star: wc.star,
+                            items: wc.items,
+                            order: wc.order,
+                            skip: wc.skip,
+                            limit: wc.limit,
+                            span: wc.span,
+                        }),
+                    });
+                }
+                Clause::Where(_) | Clause::Show(_) | Clause::Use(_) | Clause::StandaloneCall(_) => {}
+            }
+        }
+
+        let final_part = final_part.unwrap_or(ast_c::SinglePartQuery {
+            reading_clauses: std::mem::take(&mut reading),
+            body: ast_c::SinglePartBody::Updating {
+                updating,
+                return_clause: None,
+            },
+        });
+
+        Ok(ast_c::SingleQuery {
+            kind: ast_c::SingleQueryKind::MultiPart(ast_c::MultiPartQuery { parts, final_part }),
+        })
+    }
 }
 
 fn build_map_projection(mp: MapProjection) -> Result<ast_c::Expression> {
