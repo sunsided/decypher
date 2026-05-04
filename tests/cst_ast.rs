@@ -1020,7 +1020,11 @@ fn count_subquery_expr() {
 fn label_expression_cst_nodes() {
     use cypher::cst::parse as cst_parse;
     let result = cst_parse("MATCH (n:(Person|Company)&!Deleted) RETURN n;");
-    check!(result.errors.is_empty(), "parse errors: {:?}", result.errors);
+    check!(
+        result.errors.is_empty(),
+        "parse errors: {:?}",
+        result.errors
+    );
     let source = result.tree();
     let label_exprs: Vec<_> = source
         .syntax()
@@ -1052,26 +1056,42 @@ fn label_expression_cst_nodes() {
 fn quantified_path_pattern_cst_node() {
     use cypher::cst::parse as cst_parse;
     let result = cst_parse("MATCH p = ((a)-[:R]->(b)){1,3} RETURN p;");
-    check!(result.errors.is_empty(), "parse errors: {:?}", result.errors);
+    check!(
+        result.errors.is_empty(),
+        "parse errors: {:?}",
+        result.errors
+    );
     let source = result.tree();
     let quantified: Vec<_> = source
         .syntax()
         .descendants()
         .filter(|n| n.kind() == cypher::syntax::SyntaxKind::QUANTIFIED_PATH_PATTERN)
         .collect();
-    check!(quantified.len() == 1, "expected 1 quantified path node, got {}", quantified.len());
+    check!(
+        quantified.len() == 1,
+        "expected 1 quantified path node, got {}",
+        quantified.len()
+    );
 }
 
 #[test]
 fn dynamic_label_cst_node() {
     use cypher::cst::parse as cst_parse;
     let result = cst_parse("MATCH (n:$(label)) RETURN n;");
-    check!(result.errors.is_empty(), "parse errors: {:?}", result.errors);
+    check!(
+        result.errors.is_empty(),
+        "parse errors: {:?}",
+        result.errors
+    );
     let source = result.tree();
     let dynamic: Vec<_> = source
         .syntax()
         .descendants()
         .filter(|n| n.kind() == cypher::syntax::SyntaxKind::DYNAMIC_LABEL)
         .collect();
-    check!(dynamic.len() == 1, "expected 1 dynamic label node, got {}", dynamic.len());
+    check!(
+        dynamic.len() == 1,
+        "expected 1 dynamic label node, got {}",
+        dynamic.len()
+    );
 }

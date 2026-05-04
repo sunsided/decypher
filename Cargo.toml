@@ -28,3 +28,4 @@ miette = ["dep:miette"]
 
 [dev-dependencies]
 assert2 = "0.3"
+proptest = "1"

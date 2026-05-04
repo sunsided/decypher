@@ -724,7 +724,12 @@ fn build_pattern_element(pe: PatternElement) -> Result<ast_c::PatternElement> {
             .inner()
             .map(build_pattern_element)
             .transpose()?
-            .ok_or_else(|| internal("missing inner quantified path element", span_of(pe.syntax())))?;
+            .ok_or_else(|| {
+                internal(
+                    "missing inner quantified path element",
+                    span_of(pe.syntax()),
+                )
+            })?;
         let quantifier = pe
             .quantifier()
             .map(build_quantifier)
@@ -808,10 +813,7 @@ fn build_pattern_element_chain(pec: PatternElementChain) -> Result<ast_c::Patter
         (false, true) => ast_c::RelationshipDirection::Right,
         (false, false) => ast_c::RelationshipDirection::Undirected,
     };
-    let detail = rel
-        .detail()
-        .map(build_relationship_detail)
-        .transpose()?;
+    let detail = rel.detail().map(build_relationship_detail).transpose()?;
     let relationship = ast_c::RelationshipPattern {
         direction,
         detail,
@@ -855,9 +857,9 @@ fn build_quantifier(rq: RelationshipQuantifier) -> Result<ast_c::Quantifier> {
     let nums: Result<Vec<i64>> = rq
         .numbers()
         .map(|lit| match build_literal(lit)? {
-            ast_c::Expression::Literal(ast_c::Literal::Number(ast_c::NumberLiteral::Integer(i))) => {
-                Ok(i)
-            }
+            ast_c::Expression::Literal(ast_c::Literal::Number(ast_c::NumberLiteral::Integer(
+                i,
+            ))) => Ok(i),
             _ => Err(internal("expected integer quantifier bound", sp)),
         })
         .collect();
@@ -1692,12 +1694,14 @@ fn build_filter_expression(fe: FilterExpression) -> Result<ast_c::Expression> {
 fn build_exists_subquery(es: ExistsSubquery) -> Result<ast_c::Expression> {
     let sp = span_of(es.syntax());
     if es.clauses().next().is_some() {
-        return Ok(ast_c::Expression::Exists(Box::new(ast_c::ExistsExpression {
-            inner: Box::new(ast_c::ExistsInner::RegularQuery(Box::new(
-                build_regular_query_from_syntax(es.syntax())?,
-            ))),
-            span: sp,
-        })));
+        return Ok(ast_c::Expression::Exists(Box::new(
+            ast_c::ExistsExpression {
+                inner: Box::new(ast_c::ExistsInner::RegularQuery(Box::new(
+                    build_regular_query_from_syntax(es.syntax())?,
+                ))),
+                span: sp,
+            },
+        )));
     }
 
     let mut parts = Vec::new();
@@ -1731,13 +1735,15 @@ fn build_exists_subquery(es: ExistsSubquery) -> Result<ast_c::Expression> {
         .and_then(|w| w.expr())
         .map(build_expression)
         .transpose()?;
-    Ok(ast_c::Expression::Exists(Box::new(ast_c::ExistsExpression {
-        inner: Box::new(ast_c::ExistsInner::Pattern(
-            ast_c::Pattern { parts, span: sp },
-            where_clause.map(Box::new),
-        )),
-        span: sp,
-    })))
+    Ok(ast_c::Expression::Exists(Box::new(
+        ast_c::ExistsExpression {
+            inner: Box::new(ast_c::ExistsInner::Pattern(
+                ast_c::Pattern { parts, span: sp },
+                where_clause.map(Box::new),
+            )),
+            span: sp,
+        },
+    )))
 }
 
 fn build_count_subquery(cs: CountSubquery) -> Result<ast_c::Expression> {
@@ -1764,7 +1770,10 @@ fn build_regular_query_from_syntax(
     let clauses: Vec<_> = node.children().filter_map(Clause::cast).collect();
     let unions: Vec<_> = node.children().filter_map(Union::cast).collect();
     if clauses.is_empty() {
-        return Err(internal("subquery expression is missing clauses", span_of(node)));
+        return Err(internal(
+            "subquery expression is missing clauses",
+            span_of(node),
+        ));
     }
     if unions.is_empty() {
         Ok(ast_c::RegularQuery {
@@ -1836,7 +1845,11 @@ fn build_subquery_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_
                         }),
                     });
                 }
-                Clause::With(_) | Clause::Where(_) | Clause::Show(_) | Clause::Use(_) | Clause::StandaloneCall(_) => {}
+                Clause::With(_)
+                | Clause::Where(_)
+                | Clause::Show(_)
+                | Clause::Use(_)
+                | Clause::StandaloneCall(_) => {}
             }
         }
 
@@ -1917,7 +1930,8 @@ fn build_subquery_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_
                         }),
                     });
                 }
-                Clause::Where(_) | Clause::Show(_) | Clause::Use(_) | Clause::StandaloneCall(_) => {}
+                Clause::Where(_) | Clause::Show(_) | Clause::Use(_) | Clause::StandaloneCall(_) => {
+                }
             }
         }
 

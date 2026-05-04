@@ -252,13 +252,16 @@ fn test_dynamic_node_label() {
 
 #[test]
 fn test_quantified_path_pattern() {
-    let result = parse("MATCH p = ((a:Stop WHERE a.active)-[:NEXT]->(b:Stop WHERE b.active)){2,5} RETURN p;");
+    let result = parse(
+        "MATCH p = ((a:Stop WHERE a.active)-[:NEXT]->(b:Stop WHERE b.active)){2,5} RETURN p;",
+    );
     check!(result.is_ok(), "{:?}", result.err());
 }
 
 #[test]
 fn test_quantified_relationship() {
-    let result = parse("MATCH p = (:Person)-[r:KNOWS WHERE r.weight > 0.5]->{1,4}(:Person) RETURN p;");
+    let result =
+        parse("MATCH p = (:Person)-[r:KNOWS WHERE r.weight > 0.5]->{1,4}(:Person) RETURN p;");
     check!(result.is_ok(), "{:?}", result.err());
 }
 

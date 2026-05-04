@@ -610,7 +610,9 @@ impl AstNode for RangeLiteral {
 
 impl RelationshipQuantifier {
     pub fn numbers(&self) -> impl Iterator<Item = super::expressions::Literal> {
-        self.0.children().filter_map(super::expressions::Literal::cast)
+        self.0
+            .children()
+            .filter_map(super::expressions::Literal::cast)
     }
 }
 
