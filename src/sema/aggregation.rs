@@ -61,6 +61,7 @@ impl AggregationChecker<'_> {
                     self.check_projection(&ret.items, ret.distinct, &grouping_keys, ret.span);
                 }
             }
+            SinglePartBody::Finish(_) => {}
         }
     }
 
@@ -130,6 +131,7 @@ impl AggregationChecker<'_> {
                     self.check_projection(&ret.items, ret.distinct, &grouping_keys, ret.span);
                 }
             }
+            SinglePartBody::Finish(_) => {}
         }
     }
 
@@ -185,6 +187,9 @@ fn collect_grouping_keys(clauses: &[ReadingClause]) -> HashSet<String> {
                 keys.insert(u.variable.name.name.clone());
             }
             ReadingClause::InQueryCall(_) | ReadingClause::CallSubquery(_) => {}
+            ReadingClause::LoadCsv(lc) => {
+                keys.insert(lc.variable.name.name.clone());
+            }
         }
     }
     keys
@@ -216,8 +221,10 @@ fn has_aggregate(expr: &Expression) -> bool {
             )
         }
         Expression::CountStar { .. } => true,
-        Expression::BinaryOp { op, lhs, rhs, .. } => has_aggregate(lhs) || has_aggregate(rhs),
-        Expression::UnaryOp { op, operand, .. } => has_aggregate(operand),
+        Expression::BinaryOp {
+            op: _, lhs, rhs, ..
+        } => has_aggregate(lhs) || has_aggregate(rhs),
+        Expression::UnaryOp { op: _, operand, .. } => has_aggregate(operand),
         Expression::Comparison { lhs, operators, .. } => {
             has_aggregate(lhs) || operators.iter().any(|(_, rhs)| has_aggregate(rhs))
         }
@@ -225,8 +232,8 @@ fn has_aggregate(expr: &Expression) -> bool {
             case.alternatives
                 .iter()
                 .any(|alt| has_aggregate(&alt.when) || has_aggregate(&alt.then))
-                || case.scrutinee.as_ref().map_or(false, |s| has_aggregate(s))
-                || case.default.as_ref().map_or(false, |d| has_aggregate(d))
+                || case.scrutinee.as_ref().is_some_and(|s| has_aggregate(s))
+                || case.default.as_ref().is_some_and(|d| has_aggregate(d))
         }
         Expression::Parenthesized(inner) => has_aggregate(inner),
         _ => false,

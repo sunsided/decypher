@@ -1,5 +1,5 @@
 use crate::ast::clause::{
-    Create, Delete, Foreach, Match, Merge, Remove, Return, Set, Unwind, With,
+    Create, Delete, Finish, Foreach, LoadCsv, Match, Merge, Remove, Return, Set, Unwind, With,
 };
 use crate::ast::expr::Expression;
 use crate::ast::procedure::{InQueryCall, StandaloneCall};
@@ -46,6 +46,7 @@ pub enum SinglePartBody {
         updating: Vec<UpdatingClause>,
         return_clause: Option<Return>,
     },
+    Finish(Finish),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -67,6 +68,7 @@ pub enum ReadingClause {
     Unwind(Unwind),
     InQueryCall(InQueryCall),
     CallSubquery(CallSubquery),
+    LoadCsv(LoadCsv),
 }
 
 /// CALL { subquery } [IN TRANSACTIONS]

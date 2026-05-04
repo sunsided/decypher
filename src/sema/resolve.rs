@@ -165,7 +165,7 @@ impl<'ast> Visit<'ast> for NameResolver {
 
     fn visit_call_subquery(&mut self, node: &'ast CallSubquery) {
         // Subqueries have their own scope — visit the inner query with a fresh scope
-        let saved_scopes = std::mem::replace(&mut self.scopes, ScopeStack::new());
+        let saved_scopes = std::mem::take(&mut self.scopes);
         self.visit_regular_query(&node.query);
         self.scopes = saved_scopes;
         if let Some(it) = &node.in_transactions {
@@ -300,7 +300,7 @@ fn bind_relationships_pattern(
     scopes: &mut ScopeStack,
     pattern: &RelationshipsPattern,
     kind: SymbolKind,
-    errors: &mut Vec<CypherError>,
+    _errors: &mut [CypherError],
 ) {
     if let Some(var) = &pattern.start.variable {
         let _ = scopes.bind(&var.name.name, kind, var.name.span);

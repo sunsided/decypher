@@ -42,6 +42,8 @@ pub enum SyntaxKind {
     ARROW_LEFT,
     ARROW_RIGHT,
     DASH,
+    BANG,
+    AMPERSAND,
 
     /* Literals */
     INTEGER,
@@ -117,6 +119,7 @@ pub enum SyntaxKind {
     KW_PROCEDURES,
     KW_PROPERTY,
     KW_RANGE,
+    KW_REDUCE,
     KW_REMOVE,
     KW_REQUIRE,
     KW_RETURN,
@@ -146,6 +149,12 @@ pub enum SyntaxKind {
     KW_IN_TRANSACTIONS,
     KW_CONCURRENTLY,
     KW_GRAPH,
+    KW_HEADERS,
+    KW_FROM,
+    KW_LOAD,
+    KW_CSV,
+    KW_FINISH,
+    KW_FIELDTERMINATOR,
 
     /* Composite nodes (CST non-terminals) */
     SOURCE_FILE,
@@ -177,6 +186,8 @@ pub enum SyntaxKind {
     YIELD_ITEM,
     WITH_CLAUSE,
     RETURN_CLAUSE,
+    LOAD_CSV_CLAUSE,
+    FINISH_CLAUSE,
     PROJECTION_BODY,
     PROJECTION_ITEMS,
     PROJECTION_ITEM,
@@ -271,7 +282,7 @@ pub enum SyntaxKind {
 impl SyntaxKind {
     pub fn from(raw: u16) -> Self {
         if raw <= Self::ERROR as u16 {
-            unsafe { std::mem::transmute(raw) }
+            unsafe { std::mem::transmute::<u16, SyntaxKind>(raw) }
         } else {
             SyntaxKind::ERROR
         }

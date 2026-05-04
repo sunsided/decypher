@@ -100,12 +100,12 @@ fn find_next_statement_boundary_relative(input: &str, from_pos: usize) -> usize 
             let at_start = !input
                 .chars()
                 .nth(abs - 1)
-                .map_or(false, |c| c.is_ascii_alphanumeric() || c == '_');
+                .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_');
             let at_end = abs + kw.len() >= input.len()
                 || !input
                     .chars()
                     .nth(abs + kw.len())
-                    .map_or(false, |c| c.is_ascii_alphanumeric() || c == '_');
+                    .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_');
             if at_start && at_end && abs < earliest {
                 earliest = abs;
             }

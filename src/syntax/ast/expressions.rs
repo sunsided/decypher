@@ -1,6 +1,6 @@
 use crate::syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 
-use super::support::{child, child_token, child_tokens, children, AstChildren};
+use super::support::{child, child_token, children, AstChildren};
 use super::traits::AstNode;
 
 // ============================================================
@@ -177,12 +177,12 @@ impl BinaryExpr {
         // The ADD_SUB_EXPR's lhs is the NUMBER_LITERAL before it.
         self.0
             .prev_sibling()
-            .and_then(|s| Expression::cast(s))
+            .and_then(Expression::cast)
             .or_else(|| self.0.children().find_map(Expression::cast))
             .or_else(|| {
                 self.0
                     .prev_sibling()
-                    .and_then(|s| Variable::cast(s))
+                    .and_then(Variable::cast)
                     .map(|v| Expression::Atom(Atom::Variable(v)))
             })
     }
@@ -605,8 +605,12 @@ impl Parameter {
     /// index token ($1 -> "1") depending on the form used.
     pub fn name_token(&self) -> Option<SyntaxToken> {
         self.0.children_with_tokens().find_map(|c| {
-            c.into_token()
-                .filter(|t| matches!(t.kind(), SyntaxKind::IDENT | SyntaxKind::INTEGER))
+            c.into_token().filter(|t| {
+                !matches!(
+                    t.kind(),
+                    SyntaxKind::DOLLAR | SyntaxKind::WHITESPACE | SyntaxKind::COMMENT
+                )
+            })
         })
     }
 }
@@ -888,7 +892,7 @@ impl CaseAlternative {
         for child in self.0.children_with_tokens() {
             if child
                 .as_token()
-                .map_or(false, |t| t.kind() == SyntaxKind::KW_THEN)
+                .is_some_and(|t| t.kind() == SyntaxKind::KW_THEN)
             {
                 break;
             }
@@ -1175,7 +1179,7 @@ impl FilterExpression {
         self.0
             .children()
             .filter(|n| n.kind() != SyntaxKind::ID_IN_COLL)
-            .find_map(|n| super::clauses::WhereClause::cast(n))
+            .find_map(super::clauses::WhereClause::cast)
     }
 }
 

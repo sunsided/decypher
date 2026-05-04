@@ -445,6 +445,13 @@ pub trait Visit<'ast> {
     {
         walk_use(self, node)
     }
+    fn visit_load_csv(&mut self, node: &'ast LoadCsv)
+    where
+        Self: Sized,
+    {
+        walk_load_csv(self, node)
+    }
+    fn visit_finish(&mut self, _node: &'ast Finish) {}
     fn visit_show_yield_spec(&mut self, node: &'ast ShowYieldSpec)
     where
         Self: Sized,
@@ -871,6 +878,13 @@ pub trait VisitMut {
     {
         walk_use_mut(self, node)
     }
+    fn visit_load_csv_mut(&mut self, node: &mut LoadCsv)
+    where
+        Self: Sized,
+    {
+        walk_load_csv_mut(self, node)
+    }
+    fn visit_finish_mut(&mut self, _node: &mut Finish) {}
     fn visit_show_yield_spec_mut(&mut self, node: &mut ShowYieldSpec)
     where
         Self: Sized,
@@ -921,6 +935,7 @@ pub fn walk_single_query<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast SingleQuer
                     ReadingClause::Unwind(u) => v.visit_unwind(u),
                     ReadingClause::InQueryCall(i) => v.visit_in_query_call(i),
                     ReadingClause::CallSubquery(c) => v.visit_call_subquery(c),
+                    ReadingClause::LoadCsv(l) => v.visit_load_csv(l),
                 }
             }
             match &sp.body {
@@ -943,6 +958,7 @@ pub fn walk_single_query<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast SingleQuer
                         v.visit_return(ret);
                     }
                 }
+                SinglePartBody::Finish(f) => v.visit_finish(f),
             }
         }
         SingleQueryKind::MultiPart(mp) => {
@@ -953,6 +969,7 @@ pub fn walk_single_query<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast SingleQuer
                         ReadingClause::Unwind(u) => v.visit_unwind(u),
                         ReadingClause::InQueryCall(i) => v.visit_in_query_call(i),
                         ReadingClause::CallSubquery(c) => v.visit_call_subquery(c),
+                        ReadingClause::LoadCsv(l) => v.visit_load_csv(l),
                     }
                 }
                 for uc in &part.updating_clauses {
@@ -974,6 +991,7 @@ pub fn walk_single_query<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast SingleQuer
                     ReadingClause::Unwind(u) => v.visit_unwind(u),
                     ReadingClause::InQueryCall(i) => v.visit_in_query_call(i),
                     ReadingClause::CallSubquery(c) => v.visit_call_subquery(c),
+                    ReadingClause::LoadCsv(l) => v.visit_load_csv(l),
                 }
             }
             match &mp.final_part.body {
@@ -996,6 +1014,7 @@ pub fn walk_single_query<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast SingleQuer
                         v.visit_return(ret);
                     }
                 }
+                SinglePartBody::Finish(f) => v.visit_finish(f),
             }
         }
     }
@@ -1503,6 +1522,7 @@ pub fn walk_single_query_mut<V: VisitMut>(v: &mut V, node: &mut SingleQuery) {
                     ReadingClause::Unwind(u) => v.visit_unwind(u),
                     ReadingClause::InQueryCall(i) => v.visit_in_query_call(i),
                     ReadingClause::CallSubquery(c) => v.visit_call_subquery_mut(c),
+                    ReadingClause::LoadCsv(l) => v.visit_load_csv_mut(l),
                 }
             }
             match &mut sp.body {
@@ -1525,6 +1545,7 @@ pub fn walk_single_query_mut<V: VisitMut>(v: &mut V, node: &mut SingleQuery) {
                         v.visit_return(ret);
                     }
                 }
+                SinglePartBody::Finish(f) => v.visit_finish_mut(f),
             }
         }
         SingleQueryKind::MultiPart(mp) => {
@@ -1535,6 +1556,7 @@ pub fn walk_single_query_mut<V: VisitMut>(v: &mut V, node: &mut SingleQuery) {
                         ReadingClause::Unwind(u) => v.visit_unwind(u),
                         ReadingClause::InQueryCall(i) => v.visit_in_query_call(i),
                         ReadingClause::CallSubquery(c) => v.visit_call_subquery_mut(c),
+                        ReadingClause::LoadCsv(l) => v.visit_load_csv_mut(l),
                     }
                 }
                 for uc in &mut part.updating_clauses {
@@ -2112,6 +2134,13 @@ pub fn walk_use<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Use) {
     v.visit_symbolic_name(&node.graph);
 }
 
+pub fn walk_load_csv<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast LoadCsv) {
+    v.visit_expression(&node.source);
+    v.visit_variable(&node.variable);
+}
+
+pub fn walk_finish<'ast, V: Visit<'ast>>(_v: &mut V, _node: &'ast Finish) {}
+
 pub fn walk_show_yield_spec<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast ShowYieldSpec) {
     match node {
         ShowYieldSpec::Star { .. } => {}
@@ -2251,6 +2280,13 @@ pub fn walk_return_body_mut<V: VisitMut>(v: &mut V, node: &mut ReturnBody) {
 pub fn walk_use_mut<V: VisitMut>(v: &mut V, node: &mut Use) {
     v.visit_symbolic_name(&mut node.graph);
 }
+
+pub fn walk_load_csv_mut<V: VisitMut>(v: &mut V, node: &mut LoadCsv) {
+    v.visit_expression(&mut node.source);
+    v.visit_variable(&mut node.variable);
+}
+
+pub fn walk_finish_mut<V: VisitMut>(_v: &mut V, _node: &mut Finish) {}
 
 pub fn walk_show_yield_spec_mut<V: VisitMut>(v: &mut V, node: &mut ShowYieldSpec) {
     match node {

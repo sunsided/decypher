@@ -62,279 +62,283 @@ impl<'a> Lexer<'a> {
     }
 
     pub fn advance(&mut self) -> Option<Token> {
-        loop {
-            let start = self.start_pos();
-            let ch = self.peek()?;
+        let start = self.start_pos();
+        let ch = self.peek()?;
 
-            let kind = match ch {
-                /* Whitespace & comments */
-                ' ' | '\t' | '\r' | '\n' => {
-                    self.bump();
-                    while let Some(c) = self.peek() {
-                        if is_whitespace(c) {
-                            self.bump();
-                        } else {
-                            break;
-                        }
-                    }
-                    return Some(self.make_token(SyntaxKind::WHITESPACE, start));
-                }
-
-                /* Comments */
-                '/' if self.peek2() == Some('/') => {
-                    self.bump();
-                    self.bump();
-                    while let Some(c) = self.peek() {
-                        if c == '\n' {
-                            break;
-                        }
+        match ch {
+            /* Whitespace & comments */
+            ' ' | '\t' | '\r' | '\n' => {
+                self.bump();
+                while let Some(c) = self.peek() {
+                    if is_whitespace(c) {
                         self.bump();
-                    }
-                    return Some(self.make_token(SyntaxKind::COMMENT, start));
-                }
-                '/' if self.peek2() == Some('*') => {
-                    self.bump();
-                    self.bump();
-                    while let Some(c) = self.peek() {
-                        if c == '*' && self.peek2() == Some('/') {
-                            self.bump();
-                            self.bump();
-                            break;
-                        }
-                        self.bump();
-                    }
-                    return Some(self.make_token(SyntaxKind::COMMENT, start));
-                }
-
-                /* Punctuation */
-                '(' => {
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::L_PAREN, start));
-                }
-                ')' => {
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::R_PAREN, start));
-                }
-                '{' => {
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::L_BRACE, start));
-                }
-                '}' => {
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::R_BRACE, start));
-                }
-                '[' => {
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::L_BRACKET, start));
-                }
-                ']' => {
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::R_BRACKET, start));
-                }
-                ',' => {
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::COMMA, start));
-                }
-                ':' => {
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::COLON, start));
-                }
-                '|' => {
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::PIPE, start));
-                }
-                '$' => {
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::DOLLAR, start));
-                }
-                '`' => {
-                    self.bump();
-                    while let Some(c) = self.peek() {
-                        if c == '`' {
-                            self.bump();
-                            // Check if another backtick immediately follows (concatenated)
-                            if self.peek() == Some('`') {
-                                self.bump(); // consume start of next backtick run
-                                continue; // continue reading inside it
-                            }
-                            break;
-                        }
-                        self.bump();
-                    }
-                    return Some(self.make_token(SyntaxKind::ESCAPED_IDENT, start));
-                }
-                ';' => {
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::SEMICOLON, start));
-                }
-
-                /* Operators — longer ones first */
-                '<' if self.peek2() == Some('=') => {
-                    self.bump();
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::LE, start));
-                }
-                '>' if self.peek2() == Some('=') => {
-                    self.bump();
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::GE, start));
-                }
-                '<' if self.peek2() == Some('>') => {
-                    self.bump();
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::NE, start));
-                }
-                '+' if self.peek2() == Some('=') => {
-                    self.bump();
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::PLUSEQ, start));
-                }
-                '.' if self.peek2() == Some('.') => {
-                    self.bump();
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::DOT_DOT, start));
-                }
-                '/' => {
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::SLASH, start));
-                }
-                '<' => {
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::LT, start));
-                }
-                '>' => {
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::GT, start));
-                }
-                '=' => {
-                    self.bump();
-                    if self.peek() == Some('~') {
-                        self.bump();
-                        return Some(self.make_token(SyntaxKind::TILDE_EQ, start));
-                    }
-                    return Some(self.make_token(SyntaxKind::EQ, start));
-                }
-                '~' => {
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::TILDE, start));
-                }
-                '+' => {
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::PLUS, start));
-                }
-                '-' => {
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::MINUS, start));
-                }
-                '*' => {
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::STAR, start));
-                }
-                '%' => {
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::PERCENT, start));
-                }
-                '^' => {
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::POW, start));
-                }
-                '.' => {
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::DOT, start));
-                }
-
-                /* Arrow heads (unicode variants for pattern matching) */
-                '⟨' | '〈' | '﹤' | '＜' => {
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::ARROW_LEFT, start));
-                }
-                '⟩' | '〉' | '﹥' | '＞' => {
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::ARROW_RIGHT, start));
-                }
-
-                /* Dash variants */
-                '\u{00AD}' | '‐' | '‑' | '‒' | '–' | '—' | '―' | '−' | '﹘' | '﹣' | '－' =>
-                {
-                    self.bump();
-                    return Some(self.make_token(SyntaxKind::DASH, start));
-                }
-
-                /* String literals */
-                '"' | '\'' => {
-                    let quote = ch;
-                    self.bump();
-                    let mut terminated = false;
-                    while let Some(c) = self.peek() {
-                        if c == quote {
-                            self.bump();
-                            terminated = true;
-                            break;
-                        }
-                        if c == '\\' {
-                            self.bump();
-                            if let Some(escaped) = self.peek() {
-                                self.bump();
-                                match escaped {
-                                    'u' => {
-                                        for _ in 0..4 {
-                                            if let Some(h) = self.peek() {
-                                                if h.is_ascii_hexdigit() {
-                                                    self.bump();
-                                                } else {
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                    }
-                                    'U' => {
-                                        for _ in 0..8 {
-                                            if let Some(h) = self.peek() {
-                                                if h.is_ascii_hexdigit() {
-                                                    self.bump();
-                                                } else {
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            continue;
-                        }
-                        if c == '\n' {
-                            break;
-                        }
-                        self.bump();
-                    }
-                    let kind = if terminated {
-                        SyntaxKind::STRING
                     } else {
-                        SyntaxKind::ERROR
-                    };
-                    return Some(self.make_token(kind, start));
+                        break;
+                    }
                 }
+                Some(self.make_token(SyntaxKind::WHITESPACE, start))
+            }
 
-                /* Numbers */
-                '0'..='9' => {
-                    let kind = self.read_number(start);
-                    return Some(self.make_token(kind, start));
-                }
-
-                /* Keywords and identifiers */
-                _ if is_id_start(ch) => {
-                    let kind = self.read_ident_or_keyword(start);
-                    return Some(self.make_token(kind, start));
-                }
-
-                _ => {
+            /* Comments */
+            '/' if self.peek2() == Some('/') => {
+                self.bump();
+                self.bump();
+                while let Some(c) = self.peek() {
+                    if c == '\n' {
+                        break;
+                    }
                     self.bump();
-                    return Some(self.make_token(SyntaxKind::ERROR, start));
                 }
-            };
+                Some(self.make_token(SyntaxKind::COMMENT, start))
+            }
+            '/' if self.peek2() == Some('*') => {
+                self.bump();
+                self.bump();
+                while let Some(c) = self.peek() {
+                    if c == '*' && self.peek2() == Some('/') {
+                        self.bump();
+                        self.bump();
+                        break;
+                    }
+                    self.bump();
+                }
+                Some(self.make_token(SyntaxKind::COMMENT, start))
+            }
 
-            return Some(kind);
+            /* Punctuation */
+            '(' => {
+                self.bump();
+                Some(self.make_token(SyntaxKind::L_PAREN, start))
+            }
+            ')' => {
+                self.bump();
+                Some(self.make_token(SyntaxKind::R_PAREN, start))
+            }
+            '{' => {
+                self.bump();
+                Some(self.make_token(SyntaxKind::L_BRACE, start))
+            }
+            '}' => {
+                self.bump();
+                Some(self.make_token(SyntaxKind::R_BRACE, start))
+            }
+            '[' => {
+                self.bump();
+                Some(self.make_token(SyntaxKind::L_BRACKET, start))
+            }
+            ']' => {
+                self.bump();
+                Some(self.make_token(SyntaxKind::R_BRACKET, start))
+            }
+            ',' => {
+                self.bump();
+                Some(self.make_token(SyntaxKind::COMMA, start))
+            }
+            ':' => {
+                self.bump();
+                Some(self.make_token(SyntaxKind::COLON, start))
+            }
+            '|' => {
+                self.bump();
+                Some(self.make_token(SyntaxKind::PIPE, start))
+            }
+            '$' => {
+                self.bump();
+                Some(self.make_token(SyntaxKind::DOLLAR, start))
+            }
+            '`' => {
+                self.bump();
+                while let Some(c) = self.peek() {
+                    if c == '`' {
+                        self.bump();
+                        // Check if another backtick immediately follows (concatenated)
+                        if self.peek() == Some('`') {
+                            self.bump(); // consume start of next backtick run
+                            continue; // continue reading inside it
+                        }
+                        break;
+                    }
+                    self.bump();
+                }
+                Some(self.make_token(SyntaxKind::ESCAPED_IDENT, start))
+            }
+            ';' => {
+                self.bump();
+                Some(self.make_token(SyntaxKind::SEMICOLON, start))
+            }
+
+            /* Operators — longer ones first */
+            '<' if self.peek2() == Some('=') => {
+                self.bump();
+                self.bump();
+                Some(self.make_token(SyntaxKind::LE, start))
+            }
+            '>' if self.peek2() == Some('=') => {
+                self.bump();
+                self.bump();
+                Some(self.make_token(SyntaxKind::GE, start))
+            }
+            '<' if self.peek2() == Some('>') => {
+                self.bump();
+                self.bump();
+                Some(self.make_token(SyntaxKind::NE, start))
+            }
+            '+' if self.peek2() == Some('=') => {
+                self.bump();
+                self.bump();
+                Some(self.make_token(SyntaxKind::PLUSEQ, start))
+            }
+            '.' if self.peek2() == Some('.') => {
+                self.bump();
+                self.bump();
+                Some(self.make_token(SyntaxKind::DOT_DOT, start))
+            }
+            '/' => {
+                self.bump();
+                Some(self.make_token(SyntaxKind::SLASH, start))
+            }
+            '<' => {
+                self.bump();
+                Some(self.make_token(SyntaxKind::LT, start))
+            }
+            '>' => {
+                self.bump();
+                Some(self.make_token(SyntaxKind::GT, start))
+            }
+            '=' => {
+                self.bump();
+                if self.peek() == Some('~') {
+                    self.bump();
+                    return Some(self.make_token(SyntaxKind::TILDE_EQ, start));
+                }
+                Some(self.make_token(SyntaxKind::EQ, start))
+            }
+            '~' => {
+                self.bump();
+                Some(self.make_token(SyntaxKind::TILDE, start))
+            }
+            '+' => {
+                self.bump();
+                Some(self.make_token(SyntaxKind::PLUS, start))
+            }
+            '-' => {
+                self.bump();
+                Some(self.make_token(SyntaxKind::MINUS, start))
+            }
+            '*' => {
+                self.bump();
+                Some(self.make_token(SyntaxKind::STAR, start))
+            }
+            '%' => {
+                self.bump();
+                Some(self.make_token(SyntaxKind::PERCENT, start))
+            }
+            '^' => {
+                self.bump();
+                Some(self.make_token(SyntaxKind::POW, start))
+            }
+            '!' => {
+                self.bump();
+                Some(self.make_token(SyntaxKind::BANG, start))
+            }
+            '&' => {
+                self.bump();
+                Some(self.make_token(SyntaxKind::AMPERSAND, start))
+            }
+            '.' => {
+                self.bump();
+                Some(self.make_token(SyntaxKind::DOT, start))
+            }
+
+            /* Arrow heads (unicode variants for pattern matching) */
+            '⟨' | '〈' | '﹤' | '＜' => {
+                self.bump();
+                Some(self.make_token(SyntaxKind::ARROW_LEFT, start))
+            }
+            '⟩' | '〉' | '﹥' | '＞' => {
+                self.bump();
+                Some(self.make_token(SyntaxKind::ARROW_RIGHT, start))
+            }
+
+            /* Dash variants */
+            '\u{00AD}' | '‐' | '‑' | '‒' | '–' | '—' | '―' | '−' | '﹘' | '﹣' | '－' =>
+            {
+                self.bump();
+                Some(self.make_token(SyntaxKind::DASH, start))
+            }
+
+            /* String literals */
+            '"' | '\'' => {
+                let quote = ch;
+                self.bump();
+                let mut terminated = false;
+                while let Some(c) = self.peek() {
+                    if c == quote {
+                        self.bump();
+                        terminated = true;
+                        break;
+                    }
+                    if c == '\\' {
+                        self.bump();
+                        if let Some(escaped) = self.peek() {
+                            self.bump();
+                            match escaped {
+                                'u' => {
+                                    for _ in 0..4 {
+                                        if let Some(h) = self.peek() {
+                                            if h.is_ascii_hexdigit() {
+                                                self.bump();
+                                            } else {
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                'U' => {
+                                    for _ in 0..8 {
+                                        if let Some(h) = self.peek() {
+                                            if h.is_ascii_hexdigit() {
+                                                self.bump();
+                                            } else {
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        continue;
+                    }
+                    if c == '\n' {
+                        break;
+                    }
+                    self.bump();
+                }
+                let kind = if terminated {
+                    SyntaxKind::STRING
+                } else {
+                    SyntaxKind::ERROR
+                };
+                Some(self.make_token(kind, start))
+            }
+
+            /* Numbers */
+            '0'..='9' => {
+                let kind = self.read_number(start);
+                Some(self.make_token(kind, start))
+            }
+
+            /* Keywords and identifiers */
+            _ if is_id_start(ch) => {
+                let kind = self.read_ident_or_keyword(start);
+                Some(self.make_token(kind, start))
+            }
+
+            _ => {
+                self.bump();
+                Some(self.make_token(SyntaxKind::ERROR, start))
+            }
         }
     }
 
@@ -524,6 +528,7 @@ fn keyword_kind(s: &str) -> SyntaxKind {
         "PROCEDURES" => SyntaxKind::KW_PROCEDURES,
         "PROPERTY" => SyntaxKind::KW_PROPERTY,
         "RANGE" => SyntaxKind::KW_RANGE,
+        "REDUCE" => SyntaxKind::KW_REDUCE,
         "REMOVE" => SyntaxKind::KW_REMOVE,
         "REQUIRE" => SyntaxKind::KW_REQUIRE,
         "RETURN" => SyntaxKind::KW_RETURN,
@@ -548,6 +553,12 @@ fn keyword_kind(s: &str) -> SyntaxKind {
         "WITH" => SyntaxKind::KW_WITH,
         "XOR" => SyntaxKind::KW_XOR,
         "YIELD" => SyntaxKind::KW_YIELD,
+        "HEADERS" => SyntaxKind::KW_HEADERS,
+        "FROM" => SyntaxKind::KW_FROM,
+        "LOAD" => SyntaxKind::KW_LOAD,
+        "CSV" => SyntaxKind::KW_CSV,
+        "FINISH" => SyntaxKind::KW_FINISH,
+        "FIELDTERMINATOR" => SyntaxKind::KW_FIELDTERMINATOR,
         "COUNT" => SyntaxKind::KW_COUNT,
         "TRUE" => SyntaxKind::TRUE_KW,
         "FALSE" => SyntaxKind::FALSE_KW,

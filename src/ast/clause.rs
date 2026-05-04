@@ -152,3 +152,16 @@ pub enum ForeachUpdate {
     Remove(Remove),
     Foreach(Foreach),
 }
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoadCsv {
+    pub with_headers: bool,
+    pub source: Expression,
+    pub variable: Variable,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Finish {
+    pub span: Span,
+}

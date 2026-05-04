@@ -2732,18 +2732,12 @@ fn build_create_index(pair: Pair<'_, Rule>) -> Result<CreateIndex> {
             Rule::INDEX | Rule::CREATE | Rule::SP => {}
             Rule::IF => saw_if = true,
             Rule::NOT => {}
-            Rule::EXISTS => {
-                if saw_if {
-                    if_not_exists = true;
-                    saw_if = false;
-                }
+            Rule::EXISTS if saw_if => {
+                if_not_exists = true;
+                saw_if = false;
             }
-            Rule::SymbolicName => {
-                if target.is_none() {
-                    name = Some(build_symbolic_name(child.clone())?);
-                } else {
-                    // shouldn't happen
-                }
+            Rule::SymbolicName if target.is_none() => {
+                name = Some(build_symbolic_name(child.clone())?);
             }
             Rule::SchemaName => {
                 target = Some(build_schema_name(child)?);
@@ -2803,8 +2797,7 @@ fn build_options(pair: Pair<'_, Rule>) -> Result<MapLiteral> {
     let inner = pair
         .clone()
         .into_inner()
-        .filter(|p| p.as_rule() != Rule::SP && p.as_rule() != Rule::OPTIONS)
-        .next();
+        .find(|p| p.as_rule() != Rule::SP && p.as_rule() != Rule::OPTIONS);
     match inner {
         Some(map_pair) if map_pair.as_rule() == Rule::MapLiteral => build_map_literal(map_pair),
         _ => Err(CypherError {
@@ -2918,7 +2911,7 @@ fn build_constraint_kind(pair: Pair<'_, Rule>) -> Result<ConstraintKind> {
     let mut has_property_type = false;
     let mut properties = Vec::new();
     let mut types = Vec::new();
-    let mut in_parens = false;
+    let in_parens = false;
     let mut saw_is = false;
     let mut saw_not = false;
     let mut saw_property = false;
@@ -2929,15 +2922,11 @@ fn build_constraint_kind(pair: Pair<'_, Rule>) -> Result<ConstraintKind> {
             Rule::IS => {
                 saw_is = true;
             }
-            Rule::NOT => {
-                if saw_is {
-                    saw_not = true;
-                }
+            Rule::NOT if saw_is => {
+                saw_not = true;
             }
-            Rule::NULL => {
-                if saw_not {
-                    has_not_null = true;
-                }
+            Rule::NULL if saw_not => {
+                has_not_null = true;
             }
             Rule::UNIQUE => {
                 has_unique = true;
@@ -2955,10 +2944,8 @@ fn build_constraint_kind(pair: Pair<'_, Rule>) -> Result<ConstraintKind> {
             Rule::TYPE => {
                 saw_type = true;
             }
-            Rule::SymbolicName => {
-                if in_parens {
-                    types.push(build_symbolic_name(child)?);
-                }
+            Rule::SymbolicName if in_parens => {
+                types.push(build_symbolic_name(child)?);
             }
             Rule::PropertyKeyName => {
                 properties.push(build_property_key_name(child)?);
@@ -3100,7 +3087,7 @@ fn build_show_kind(pair: Pair<'_, Rule>) -> Result<ShowKind> {
 
 fn build_show_yield_items(pair: Pair<'_, Rule>) -> Result<ShowYieldSpec> {
     assert_eq!(pair.as_rule(), Rule::YieldItems);
-    let sp = span(&pair);
+    let _sp = span(&pair);
     let mut items = Vec::new();
 
     for child in pair.into_inner() {
@@ -3142,7 +3129,7 @@ fn build_show_yield_item(pair: Pair<'_, Rule>) -> Result<ShowYieldItem> {
 
 fn build_return_body(pair: Pair<'_, Rule>) -> Result<ReturnBody> {
     assert_eq!(pair.as_rule(), Rule::Return);
-    let sp = span(&pair);
+    let _sp = span(&pair);
     let projection = pair
         .clone()
         .into_inner()

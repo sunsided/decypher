@@ -90,6 +90,30 @@ impl<'a> Parser<'a> {
                 self.bump();
                 continue;
             }
+
+            // Optional query options that can prefix a statement.
+            while self.at_bare_word("EXPLAIN") || self.at_bare_word("PROFILE") {
+                self.bump();
+                self.skip_trivia();
+            }
+
+            // Neo4j query option prelude, e.g.:
+            // CYPHER runtime=pipelined
+            if self.at_bare_word("CYPHER") {
+                self.bump();
+                self.skip_trivia();
+                while self.current_len() > 0
+                    && !self.is_clause_start()
+                    && !self.at(SyntaxKind::SEMICOLON)
+                {
+                    self.bump();
+                    self.skip_trivia();
+                }
+            }
+
+            if self.current_len() == 0 {
+                break;
+            }
             if self.at(SyntaxKind::KW_SHOW)
                 || self.at(SyntaxKind::KW_USE)
                 || self.at(SyntaxKind::KW_DROP)
@@ -202,6 +226,8 @@ impl<'a> Parser<'a> {
                 | SyntaxKind::KW_SHOW
                 | SyntaxKind::KW_USE
                 | SyntaxKind::KW_DROP
+                | SyntaxKind::KW_LOAD
+                | SyntaxKind::KW_FINISH
         )
     }
 
@@ -223,6 +249,16 @@ impl<'a> Parser<'a> {
     /// Returns true if the current token is the given keyword.
     pub(crate) fn at_keyword(&self, kw: SyntaxKind) -> bool {
         self.current_kind == kw
+    }
+
+    /// Returns true when the current token is an identifier matching `word`.
+    pub(crate) fn at_bare_word(&self, word: &str) -> bool {
+        if self.current_kind != SyntaxKind::IDENT || self.current_len == 0 {
+            return false;
+        }
+        let start = self.byte_pos;
+        let end = start + self.current_len;
+        self.input[start..end].eq_ignore_ascii_case(word)
     }
 
     /// Consumes the current token if it matches `kind`.
@@ -415,6 +451,7 @@ impl<'a> Parser<'a> {
                     | SyntaxKind::KW_PROCEDURES
                     | SyntaxKind::KW_PROPERTY
                     | SyntaxKind::KW_RANGE
+                    | SyntaxKind::KW_REDUCE
                     | SyntaxKind::KW_REMOVE
                     | SyntaxKind::KW_REQUIRE
                     | SyntaxKind::KW_RETURN
@@ -443,6 +480,12 @@ impl<'a> Parser<'a> {
                     | SyntaxKind::KW_CALL_SUBQUERY
                     | SyntaxKind::KW_IN_TRANSACTIONS
                     | SyntaxKind::KW_CONCURRENTLY
+                    | SyntaxKind::KW_HEADERS
+                    | SyntaxKind::KW_FROM
+                    | SyntaxKind::KW_LOAD
+                    | SyntaxKind::KW_CSV
+                    | SyntaxKind::KW_FINISH
+                    | SyntaxKind::KW_FIELDTERMINATOR
             )
         }
         let mut lx = self.lexer.clone();
@@ -570,6 +613,7 @@ fn kind_to_str(kind: SyntaxKind) -> &'static str {
         SyntaxKind::KW_SINGLE => "SINGLE",
         SyntaxKind::KW_FILTER => "FILTER",
         SyntaxKind::KW_EXTRACT => "EXTRACT",
+        SyntaxKind::KW_REDUCE => "REDUCE",
         SyntaxKind::KW_EXISTS => "EXISTS",
         SyntaxKind::KW_UNION => "UNION",
         SyntaxKind::KW_SKIP => "SKIP",
@@ -582,6 +626,12 @@ fn kind_to_str(kind: SyntaxKind) -> &'static str {
         SyntaxKind::KW_EACH => "EACH",
         SyntaxKind::KW_CONCURRENTLY => "CONCURRENTLY",
         SyntaxKind::KW_GRAPH => "GRAPH",
+        SyntaxKind::KW_HEADERS => "HEADERS",
+        SyntaxKind::KW_FROM => "FROM",
+        SyntaxKind::KW_LOAD => "LOAD",
+        SyntaxKind::KW_CSV => "CSV",
+        SyntaxKind::KW_FINISH => "FINISH",
+        SyntaxKind::KW_FIELDTERMINATOR => "FIELDTERMINATOR",
         SyntaxKind::KW_CALL_SUBQUERY => "CALL {",
         SyntaxKind::KW_IN_TRANSACTIONS => "IN TRANSACTIONS",
         _ => {

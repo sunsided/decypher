@@ -2,7 +2,7 @@ use crate::syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 
 use super::expressions::MapLiteral;
 use super::patterns::NodePattern;
-use super::support::{child, child_token, children, AstChildren};
+use super::support::{child, child_token};
 use super::traits::AstNode;
 
 // ============================================================

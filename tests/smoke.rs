@@ -2,6 +2,12 @@ use assert2::check;
 use open_cypher::parse;
 
 #[test]
+fn test_exists_pattern_function() {
+    let result = parse("RETURN exists((p)-[:WORKS_AT]->(:Company {name: 'Neo4j'})) AS x");
+    check!(result.is_ok(), "{:?}", result.err());
+}
+
+#[test]
 fn test_match_return() {
     let result = parse("MATCH (n) RETURN n;");
     check!(result.is_ok());

@@ -16,13 +16,12 @@ mod cst_c {
     pub use crate::syntax::ast::clauses::*;
     pub use crate::syntax::ast::expressions;
     pub use crate::syntax::ast::expressions::*;
-    pub use crate::syntax::ast::patterns;
+
     pub use crate::syntax::ast::patterns::*;
     pub use crate::syntax::ast::projection::*;
     pub use crate::syntax::ast::schema as schema_cst;
     pub use crate::syntax::ast::top_level;
     pub use crate::syntax::ast::top_level::*;
-    pub use crate::syntax::ast::AstNode;
 }
 
 // ── AST module aliases (target) ─────────────────────────────────────
@@ -110,11 +109,7 @@ fn build_statement(stmt: Statement) -> Result<Vec<ast_c::QueryBody>> {
         }
     }
 
-    let unions: Vec<_> = stmt
-        .syntax()
-        .children()
-        .filter_map(|n| Union::cast(n))
-        .collect();
+    let unions: Vec<_> = stmt.syntax().children().filter_map(Union::cast).collect();
 
     if !unions.is_empty() {
         let regular = build_regular_query(&clauses, &unions)?;
@@ -187,6 +182,9 @@ fn build_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_c::Single
                 Clause::CallSubquery(cs) => {
                     reading.push(ast_c::ReadingClause::CallSubquery(build_call_subquery(cs)?))
                 }
+                Clause::LoadCsv(lc) => {
+                    reading.push(ast_c::ReadingClause::LoadCsv(build_load_csv(lc)?))
+                }
                 Clause::Create(c) => updating.push(ast_c::UpdatingClause::Create(build_create(c)?)),
                 Clause::Merge(m) => updating.push(ast_c::UpdatingClause::Merge(build_merge(m)?)),
                 Clause::Set(s) => updating.push(ast_c::UpdatingClause::Set(build_set(s)?)),
@@ -196,6 +194,14 @@ fn build_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_c::Single
                     updating.push(ast_c::UpdatingClause::Foreach(build_foreach(f)?))
                 }
                 Clause::Return(r) => ret = Some(build_return(r)?),
+                Clause::Finish(f) => {
+                    return Ok(ast_c::SingleQuery {
+                        kind: ast_c::SingleQueryKind::SinglePart(ast_c::SinglePartQuery {
+                            reading_clauses: reading,
+                            body: ast_c::SinglePartBody::Finish(build_finish(f)?),
+                        }),
+                    });
+                }
                 Clause::With(_) => {}
                 Clause::Where(_) => {}
                 Clause::Show(_) | Clause::Use(_) | Clause::StandaloneCall(_) => {}
@@ -243,6 +249,9 @@ fn build_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_c::Single
                 Clause::CallSubquery(cs) => {
                     reading.push(ast_c::ReadingClause::CallSubquery(build_call_subquery(cs)?))
                 }
+                Clause::LoadCsv(lc) => {
+                    reading.push(ast_c::ReadingClause::LoadCsv(build_load_csv(lc)?))
+                }
                 Clause::Create(c) => updating.push(ast_c::UpdatingClause::Create(build_create(c)?)),
                 Clause::Merge(m) => updating.push(ast_c::UpdatingClause::Merge(build_merge(m)?)),
                 Clause::Set(s) => updating.push(ast_c::UpdatingClause::Set(build_set(s)?)),
@@ -256,6 +265,12 @@ fn build_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_c::Single
                     final_part = Some(ast_c::SinglePartQuery {
                         reading_clauses: std::mem::take(&mut reading),
                         body: ast_c::SinglePartBody::Return(ret),
+                    });
+                }
+                Clause::Finish(f) => {
+                    final_part = Some(ast_c::SinglePartQuery {
+                        reading_clauses: std::mem::take(&mut reading),
+                        body: ast_c::SinglePartBody::Finish(build_finish(f)?),
                     });
                 }
                 Clause::With(w) => {
@@ -299,7 +314,7 @@ fn build_match(c: MatchClause) -> Result<ast_c::Match> {
     let where_clause = c
         .where_clause()
         .and_then(|w| w.expr())
-        .map(|e| build_expression(e))
+        .map(build_expression)
         .transpose()?;
     Ok(ast_c::Match {
         optional,
@@ -313,12 +328,12 @@ fn build_unwind(c: UnwindClause) -> Result<ast_c::Unwind> {
     let sp = span_of(c.syntax());
     let expr = c
         .expr()
-        .map(|e| build_expression(e))
+        .map(build_expression)
         .transpose()?
         .ok_or_else(|| internal("missing expression in UNWIND", sp))?;
     let variable = c
         .as_name()
-        .map(|v| build_top_variable(v))
+        .map(build_top_variable)
         .ok_or_else(|| internal("missing variable in UNWIND", sp))?;
     Ok(ast_c::Unwind {
         expression: expr,
@@ -331,7 +346,7 @@ fn build_create(c: CreateClause) -> Result<ast_c::Create> {
     let sp = span_of(c.syntax());
     let pattern = c
         .pattern()
-        .map(|p| build_pattern(p))
+        .map(build_pattern)
         .transpose()?
         .ok_or_else(|| internal("missing pattern in CREATE", sp))?;
     Ok(ast_c::Create { pattern, span: sp })
@@ -341,10 +356,10 @@ fn build_merge(c: MergeClause) -> Result<ast_c::Merge> {
     let sp = span_of(c.syntax());
     let pattern = c
         .pattern()
-        .map(|p| build_pattern_part(p))
+        .map(build_pattern_part)
         .transpose()?
         .ok_or_else(|| internal("missing pattern in MERGE", sp))?;
-    let actions: Result<Vec<_>> = c.actions().map(|a| build_merge_action(a)).collect();
+    let actions: Result<Vec<_>> = c.actions().map(build_merge_action).collect();
     Ok(ast_c::Merge {
         pattern,
         actions: actions?,
@@ -358,7 +373,7 @@ fn build_merge_action(a: MergeAction) -> Result<ast_c::MergeAction> {
         .match_or_create_token()
         .map(|t| t.kind() == SyntaxKind::KW_MATCH)
         .unwrap_or(false);
-    let items: Result<Vec<_>> = a.set_items().map(|s| build_set_item(s)).collect();
+    let items: Result<Vec<_>> = a.set_items().map(build_set_item).collect();
     Ok(ast_c::MergeAction {
         on_match,
         set_items: items?,
@@ -368,7 +383,7 @@ fn build_merge_action(a: MergeAction) -> Result<ast_c::MergeAction> {
 
 fn build_set(c: SetClause) -> Result<ast_c::Set> {
     let sp = span_of(c.syntax());
-    let items: Result<Vec<_>> = c.items().map(|i| build_set_item(i)).collect();
+    let items: Result<Vec<_>> = c.items().map(build_set_item).collect();
     Ok(ast_c::Set {
         items: items?,
         span: sp,
@@ -436,7 +451,7 @@ fn build_set_item(item: SetItem) -> Result<ast_c::SetItem> {
 fn build_delete(c: DeleteClause) -> Result<ast_c::Delete> {
     let sp = span_of(c.syntax());
     let detach = c.detach_token().is_some();
-    let targets: Result<Vec<_>> = c.exprs().map(|e| build_expression(e)).collect();
+    let targets: Result<Vec<_>> = c.exprs().map(build_expression).collect();
     Ok(ast_c::Delete {
         detach,
         targets: targets?,
@@ -446,7 +461,7 @@ fn build_delete(c: DeleteClause) -> Result<ast_c::Delete> {
 
 fn build_remove(c: RemoveClause) -> Result<ast_c::Remove> {
     let sp = span_of(c.syntax());
-    let items: Result<Vec<_>> = c.items().map(|i| build_remove_item(i)).collect();
+    let items: Result<Vec<_>> = c.items().map(build_remove_item).collect();
     Ok(ast_c::Remove {
         items: items?,
         span: sp,
@@ -492,13 +507,13 @@ fn build_with(c: WithClause) -> Result<ast_c::With> {
     let sp = span_of(c.syntax());
     let proj = c
         .projection_body()
-        .map(|b| build_projection_body(b))
+        .map(build_projection_body)
         .transpose()?
         .ok_or_else(|| internal("missing projection in WITH", sp))?;
     let where_clause = c
         .where_clause()
         .and_then(|w| w.expr())
-        .map(|e| build_expression(e))
+        .map(build_expression)
         .transpose()?;
     Ok(ast_c::With {
         distinct: proj.distinct,
@@ -513,10 +528,7 @@ fn build_with(c: WithClause) -> Result<ast_c::With> {
 
 fn build_return(c: ReturnClause) -> Result<ast_c::Return> {
     let sp = span_of(c.syntax());
-    let proj = c
-        .projection_body()
-        .map(|b| build_projection_body(b))
-        .transpose()?;
+    let proj = c.projection_body().map(build_projection_body).transpose()?;
     let proj = match proj {
         Some(p) if !p.items.is_empty() => p,
         _ => {
@@ -546,11 +558,11 @@ fn build_foreach(c: ForeachClause) -> Result<ast_c::Foreach> {
     let sp = span_of(c.syntax());
     let variable = c
         .variable()
-        .map(|v| build_top_variable(v))
+        .map(build_top_variable)
         .ok_or_else(|| internal("missing variable in FOREACH", sp))?;
     let list = c
         .list()
-        .map(|e| build_expression(e))
+        .map(build_expression)
         .transpose()?
         .ok_or_else(|| internal("missing list in FOREACH", sp))?;
     let updates: Result<Vec<_>> = c
@@ -585,15 +597,15 @@ struct ProjResult {
 
 fn build_projection_body(body: ProjectionBody) -> Result<ProjResult> {
     let distinct = body.distinct_token().is_some();
-    let items: Result<Vec<_>> = body.items().map(|i| build_projection_item(i)).collect();
-    let order = body.order_by().map(|o| build_order(o)).transpose()?;
+    let items: Result<Vec<_>> = body.items().map(build_projection_item).collect();
+    let order = body.order_by().map(build_order).transpose()?;
     let skip = body
         .skip()
-        .and_then(|s| s.expr().map(|e| build_expression(e)))
+        .and_then(|s| s.expr().map(build_expression))
         .transpose()?;
     let limit = body
         .limit()
-        .and_then(|l| l.expr().map(|e| build_expression(e)))
+        .and_then(|l| l.expr().map(build_expression))
         .transpose()?;
     Ok(ProjResult {
         distinct,
@@ -610,7 +622,7 @@ fn build_projection_item(item: ProjectionItem) -> Result<ast_c::ProjectionItem> 
         build_expression(e)?
     } else if item.syntax().children_with_tokens().any(|t| {
         t.as_token()
-            .map_or(false, |t| t.kind() == SyntaxKind::NULL_KW)
+            .is_some_and(|t| t.kind() == SyntaxKind::NULL_KW)
     }) {
         ast_c::Expression::Literal(ast_c::Literal::Null)
     } else {
@@ -636,7 +648,7 @@ fn build_projection_item(item: ProjectionItem) -> Result<ast_c::ProjectionItem> 
             }
         }
     };
-    let alias = item.as_name().map(|v| build_top_variable(v));
+    let alias = item.as_name().map(build_top_variable);
     Ok(ast_c::ProjectionItem {
         expression: expr,
         alias,
@@ -644,14 +656,14 @@ fn build_projection_item(item: ProjectionItem) -> Result<ast_c::ProjectionItem> 
 }
 
 fn build_order(o: OrderBy) -> Result<ast_c::Order> {
-    let items: Result<Vec<_>> = o.items().map(|s| build_sort_item(s)).collect();
+    let items: Result<Vec<_>> = o.items().map(build_sort_item).collect();
     Ok(ast_c::Order { items: items? })
 }
 
 fn build_sort_item(s: SortItem) -> Result<ast_c::SortItem> {
     let expr = s
         .expr()
-        .map(|e| build_expression(e))
+        .map(build_expression)
         .transpose()?
         .ok_or_else(|| internal("missing expr in sort item", span_of(s.syntax())))?;
     let direction = s.direction().map(|d| match d {
@@ -668,7 +680,7 @@ fn build_sort_item(s: SortItem) -> Result<ast_c::SortItem> {
 
 fn build_pattern(p: Pattern) -> Result<ast_c::Pattern> {
     let sp = span_of(p.syntax());
-    let parts: Result<Vec<_>> = p.parts().map(|pp| build_pattern_part(pp)).collect();
+    let parts: Result<Vec<_>> = p.parts().map(build_pattern_part).collect();
     Ok(ast_c::Pattern {
         parts: parts?,
         span: sp,
@@ -677,10 +689,10 @@ fn build_pattern(p: Pattern) -> Result<ast_c::Pattern> {
 
 fn build_pattern_part(pp: PatternPart) -> Result<ast_c::PatternPart> {
     let sp = span_of(pp.syntax());
-    let variable = pp.variable().map(|v| build_top_variable(v));
+    let variable = pp.variable().map(build_top_variable);
     let anonymous = pp
         .anonymous_part()
-        .map(|a| build_anonymous_pattern_part(a))
+        .map(build_anonymous_pattern_part)
         .transpose()?
         .ok_or_else(|| internal("missing anonymous part", sp))?;
     Ok(ast_c::PatternPart {
@@ -693,14 +705,21 @@ fn build_pattern_part(pp: PatternPart) -> Result<ast_c::PatternPart> {
 fn build_anonymous_pattern_part(app: AnonymousPatternPart) -> Result<ast_c::AnonymousPatternPart> {
     let element = app
         .element()
-        .map(|e| build_pattern_element(e))
+        .map(build_pattern_element)
         .transpose()?
         .ok_or_else(|| internal("missing element", span_of(app.syntax())))?;
     Ok(ast_c::AnonymousPatternPart { element })
 }
 
 fn build_pattern_element(pe: PatternElement) -> Result<ast_c::PatternElement> {
-    let node = pe.node();
+    if let Some(inner) = pe.syntax().children().find_map(PatternElement::cast) {
+        return build_pattern_element(inner);
+    }
+    let node = pe
+        .syntax()
+        .children()
+        .find_map(NodePattern::cast)
+        .or_else(|| pe.node());
     let chains: Vec<_> = pe.chains().collect();
     if chains.is_empty() {
         if let Some(n) = node {
@@ -711,12 +730,12 @@ fn build_pattern_element(pe: PatternElement) -> Result<ast_c::PatternElement> {
         }
     }
     let start = node
-        .map(|n| build_node_pattern(n))
+        .map(build_node_pattern)
         .transpose()?
         .ok_or_else(|| internal("missing node", span_of(pe.syntax())))?;
     let built: Result<Vec<_>> = chains
         .into_iter()
-        .map(|c| build_pattern_element_chain(c))
+        .map(build_pattern_element_chain)
         .collect();
     Ok(ast_c::PatternElement::Path {
         start,
@@ -726,7 +745,7 @@ fn build_pattern_element(pe: PatternElement) -> Result<ast_c::PatternElement> {
 
 fn build_node_pattern(np: NodePattern) -> Result<ast_c::NodePattern> {
     let sp = span_of(np.syntax());
-    let variable = np.variable().map(|v| build_top_variable(v));
+    let variable = np.variable().map(build_top_variable);
     let labels: Result<Vec<_>> = np
         .labels()
         .flat_map(|container| container.labels())
@@ -740,7 +759,7 @@ fn build_node_pattern(np: NodePattern) -> Result<ast_c::NodePattern> {
                 .ok_or_else(|| internal("missing label name", sp))
         })
         .collect();
-    let properties = np.properties().map(|p| build_properties(p)).transpose()?;
+    let properties = np.properties().map(build_properties).transpose()?;
     Ok(ast_c::NodePattern {
         variable,
         labels: labels?,
@@ -753,12 +772,11 @@ fn build_pattern_element_chain(pec: PatternElementChain) -> Result<ast_c::Patter
     let sp = span_of(pec.syntax());
     let has_left = pec.syntax().children_with_tokens().any(|t| {
         t.as_token()
-            .map_or(false, |t| t.kind() == SyntaxKind::ARROW_LEFT)
+            .is_some_and(|t| t.kind() == SyntaxKind::ARROW_LEFT)
     });
     let has_right = pec.syntax().children_with_tokens().any(|t| {
-        t.as_token().map_or(false, |t| {
-            t.kind() == SyntaxKind::ARROW_RIGHT || t.kind() == SyntaxKind::GT
-        })
+        t.as_token()
+            .is_some_and(|t| t.kind() == SyntaxKind::ARROW_RIGHT || t.kind() == SyntaxKind::GT)
     });
     let direction = match (has_left, has_right) {
         (true, true) => ast_c::RelationshipDirection::Both,
@@ -769,8 +787,8 @@ fn build_pattern_element_chain(pec: PatternElementChain) -> Result<ast_c::Patter
     let detail = pec
         .syntax()
         .children()
-        .find_map(|n| RelationshipDetail::cast(n))
-        .map(|d| build_relationship_detail(d))
+        .find_map(RelationshipDetail::cast)
+        .map(build_relationship_detail)
         .transpose()?;
     let relationship = ast_c::RelationshipPattern {
         direction,
@@ -779,7 +797,7 @@ fn build_pattern_element_chain(pec: PatternElementChain) -> Result<ast_c::Patter
     };
     let node = pec
         .node()
-        .map(|n| build_node_pattern(n))
+        .map(build_node_pattern)
         .transpose()?
         .ok_or_else(|| internal("missing node in chain", span_of(pec.syntax())))?;
     Ok(ast_c::PatternElementChain { relationship, node })
@@ -794,10 +812,7 @@ fn build_relationship_pattern(rp: RelationshipPattern) -> Result<ast_c::Relation
     } else {
         ast_c::RelationshipDirection::Undirected
     };
-    let detail = rp
-        .detail()
-        .map(|d| build_relationship_detail(d))
-        .transpose()?;
+    let detail = rp.detail().map(build_relationship_detail).transpose()?;
     Ok(ast_c::RelationshipPattern {
         direction,
         detail,
@@ -807,7 +822,7 @@ fn build_relationship_pattern(rp: RelationshipPattern) -> Result<ast_c::Relation
 
 fn build_relationship_detail(rd: RelationshipDetail) -> Result<ast_c::RelationshipDetail> {
     let sp = span_of(rd.syntax());
-    let variable = rd.variable().map(|v| build_top_variable(v));
+    let variable = rd.variable().map(build_top_variable);
     let types: Result<Vec<_>> = rd
         .types()
         .into_iter()
@@ -823,8 +838,8 @@ fn build_relationship_detail(rd: RelationshipDetail) -> Result<ast_c::Relationsh
                 .ok_or_else(|| internal("missing rel type", sp))
         })
         .collect();
-    let range = rd.range().map(|r| build_range_literal(r)).transpose()?;
-    let properties = rd.properties().map(|p| build_properties(p)).transpose()?;
+    let range = rd.range().map(build_range_literal).transpose()?;
+    let properties = rd.properties().map(build_properties).transpose()?;
     Ok(ast_c::RelationshipDetail {
         variable,
         types: types?,
@@ -910,7 +925,7 @@ fn build_properties(p: Properties) -> Result<ast_c::Properties> {
                     .ok_or_else(|| internal("missing key", span_of(e.syntax())))?;
                 let value = e
                     .value()
-                    .map(|v| build_expression(v))
+                    .map(build_expression)
                     .transpose()?
                     .ok_or_else(|| internal("missing value", span_of(e.syntax())))?;
                 Ok((key, value))
@@ -942,7 +957,7 @@ fn build_binary_expr(b: BinaryExpr) -> Result<ast_c::Expression> {
     let sp = span_of(b.syntax());
     let lhs = b
         .lhs()
-        .map(|e| build_expression(e))
+        .map(build_expression)
         .transpose()?
         .ok_or_else(|| internal("missing lhs", sp))?;
 
@@ -960,7 +975,7 @@ fn build_binary_expr(b: BinaryExpr) -> Result<ast_c::Expression> {
         _ => {
             let rhs = b
                 .rhs()
-                .map(|e| build_expression(e))
+                .map(build_expression)
                 .transpose()?
                 .ok_or_else(|| internal("missing rhs", sp))?;
 
@@ -1079,7 +1094,7 @@ fn build_binary_expr(b: BinaryExpr) -> Result<ast_c::Expression> {
                     // by presence of a DOT_DOT token inside the LIST_OP_EXPR.
                     let has_dot_dot = b.syntax().children_with_tokens().any(|c| {
                         c.as_token()
-                            .map_or(false, |t| t.kind() == SyntaxKind::DOT_DOT)
+                            .is_some_and(|t| t.kind() == SyntaxKind::DOT_DOT)
                     });
                     if !has_dot_dot {
                         Ok(ast_c::Expression::ListIndex {
@@ -1168,7 +1183,7 @@ fn build_unary_expr(u: UnaryExpr) -> Result<ast_c::Expression> {
     let sp = span_of(u.syntax());
     let operand = u
         .operand()
-        .map(|e| build_expression(e))
+        .map(build_expression)
         .transpose()?
         .ok_or_else(|| internal("missing operand", sp))?;
     match u.op() {
@@ -1330,7 +1345,7 @@ fn build_function_invocation(f: FunctionInvocation) -> Result<ast_c::Expression>
         .collect();
     let distinct = f.distinct_token().is_some();
     let star = f.star_token().is_some();
-    let args: Result<Vec<_>> = f.arguments().map(|e| build_expression(e)).collect();
+    let args: Result<Vec<_>> = f.arguments().map(build_expression).collect();
     let args = args?;
 
     if star
@@ -1352,7 +1367,7 @@ fn build_function_invocation(f: FunctionInvocation) -> Result<ast_c::Expression>
 fn build_parenthesized(pe: ParenthesizedExpr) -> Result<ast_c::Expression> {
     let inner = pe
         .expr()
-        .map(|e| build_expression(e))
+        .map(build_expression)
         .transpose()?
         .ok_or_else(|| internal("missing expr in parens", span_of(pe.syntax())))?;
     Ok(ast_c::Expression::Parenthesized(Box::new(inner)))
@@ -1360,24 +1375,24 @@ fn build_parenthesized(pe: ParenthesizedExpr) -> Result<ast_c::Expression> {
 
 fn build_case(c: CaseExpr) -> Result<ast_c::Expression> {
     let sp = span_of(c.syntax());
-    let scrutinee = c.value().map(|e| build_expression(e)).transpose()?;
+    let scrutinee = c.value().map(build_expression).transpose()?;
     let alts: Result<Vec<_>> = c
         .alternatives()
         .map(|a| {
             let when = a
                 .when_expr()
-                .map(|e| build_expression(e))
+                .map(build_expression)
                 .transpose()?
                 .ok_or_else(|| internal("missing when", span_of(a.syntax())))?;
             let then = a
                 .then_expr()
-                .map(|e| build_expression(e))
+                .map(build_expression)
                 .transpose()?
                 .ok_or_else(|| internal("missing then", span_of(a.syntax())))?;
             Ok(ast_c::CaseAlternative { when, then })
         })
         .collect();
-    let default = c.else_expr().map(|e| build_expression(e)).transpose()?;
+    let default = c.else_expr().map(build_expression).transpose()?;
     Ok(ast_c::Expression::Case(ast_c::CaseExpression {
         scrutinee: scrutinee.map(Box::new),
         alternatives: alts?,
@@ -1388,7 +1403,7 @@ fn build_case(c: CaseExpr) -> Result<ast_c::Expression> {
 
 fn build_list_literal(ll: ListLiteral) -> Result<ast_c::Expression> {
     let sp = span_of(ll.syntax());
-    let elems: Result<Vec<_>> = ll.elements().map(|e| build_expression(e)).collect();
+    let elems: Result<Vec<_>> = ll.elements().map(build_expression).collect();
     Ok(ast_c::Expression::Literal(ast_c::Literal::List(
         ast_c::ListLiteral {
             elements: elems?,
@@ -1418,7 +1433,7 @@ fn build_map_literal(ml: MapLiteral) -> Result<ast_c::Expression> {
                 .ok_or_else(|| internal("missing key", span_of(e.syntax())))?;
             let value = e
                 .value()
-                .map(|v| build_expression(v))
+                .map(build_expression)
                 .transpose()?
                 .ok_or_else(|| internal("missing value", span_of(e.syntax())))?;
             Ok((key, value))
@@ -1438,19 +1453,19 @@ fn build_list_comprehension(lc: ListComprehension) -> Result<ast_c::Expression> 
         let var = filter
             .id_in_coll()
             .and_then(|id| id.variable())
-            .map(|v| build_variable(v))
+            .map(build_variable)
             .ok_or_else(|| internal("missing variable in list comp", sp))?;
-        let coll = filter
+        let _coll = filter
             .id_in_coll()
             .and_then(|id| id.collection())
-            .map(|e| build_expression(e))
+            .map(build_expression)
             .ok_or_else(|| internal("missing collection in list comp", sp))?;
         let pred = filter
             .where_clause()
             .and_then(|w| w.expr())
-            .map(|e| build_expression(e))
+            .map(build_expression)
             .transpose()?;
-        let map = lc.body().map(|e| build_expression(e)).transpose()?;
+        let map = lc.body().map(build_expression).transpose()?;
         Ok(ast_c::Expression::ListComprehension(Box::new(
             ast_c::ListComprehension {
                 variable: var,
@@ -1466,16 +1481,16 @@ fn build_list_comprehension(lc: ListComprehension) -> Result<ast_c::Expression> 
 
 fn build_pattern_comprehension(pc: PatternComprehension) -> Result<ast_c::Expression> {
     let sp = span_of(pc.syntax());
-    let variable = pc.variable().map(|v| build_variable(v));
+    let variable = pc.variable().map(build_variable);
     let _pat = pc.pattern();
     let where_clause = pc
         .where_clause()
         .and_then(|w| w.expr())
-        .map(|e| build_expression(e))
+        .map(build_expression)
         .transpose()?;
     let map = pc
         .body()
-        .map(|e| build_expression(e))
+        .map(build_expression)
         .transpose()?
         .ok_or_else(|| internal("missing body in pattern comp", sp))?;
     let placeholder = ast_c::RelationshipsPattern {
@@ -1506,17 +1521,17 @@ fn build_filter_expression(fe: FilterExpression) -> Result<ast_c::Expression> {
         .ok_or_else(|| internal("missing IdInColl", sp))?;
     let var = id
         .variable()
-        .map(|v| build_variable(v))
+        .map(build_variable)
         .ok_or_else(|| internal("missing variable", sp))?;
     let coll = id
         .collection()
-        .map(|e| build_expression(e))
+        .map(build_expression)
         .transpose()?
         .ok_or_else(|| internal("missing collection", sp))?;
     let pred = fe
         .where_clause()
         .and_then(|w| w.expr())
-        .map(|e| build_expression(e))
+        .map(build_expression)
         .transpose()?;
     Ok(ast_c::Expression::Any(Box::new(ast_c::FilterExpression {
         variable: var,
@@ -1532,7 +1547,7 @@ fn build_exists_subquery(es: ExistsSubquery) -> Result<ast_c::Expression> {
     let where_clause = es
         .where_clause()
         .and_then(|w| w.expr())
-        .map(|e| build_expression(e))
+        .map(build_expression)
         .transpose()?;
     let placeholder = ast_c::Pattern {
         parts: Vec::new(),
@@ -1553,9 +1568,9 @@ fn build_map_projection(mp: MapProjection) -> Result<ast_c::Expression> {
     let sp = span_of(mp.syntax());
     let base = mp
         .variable()
-        .map(|v| build_variable(v))
+        .map(build_variable)
         .ok_or_else(|| internal("missing base in map proj", sp))?;
-    let items: Result<Vec<_>> = mp.items().map(|i| build_map_projection_item(i)).collect();
+    let items: Result<Vec<_>> = mp.items().map(build_map_projection_item).collect();
     Ok(ast_c::Expression::MapProjection(Box::new(
         ast_c::MapProjection {
             base,
@@ -1616,8 +1631,8 @@ fn build_standalone_call(c: StandaloneCall) -> Result<ast_c::StandaloneCall> {
                     span: span_of(y.syntax()),
                 })
             } else {
-                let items: Result<Vec<_>> = y.items().map(|i| build_yield_item(i)).collect();
-                let wc = y.where_expr().map(|e| build_expression(e)).transpose()?;
+                let items: Result<Vec<_>> = y.items().map(build_yield_item).collect();
+                let wc = y.where_expr().map(build_expression).transpose()?;
                 Ok(ast_c::YieldSpec::Items(ast_c::YieldItems {
                     items: items?,
                     where_clause: wc,
@@ -1641,7 +1656,7 @@ fn build_explicit_procedure_invocation(
     } else {
         return Err(internal("missing proc name", sp));
     };
-    let _args: Result<Vec<_>> = e.arguments().map(|a| build_expression(a)).collect();
+    let _args: Result<Vec<_>> = e.arguments().map(build_expression).collect();
     Ok(ast_c::ProcedureInvocation { name, span: sp })
 }
 
@@ -1692,8 +1707,8 @@ fn build_in_query_call(c: InQueryCall) -> Result<ast_c::InQueryCall> {
     let yield_items = c
         .yield_items()
         .map(|y| {
-            let items: Result<Vec<_>> = y.items().map(|i| build_yield_item(i)).collect();
-            let wc = y.where_expr().map(|e| build_expression(e)).transpose()?;
+            let items: Result<Vec<_>> = y.items().map(build_yield_item).collect();
+            let wc = y.where_expr().map(build_expression).transpose()?;
             Ok(ast_c::YieldItems {
                 items: items?,
                 where_clause: wc,
@@ -1724,7 +1739,7 @@ fn build_yield_item(yi: YieldItem) -> Result<ast_c::YieldItem> {
             span: span_of(s.syntax()),
         })
         .ok_or_else(|| internal("missing proc field", span_of(yi.syntax())))?;
-    let alias = yi.alias().map(|v| build_top_variable(v));
+    let alias = yi.alias().map(build_top_variable);
     Ok(ast_c::YieldItem {
         procedure_field: pf,
         alias,
@@ -1744,10 +1759,7 @@ fn build_call_subquery(c: CallSubqueryClause) -> Result<ast_c::CallSubquery> {
     } else {
         build_regular_query(&inner_clauses, &inner_unions)?
     };
-    let in_tx = c
-        .in_transactions()
-        .map(|it| build_in_transactions(it))
-        .transpose()?;
+    let in_tx = c.in_transactions().map(build_in_transactions).transpose()?;
     Ok(ast_c::CallSubquery {
         query,
         in_transactions: in_tx,
@@ -1808,19 +1820,19 @@ fn build_create_index(c: cst_c::schema_cst::CreateIndex) -> Result<ast_c::Create
     let options = c
         .options()
         .and_then(|o| o.map())
-        .map(|m| build_map_literal_cst(m))
+        .map(build_map_literal_cst)
         .transpose()?;
     // Extract target from FOR pattern (NODE_PATTERN or RELATIONSHIP_DETAIL)
     let target = c
         .label()
         .and_then(|l| l.variable())
-        .map(|v| build_top_variable(v))
+        .map(build_top_variable)
         .map(|v| v.name)
         .or_else(|| {
             c.syntax()
                 .children()
                 .find(|n| n.kind() == SyntaxKind::RELATIONSHIP_DETAIL)
-                .and_then(|rd| cst_c::RelationshipDetail::cast(rd))
+                .and_then(cst_c::RelationshipDetail::cast)
                 .and_then(|d| d.variable())
                 .map(|v| ast_c::SymbolicName {
                     name: symbolic_name_text(
@@ -1864,7 +1876,7 @@ fn build_map_literal_cst(m: MapLiteral) -> Result<ast_c::MapLiteral> {
                 .ok_or_else(|| internal("missing key", span_of(e.syntax())))?;
             let value = e
                 .value()
-                .map(|v| build_expression(v))
+                .map(build_expression)
                 .transpose()?
                 .ok_or_else(|| internal("missing value", span_of(e.syntax())))?;
             Ok((key, value))
@@ -1921,7 +1933,7 @@ fn build_create_constraint(
             c.syntax()
                 .children()
                 .find(|n| n.kind() == SyntaxKind::RELATIONSHIP_DETAIL)
-                .and_then(|rd| cst_c::RelationshipDetail::cast(rd))
+                .and_then(cst_c::RelationshipDetail::cast)
                 .and_then(|d| d.variable())
                 .map(|v| ast_c::Variable {
                     name: ast_c::SymbolicName {
@@ -2025,7 +2037,7 @@ fn build_show(c: ShowClause) -> Result<ast_c::Show> {
     let sp = span_of(c.syntax());
     let kind = c
         .kind()
-        .map(|k| build_show_kind(k))
+        .map(build_show_kind)
         .transpose()?
         .ok_or_else(|| internal("missing SHOW kind", sp))?;
     let yield_items = c
@@ -2047,7 +2059,7 @@ fn build_show(c: ShowClause) -> Result<ast_c::Show> {
                                 span: span_of(s.syntax()),
                             })
                             .ok_or_else(|| internal("missing proc field", span_of(yi.syntax())))?;
-                        let alias = yi.alias().map(|v| build_top_variable(v));
+                        let alias = yi.alias().map(build_top_variable);
                         Ok(ast_c::ShowYieldItem {
                             procedure_field: pf,
                             alias,
@@ -2061,12 +2073,9 @@ fn build_show(c: ShowClause) -> Result<ast_c::Show> {
     let where_clause = c
         .show_return()
         .and_then(|sr| sr.where_expr())
-        .map(|e| build_expression(e))
+        .map(build_expression)
         .transpose()?;
-    let ret_clause = c
-        .return_clause()
-        .map(|rc| build_return_body(rc))
-        .transpose()?;
+    let ret_clause = c.return_clause().map(build_return_body).transpose()?;
     Ok(ast_c::Show {
         kind,
         yield_items,
@@ -2093,7 +2102,7 @@ fn build_show_kind(k: ShowKind) -> Result<ast_c::ShowKind> {
             let name = k
                 .syntax()
                 .children()
-                .filter_map(|n| top_level::SymbolicName::cast(n))
+                .filter_map(top_level::SymbolicName::cast)
                 .next()
                 .map(|s| ast_c::SymbolicName {
                     name: symbolic_name_text(&s),
@@ -2110,7 +2119,7 @@ fn build_show_kind(k: ShowKind) -> Result<ast_c::ShowKind> {
 fn build_return_body(rc: ReturnClause) -> Result<ast_c::ReturnBody> {
     let proj = rc
         .projection_body()
-        .map(|b| build_projection_body(b))
+        .map(build_projection_body)
         .transpose()?
         .ok_or_else(|| internal("missing projection", span_of(rc.syntax())))?;
     Ok(ast_c::ReturnBody {
@@ -2136,6 +2145,31 @@ fn build_use(c: UseClause) -> Result<ast_c::Use> {
         graph: name,
         span: sp,
     })
+}
+
+fn build_load_csv(c: LoadCsvClause) -> Result<ast_c::LoadCsv> {
+    let sp = span_of(c.syntax());
+    let with_headers = c.with_headers();
+    let source = c
+        .source()
+        .map(build_expression)
+        .transpose()?
+        .ok_or_else(|| internal("missing source in LOAD CSV", sp))?;
+    let variable = c
+        .variable()
+        .map(build_top_variable)
+        .ok_or_else(|| internal("missing variable in LOAD CSV", sp))?;
+    Ok(ast_c::LoadCsv {
+        with_headers,
+        source,
+        variable,
+        span: sp,
+    })
+}
+
+fn build_finish(c: FinishClause) -> Result<ast_c::Finish> {
+    let sp = span_of(c.syntax());
+    Ok(ast_c::Finish { span: sp })
 }
 
 // ── Names ────────────────────────────────────────────────────────────

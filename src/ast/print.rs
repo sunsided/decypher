@@ -171,6 +171,7 @@ impl ToCypher for SinglePartBody {
                 }
                 Ok(())
             }
+            SinglePartBody::Finish(f) => f.write_cypher(w),
         }
     }
 }
@@ -209,7 +210,27 @@ impl ToCypher for ReadingClause {
             ReadingClause::Unwind(u) => u.write_cypher(w),
             ReadingClause::InQueryCall(i) => i.write_cypher(w),
             ReadingClause::CallSubquery(c) => c.write_cypher(w),
+            ReadingClause::LoadCsv(l) => l.write_cypher(w),
         }
+    }
+}
+
+impl ToCypher for LoadCsv {
+    fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        write!(w, "LOAD CSV")?;
+        if self.with_headers {
+            write!(w, " WITH HEADERS")?;
+        }
+        write!(w, " FROM ")?;
+        self.source.write_cypher(w)?;
+        write!(w, " AS ")?;
+        self.variable.write_cypher(w)
+    }
+}
+
+impl ToCypher for Finish {
+    fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        write!(w, "FINISH")
     }
 }
 

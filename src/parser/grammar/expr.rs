@@ -192,8 +192,44 @@ fn parse_is_null(p: &mut Parser) {
     p.skip_trivia();
     p.eat(SyntaxKind::KW_NOT);
     p.skip_trivia();
-    p.expect(SyntaxKind::NULL_KW);
+    if p.at(SyntaxKind::NULL_KW) {
+        p.bump();
+    } else if p.at_bare_word("NORMALIZED") {
+        // Support string normalization predicate form: `IS NORMALIZED`.
+        p.bump();
+        p.skip_trivia();
+        // Optional NFC/NFD/NFKC/NFKD specifier.
+        if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) {
+            p.start_node(SyntaxKind::SYMBOLIC_NAME);
+            p.bump();
+            p.builder.finish_node();
+        }
+    } else if p.at(SyntaxKind::COLON) {
+        // Support typed predicate form: `IS :: <type>` (or `IS NOT :: <type>`).
+        p.bump();
+        p.skip_trivia();
+        p.expect(SyntaxKind::COLON);
+        p.skip_trivia();
+        if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) || is_keyword_as_name(p) {
+            p.start_node(SyntaxKind::SYMBOLIC_NAME);
+            p.bump();
+            p.builder.finish_node();
+        }
+    } else {
+        p.expect(SyntaxKind::NULL_KW);
+    }
     p.builder.finish_node();
+}
+
+fn is_collect_keyword(p: &Parser) -> bool {
+    if p.current_len() == 0 {
+        return false;
+    }
+    let start = p.byte_pos;
+    let end = start + p.current_len;
+    p.input
+        .get(start..end)
+        .is_some_and(|s| s.eq_ignore_ascii_case("collect"))
 }
 
 fn is_string_op(p: &Parser) -> bool {
@@ -238,20 +274,43 @@ fn is_label_check_follow(p: &Parser) -> bool {
 fn parse_postfix_node_labels(p: &mut Parser) {
     p.start_node(SyntaxKind::PROPERTY_OR_LABELS_EXPR);
     while p.at(SyntaxKind::COLON) {
+        p.start_node(SyntaxKind::NODE_LABELS);
         p.bump();
         p.skip_trivia();
-        if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) || is_keyword_as_name(p) {
-            p.start_node(SyntaxKind::NODE_LABELS);
-            p.start_node(SyntaxKind::NODE_LABEL);
-            p.start_node(SyntaxKind::LABEL_NAME);
-            p.start_node(SyntaxKind::SYMBOLIC_NAME);
-            p.bump();
-            p.builder.finish_node();
-            p.builder.finish_node();
-            p.builder.finish_node();
-            p.builder.finish_node();
+        let mut depth = 0;
+        while p.current_len() > 0 {
+            if p.at(SyntaxKind::L_PAREN) {
+                depth += 1;
+                p.bump();
+            } else if p.at(SyntaxKind::R_PAREN) {
+                if depth == 0 {
+                    break;
+                }
+                depth -= 1;
+                p.bump();
+            } else if p.at(SyntaxKind::BANG)
+                || p.at(SyntaxKind::PIPE)
+                || p.at(SyntaxKind::AMPERSAND)
+                || p.at(SyntaxKind::DOLLAR)
+            {
+                p.bump();
+            } else if p.at(SyntaxKind::IDENT)
+                || p.at(SyntaxKind::ESCAPED_IDENT)
+                || (is_keyword_as_name(p) && !p.at(SyntaxKind::KW_WHERE))
+            {
+                p.start_node(SyntaxKind::NODE_LABEL);
+                p.start_node(SyntaxKind::LABEL_NAME);
+                p.start_node(SyntaxKind::SYMBOLIC_NAME);
+                p.bump();
+                p.builder.finish_node();
+                p.builder.finish_node();
+                p.builder.finish_node();
+            } else {
+                break;
+            }
+            p.skip_trivia();
         }
-        p.skip_trivia();
+        p.builder.finish_node();
     }
     p.builder.finish_node();
 }
@@ -322,6 +381,26 @@ fn parse_atom(p: &mut Parser) {
             p.bump();
             p.builder.finish_node();
         }
+        SyntaxKind::KW_COUNT if p.peek_next_non_trivia() == Some(SyntaxKind::L_BRACE) => {
+            // COUNT { subquery } expression
+            p.start_node(SyntaxKind::EXISTS_SUBQUERY);
+            p.bump(); // COUNT
+            p.skip_trivia();
+            p.bump(); // {
+            p.skip_trivia();
+            while !p.at(SyntaxKind::R_BRACE) && p.current_len() > 0 {
+                if is_clause_start_for_subquery(p) {
+                    parse_clause(p);
+                } else {
+                    p.start_node(SyntaxKind::ERROR);
+                    p.bump();
+                    p.builder.finish_node();
+                }
+                p.skip_trivia();
+            }
+            p.expect(SyntaxKind::R_BRACE);
+            p.builder.finish_node();
+        }
         SyntaxKind::KW_COUNT if is_count_star(p) => {
             p.start_node(SyntaxKind::FUNCTION_INVOCATION);
             p.start_node(SyntaxKind::FUNCTION_NAME);
@@ -341,7 +420,11 @@ fn parse_atom(p: &mut Parser) {
             p.expect(SyntaxKind::R_PAREN);
             p.builder.finish_node();
         }
-        SyntaxKind::IDENT | SyntaxKind::ESCAPED_IDENT | SyntaxKind::KW_COUNT => {
+        SyntaxKind::IDENT
+        | SyntaxKind::ESCAPED_IDENT
+        | SyntaxKind::KW_COUNT
+        | SyntaxKind::KW_TYPE
+        | SyntaxKind::KW_KEY => {
             // Detect qualified function calls: `ns1.ns2.name(args)`. We can't
             // rewrite from a VARIABLE + PROPERTY_LOOKUP chain after the fact,
             // so look ahead before committing and build a FUNCTION_INVOCATION
@@ -393,9 +476,28 @@ fn parse_atom(p: &mut Parser) {
                 return;
             }
             // Consume identifier first
-            // Check if next is L_BRACE (map projection) or L_PAREN (function call)
+            // Check if next is L_BRACE (map projection or collect subquery) or L_PAREN (function call)
             let next = p.peek_next_non_trivia();
-            if next == Some(SyntaxKind::L_BRACE) {
+            if next == Some(SyntaxKind::L_BRACE) && is_collect_keyword(p) {
+                // COLLECT { subquery } expression
+                p.start_node(SyntaxKind::EXISTS_SUBQUERY);
+                p.bump(); // COLLECT
+                p.skip_trivia();
+                p.bump(); // {
+                p.skip_trivia();
+                while !p.at(SyntaxKind::R_BRACE) && p.current_len() > 0 {
+                    if is_clause_start_for_subquery(p) {
+                        parse_clause(p);
+                    } else {
+                        p.start_node(SyntaxKind::ERROR);
+                        p.bump();
+                        p.builder.finish_node();
+                    }
+                    p.skip_trivia();
+                }
+                p.expect(SyntaxKind::R_BRACE);
+                p.builder.finish_node();
+            } else if next == Some(SyntaxKind::L_BRACE) {
                 // MapProjection: var { ... }
                 let checkpoint = p.checkpoint();
                 p.start_node_at(checkpoint, SyntaxKind::MAP_PROJECTION);
@@ -506,6 +608,7 @@ fn parse_atom(p: &mut Parser) {
             if p.at(SyntaxKind::IDENT)
                 || p.at(SyntaxKind::ESCAPED_IDENT)
                 || p.at(SyntaxKind::INTEGER)
+                || is_keyword_as_name(p)
             {
                 p.bump();
             }
@@ -531,6 +634,29 @@ fn parse_atom(p: &mut Parser) {
                 p.bump();
                 p.skip_trivia();
                 parse_filter_like_expr(p);
+                p.skip_trivia();
+                p.expect(SyntaxKind::R_PAREN);
+                p.builder.finish_node();
+            } else {
+                p.start_node(SyntaxKind::VARIABLE);
+                p.start_node(SyntaxKind::SYMBOLIC_NAME);
+                p.bump();
+                p.builder.finish_node();
+                p.builder.finish_node();
+            }
+        }
+        SyntaxKind::KW_REDUCE => {
+            if p.peek_next_non_trivia() == Some(SyntaxKind::L_PAREN) {
+                p.start_node(SyntaxKind::FUNCTION_INVOCATION);
+                p.start_node(SyntaxKind::FUNCTION_NAME);
+                p.start_node(SyntaxKind::SYMBOLIC_NAME);
+                p.bump();
+                p.builder.finish_node();
+                p.builder.finish_node();
+                p.skip_trivia();
+                p.bump();
+                p.skip_trivia();
+                parse_reduce_expr(p);
                 p.skip_trivia();
                 p.expect(SyntaxKind::R_PAREN);
                 p.builder.finish_node();
@@ -586,6 +712,54 @@ fn parse_atom(p: &mut Parser) {
                 }
                 p.expect(SyntaxKind::R_BRACE);
                 p.builder.finish_node();
+            } else if p.peek_next_non_trivia() == Some(SyntaxKind::L_PAREN) {
+                // EXISTS(...) - could be EXISTS(pattern) or exists(property)
+                if looks_like_relationships_pattern(p) {
+                    // Parse as EXISTS_SUBQUERY with a pattern
+                    p.start_node(SyntaxKind::EXISTS_SUBQUERY);
+                    p.bump(); // EXISTS
+                    p.skip_trivia();
+                    p.bump(); // L_PAREN
+                    p.skip_trivia();
+                    parse_node_pattern_for_atom(p);
+                    p.skip_trivia();
+                    while is_relationship_chain_start(p) {
+                        p.start_node(SyntaxKind::PATTERN_ELEMENT_CHAIN);
+                        parse_relationship_pattern(p);
+                        p.skip_trivia();
+                        parse_node_pattern_for_atom(p);
+                        p.builder.finish_node();
+                        p.skip_trivia();
+                    }
+                    p.skip_trivia();
+                    if p.at(SyntaxKind::KW_WHERE) {
+                        p.start_node(SyntaxKind::WHERE_CLAUSE);
+                        p.bump();
+                        p.skip_trivia();
+                        expr_bp(p, Prec::MIN);
+                        p.builder.finish_node();
+                        p.skip_trivia();
+                    }
+                    p.expect(SyntaxKind::R_PAREN);
+                    p.builder.finish_node();
+                } else {
+                    // Regular function call: exists(property)
+                    p.start_node(SyntaxKind::FUNCTION_INVOCATION);
+                    p.start_node(SyntaxKind::FUNCTION_NAME);
+                    p.start_node(SyntaxKind::SYMBOLIC_NAME);
+                    p.bump();
+                    p.builder.finish_node();
+                    p.builder.finish_node();
+                    p.skip_trivia();
+                    p.bump(); // L_PAREN
+                    p.skip_trivia();
+                    if !p.at(SyntaxKind::R_PAREN) {
+                        expr_bp(p, Prec::MIN);
+                        p.skip_trivia();
+                    }
+                    p.expect(SyntaxKind::R_PAREN);
+                    p.builder.finish_node();
+                }
             } else {
                 p.start_node(SyntaxKind::VARIABLE);
                 p.start_node(SyntaxKind::SYMBOLIC_NAME);
@@ -728,13 +902,6 @@ fn looks_like_relationships_pattern(p: &Parser) -> bool {
             }
         }
     }
-    // Skip optional :Label sequences
-    loop {
-        // peek current
-        // We can't easily peek without advancing, so use a different approach:
-        // Just look for the ) then check if - or < follows
-        break;
-    }
     // Simplified heuristic: scan for ) followed by - or <
     let mut found_close_paren = false;
     loop {
@@ -785,14 +952,38 @@ fn parse_node_pattern_for_atom(p: &mut Parser) {
         p.start_node(SyntaxKind::NODE_LABELS);
         p.bump();
         p.skip_trivia();
-        if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) || is_keyword_as_name(p) {
-            p.start_node(SyntaxKind::NODE_LABEL);
-            p.start_node(SyntaxKind::LABEL_NAME);
-            p.start_node(SyntaxKind::SYMBOLIC_NAME);
-            p.bump();
-            p.builder.finish_node();
-            p.builder.finish_node();
-            p.builder.finish_node();
+        let mut depth = 0;
+        while p.current_len() > 0 {
+            if p.at(SyntaxKind::L_PAREN) {
+                depth += 1;
+                p.bump();
+            } else if p.at(SyntaxKind::R_PAREN) {
+                if depth == 0 {
+                    break;
+                }
+                depth -= 1;
+                p.bump();
+            } else if p.at(SyntaxKind::BANG)
+                || p.at(SyntaxKind::PIPE)
+                || p.at(SyntaxKind::AMPERSAND)
+                || p.at(SyntaxKind::DOLLAR)
+            {
+                p.bump();
+            } else if p.at(SyntaxKind::IDENT)
+                || p.at(SyntaxKind::ESCAPED_IDENT)
+                || (is_keyword_as_name(p) && !p.at(SyntaxKind::KW_WHERE))
+            {
+                p.start_node(SyntaxKind::NODE_LABEL);
+                p.start_node(SyntaxKind::LABEL_NAME);
+                p.start_node(SyntaxKind::SYMBOLIC_NAME);
+                p.bump();
+                p.builder.finish_node();
+                p.builder.finish_node();
+                p.builder.finish_node();
+            } else {
+                break;
+            }
+            p.skip_trivia();
         }
         p.builder.finish_node();
         p.skip_trivia();
@@ -813,6 +1004,14 @@ fn parse_node_pattern_for_atom(p: &mut Parser) {
         }
         p.expect(SyntaxKind::R_BRACE);
         p.builder.finish_node();
+        p.builder.finish_node();
+        p.skip_trivia();
+    }
+    if p.at(SyntaxKind::KW_WHERE) {
+        p.start_node(SyntaxKind::WHERE_CLAUSE);
+        p.bump();
+        p.skip_trivia();
+        expr_bp(p, Prec::MIN);
         p.builder.finish_node();
         p.skip_trivia();
     }
@@ -986,7 +1185,7 @@ fn parse_filter_like_expr(p: &mut Parser) {
     // These use: variable IN expression (WHERE predicate)? , expression
     // variable IN expression (WHERE predicate)? | expression
     // variable IN expression
-    if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) {
+    if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) || is_keyword_as_name(p) {
         p.start_node(SyntaxKind::VARIABLE);
         p.start_node(SyntaxKind::SYMBOLIC_NAME);
         p.bump();
@@ -1013,6 +1212,20 @@ fn parse_filter_like_expr(p: &mut Parser) {
         expr_bp(p, Prec::MIN);
         p.skip_trivia();
     }
+}
+
+fn parse_reduce_expr(p: &mut Parser) {
+    // reduce(accumulator = initial, variable IN list | expression)
+    expr_bp(p, Prec::MIN);
+    p.skip_trivia();
+    p.expect(SyntaxKind::COMMA);
+    p.skip_trivia();
+    expr_bp(p, Prec::MIN);
+    p.skip_trivia();
+    p.expect(SyntaxKind::PIPE);
+    p.skip_trivia();
+    expr_bp(p, Prec::MIN);
+    p.skip_trivia();
 }
 
 fn is_clause_start_for_exists(p: &Parser) -> bool {
@@ -1132,6 +1345,8 @@ pub fn parse_clause(p: &mut Parser) {
         SyntaxKind::KW_DROP => parse_drop_clause(p),
         SyntaxKind::KW_SHOW => parse_show_clause(p),
         SyntaxKind::KW_USE => parse_use_clause(p),
+        SyntaxKind::KW_LOAD => parse_load_csv_clause(p),
+        SyntaxKind::KW_FINISH => parse_finish_clause(p),
         _ => {}
     }
 }
@@ -1394,6 +1609,12 @@ fn parse_pattern(p: &mut Parser) {
         parse_pattern_part(p);
         p.skip_trivia();
     }
+    // Neo4j quantified path patterns can concatenate pattern parts without commas,
+    // e.g. (:A) ((a)-[:R]->(b)){1,3} (:B)
+    while p.at(SyntaxKind::L_PAREN) {
+        parse_pattern_part(p);
+        p.skip_trivia();
+    }
     p.builder.finish_node();
 }
 
@@ -1412,7 +1633,20 @@ fn parse_pattern_part(p: &mut Parser) {
             p.skip_trivia();
         }
     }
-    parse_anonymous_pattern_part(p);
+    // shortestPath(...) / allShortestPaths(...) wrappers around a pattern element.
+    if (p.at_bare_word("shortestPath") || p.at_bare_word("allShortestPaths"))
+        && p.peek_next_non_trivia() == Some(SyntaxKind::L_PAREN)
+    {
+        p.bump();
+        p.skip_trivia();
+        p.expect(SyntaxKind::L_PAREN);
+        p.skip_trivia();
+        parse_anonymous_pattern_part(p);
+        p.skip_trivia();
+        p.expect(SyntaxKind::R_PAREN);
+    } else {
+        parse_anonymous_pattern_part(p);
+    }
     p.builder.finish_node();
 }
 
@@ -1457,6 +1691,29 @@ fn parse_pattern_element(p: &mut Parser) {
     } else {
         // Not a valid pattern element start — emit error and recover
         p.error_here(&[Expected::Symbol("(")]);
+    }
+    // Optional quantified postfix on the whole element: {m,n}
+    if p.at(SyntaxKind::L_BRACE) {
+        p.start_node(SyntaxKind::RELATIONSHIP_QUANTIFIER);
+        p.bump();
+        p.skip_trivia();
+        if p.at(SyntaxKind::INTEGER) {
+            p.start_node(SyntaxKind::NUMBER_LITERAL);
+            p.bump();
+            p.builder.finish_node();
+            p.skip_trivia();
+        }
+        if p.eat(SyntaxKind::COMMA) {
+            p.skip_trivia();
+            if p.at(SyntaxKind::INTEGER) {
+                p.start_node(SyntaxKind::NUMBER_LITERAL);
+                p.bump();
+                p.builder.finish_node();
+                p.skip_trivia();
+            }
+        }
+        p.expect(SyntaxKind::R_BRACE);
+        p.builder.finish_node();
     }
     p.builder.finish_node();
 }
@@ -1544,7 +1801,41 @@ fn parse_relationship_detail(p: &mut Parser) {
         loop {
             p.eat(SyntaxKind::COLON);
             p.skip_trivia();
-            if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) || is_keyword_as_name(p) {
+            if p.at(SyntaxKind::DOLLAR) {
+                p.bump();
+                p.skip_trivia();
+                if p.at(SyntaxKind::L_PAREN) {
+                    p.bump();
+                    p.skip_trivia();
+                    if p.at(SyntaxKind::DOLLAR) {
+                        p.start_node(SyntaxKind::PARAMETER);
+                        p.bump();
+                        p.skip_trivia();
+                        if p.at(SyntaxKind::IDENT)
+                            || p.at(SyntaxKind::ESCAPED_IDENT)
+                            || p.at(SyntaxKind::INTEGER)
+                            || is_keyword_as_name(p)
+                        {
+                            p.bump();
+                        }
+                        p.builder.finish_node();
+                    } else if p.at(SyntaxKind::IDENT)
+                        || p.at(SyntaxKind::ESCAPED_IDENT)
+                        || is_keyword_as_name(p)
+                    {
+                        p.start_node(SyntaxKind::REL_TYPE_NAME);
+                        p.start_node(SyntaxKind::SYMBOLIC_NAME);
+                        p.bump();
+                        p.builder.finish_node();
+                        p.builder.finish_node();
+                    }
+                    p.skip_trivia();
+                    p.expect(SyntaxKind::R_PAREN);
+                }
+            } else if p.at(SyntaxKind::IDENT)
+                || p.at(SyntaxKind::ESCAPED_IDENT)
+                || is_keyword_as_name(p)
+            {
                 p.start_node(SyntaxKind::REL_TYPE_NAME);
                 p.start_node(SyntaxKind::SYMBOLIC_NAME);
                 p.bump();
@@ -1601,6 +1892,14 @@ fn parse_relationship_detail(p: &mut Parser) {
         p.builder.finish_node();
         p.skip_trivia();
     }
+    if p.at(SyntaxKind::KW_WHERE) {
+        p.start_node(SyntaxKind::WHERE_CLAUSE);
+        p.bump();
+        p.skip_trivia();
+        expr_bp(p, Prec::MIN);
+        p.builder.finish_node();
+        p.skip_trivia();
+    }
     p.expect(SyntaxKind::R_BRACKET);
     p.builder.finish_node();
 }
@@ -1621,14 +1920,38 @@ fn parse_node_pattern(p: &mut Parser) {
         p.start_node(SyntaxKind::NODE_LABELS);
         p.bump();
         p.skip_trivia();
-        if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) || is_keyword_as_name(p) {
-            p.start_node(SyntaxKind::NODE_LABEL);
-            p.start_node(SyntaxKind::LABEL_NAME);
-            p.start_node(SyntaxKind::SYMBOLIC_NAME);
-            p.bump();
-            p.builder.finish_node();
-            p.builder.finish_node();
-            p.builder.finish_node();
+        let mut depth = 0;
+        while p.current_len() > 0 {
+            if p.at(SyntaxKind::L_PAREN) {
+                depth += 1;
+                p.bump();
+            } else if p.at(SyntaxKind::R_PAREN) {
+                if depth == 0 {
+                    break;
+                }
+                depth -= 1;
+                p.bump();
+            } else if p.at(SyntaxKind::BANG)
+                || p.at(SyntaxKind::PIPE)
+                || p.at(SyntaxKind::AMPERSAND)
+                || p.at(SyntaxKind::DOLLAR)
+            {
+                p.bump();
+            } else if p.at(SyntaxKind::IDENT)
+                || p.at(SyntaxKind::ESCAPED_IDENT)
+                || (is_keyword_as_name(p) && !p.at(SyntaxKind::KW_WHERE))
+            {
+                p.start_node(SyntaxKind::NODE_LABEL);
+                p.start_node(SyntaxKind::LABEL_NAME);
+                p.start_node(SyntaxKind::SYMBOLIC_NAME);
+                p.bump();
+                p.builder.finish_node();
+                p.builder.finish_node();
+                p.builder.finish_node();
+            } else {
+                break;
+            }
+            p.skip_trivia();
         }
         p.builder.finish_node();
         p.skip_trivia();
@@ -1649,6 +1972,14 @@ fn parse_node_pattern(p: &mut Parser) {
         }
         p.expect(SyntaxKind::R_BRACE);
         p.builder.finish_node();
+        p.builder.finish_node();
+        p.skip_trivia();
+    }
+    if p.at(SyntaxKind::KW_WHERE) {
+        p.start_node(SyntaxKind::WHERE_CLAUSE);
+        p.bump();
+        p.skip_trivia();
+        expr_bp(p, Prec::MIN);
         p.builder.finish_node();
         p.skip_trivia();
     }
@@ -1846,6 +2177,8 @@ fn parse_procedure_call(p: &mut Parser) {
     // Determine if standalone or in-query based on context
     // For now, parse as standalone call
     p.start_node(SyntaxKind::STANDALONE_CALL);
+    p.bump(); // CALL
+    p.skip_trivia();
     p.start_node(SyntaxKind::IMPLICIT_PROCEDURE_INVOCATION);
     parse_procedure_name(p);
     p.skip_trivia();
@@ -1872,6 +2205,7 @@ fn parse_procedure_call(p: &mut Parser) {
     p.skip_trivia();
     // Optional YIELD
     if p.at(SyntaxKind::KW_YIELD) {
+        p.bump();
         p.skip_trivia();
         parse_yield_items(p);
     }
@@ -1975,6 +2309,8 @@ fn parse_yield_item(p: &mut Parser) {
 fn parse_yield_clause(p: &mut Parser) {
     // Standalone YIELD (in-query call variant)
     p.start_node(SyntaxKind::IN_QUERY_CALL);
+    p.eat(SyntaxKind::KW_YIELD);
+    p.skip_trivia();
     parse_yield_items(p);
     p.builder.finish_node();
 }
@@ -2417,9 +2753,7 @@ fn parse_create_database(p: &mut Parser) {
     p.bump(); // CREATE
     p.skip_trivia();
     // DATABASE or DATABASES
-    if p.at_keyword(SyntaxKind::KW_DATABASE) {
-        p.bump();
-    } else if p.at_keyword(SyntaxKind::KW_DATABASES) {
+    if p.at_keyword(SyntaxKind::KW_DATABASE) || p.at_keyword(SyntaxKind::KW_DATABASES) {
         p.bump();
     }
     p.skip_trivia();
@@ -2522,9 +2856,7 @@ fn parse_drop_database(p: &mut Parser) {
     p.bump(); // DROP
     p.skip_trivia();
     // DATABASE or DATABASES
-    if p.at_keyword(SyntaxKind::KW_DATABASE) {
-        p.bump();
-    } else if p.at_keyword(SyntaxKind::KW_DATABASES) {
+    if p.at_keyword(SyntaxKind::KW_DATABASE) || p.at_keyword(SyntaxKind::KW_DATABASES) {
         p.bump();
     }
     p.skip_trivia();
@@ -2570,17 +2902,16 @@ fn parse_show_clause(p: &mut Parser) {
 
 fn parse_show_kind(p: &mut Parser) {
     p.start_node(SyntaxKind::SHOW_KIND);
-    if p.at(SyntaxKind::KW_INDEX) || p.at(SyntaxKind::KW_INDEXES) {
-        p.bump();
-    } else if p.at(SyntaxKind::KW_CONSTRAINT) || p.at(SyntaxKind::KW_CONSTRAINTS) {
-        p.bump();
-    } else if p.at_keyword(SyntaxKind::KW_DATABASE) || p.at_keyword(SyntaxKind::KW_DATABASES) {
-        p.bump();
-    } else if p.at_keyword(SyntaxKind::KW_PROCEDURES) {
-        p.bump();
-    } else if p.at_keyword(SyntaxKind::KW_FUNCTIONS) {
-        p.bump();
-    } else if p.at_keyword(SyntaxKind::KW_TYPES) {
+    if p.at(SyntaxKind::KW_INDEX)
+        || p.at(SyntaxKind::KW_INDEXES)
+        || p.at(SyntaxKind::KW_CONSTRAINT)
+        || p.at(SyntaxKind::KW_CONSTRAINTS)
+        || p.at_keyword(SyntaxKind::KW_DATABASE)
+        || p.at_keyword(SyntaxKind::KW_DATABASES)
+        || p.at_keyword(SyntaxKind::KW_PROCEDURES)
+        || p.at_keyword(SyntaxKind::KW_FUNCTIONS)
+        || p.at_keyword(SyntaxKind::KW_TYPES)
+    {
         p.bump();
     } else if p.at_keyword(SyntaxKind::KW_PROPERTY) {
         p.bump();
@@ -2663,6 +2994,47 @@ fn parse_use_clause(p: &mut Parser) {
     p.builder.finish_node();
 }
 
+fn parse_load_csv_clause(p: &mut Parser) {
+    p.start_node(SyntaxKind::LOAD_CSV_CLAUSE);
+    p.bump(); // LOAD
+    p.skip_trivia();
+    p.expect(SyntaxKind::KW_CSV);
+    p.skip_trivia();
+    // Optional WITH HEADERS
+    if p.at_keyword(SyntaxKind::KW_WITH) {
+        p.bump(); // WITH
+        p.skip_trivia();
+        p.expect(SyntaxKind::KW_HEADERS);
+        p.skip_trivia();
+    }
+    p.expect(SyntaxKind::KW_FROM);
+    p.skip_trivia();
+    expr_bp(p, Prec::MIN);
+    p.skip_trivia();
+    p.expect(SyntaxKind::KW_AS);
+    p.skip_trivia();
+    if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) || is_keyword_as_name(p) {
+        p.start_node(SyntaxKind::VARIABLE);
+        p.start_node(SyntaxKind::SYMBOLIC_NAME);
+        p.bump();
+        p.builder.finish_node();
+        p.builder.finish_node();
+    }
+    p.skip_trivia();
+    if p.at_keyword(SyntaxKind::KW_FIELDTERMINATOR) {
+        p.bump();
+        p.skip_trivia();
+        expr_bp(p, Prec::MIN);
+    }
+    p.builder.finish_node();
+}
+
+fn parse_finish_clause(p: &mut Parser) {
+    p.start_node(SyntaxKind::FINISH_CLAUSE);
+    p.bump(); // FINISH
+    p.builder.finish_node();
+}
+
 // ── Helpers ─────────────────────────────────────────────────────
 
 fn is_keyword_as_name(p: &Parser) -> bool {
@@ -2731,6 +3103,7 @@ fn is_keyword_as_name(p: &Parser) -> bool {
             | SyntaxKind::KW_PROCEDURES
             | SyntaxKind::KW_PROPERTY
             | SyntaxKind::KW_RANGE
+            | SyntaxKind::KW_REDUCE
             | SyntaxKind::KW_REMOVE
             | SyntaxKind::KW_REQUIRE
             | SyntaxKind::KW_RETURN
@@ -2759,5 +3132,11 @@ fn is_keyword_as_name(p: &Parser) -> bool {
             | SyntaxKind::KW_CALL_SUBQUERY
             | SyntaxKind::KW_IN_TRANSACTIONS
             | SyntaxKind::KW_CONCURRENTLY
+            | SyntaxKind::KW_FROM
+            | SyntaxKind::KW_HEADERS
+            | SyntaxKind::KW_LOAD
+            | SyntaxKind::KW_CSV
+            | SyntaxKind::KW_FINISH
+            | SyntaxKind::KW_FIELDTERMINATOR
     )
 }

@@ -1,11 +1,9 @@
 use crate::syntax::{SyntaxKind, SyntaxNode, SyntaxToken};
 
-use super::expressions::{
-    ExplicitProcedureInvocation, Expression, ImplicitProcedureInvocation, NumberLiteral,
-};
+use super::expressions::Expression;
 use super::patterns::Pattern;
 use super::projection::ProjectionBody;
-use super::support::{child, child_token, child_tokens, children, AstChildren};
+use super::support::{child, child_token, children, AstChildren};
 use super::traits::AstNode;
 
 #[derive(Clone, Debug)]
@@ -26,6 +24,8 @@ pub enum Clause {
     CallSubquery(CallSubqueryClause),
     Show(ShowClause),
     Use(UseClause),
+    LoadCsv(LoadCsvClause),
+    Finish(FinishClause),
 }
 
 impl AstNode for Clause {
@@ -46,6 +46,8 @@ impl AstNode for Clause {
             || CallSubqueryClause::can_cast(kind)
             || ShowClause::can_cast(kind)
             || UseClause::can_cast(kind)
+            || LoadCsvClause::can_cast(kind)
+            || FinishClause::can_cast(kind)
     }
 
     fn cast(syntax: SyntaxNode) -> Option<Self> {
@@ -97,6 +99,12 @@ impl AstNode for Clause {
         if UseClause::can_cast(syntax.kind()) {
             return UseClause::cast(syntax).map(Clause::Use);
         }
+        if LoadCsvClause::can_cast(syntax.kind()) {
+            return LoadCsvClause::cast(syntax).map(Clause::LoadCsv);
+        }
+        if FinishClause::can_cast(syntax.kind()) {
+            return FinishClause::cast(syntax).map(Clause::Finish);
+        }
         None
     }
 
@@ -118,6 +126,8 @@ impl AstNode for Clause {
             Clause::CallSubquery(it) => it.syntax(),
             Clause::Show(it) => it.syntax(),
             Clause::Use(it) => it.syntax(),
+            Clause::LoadCsv(it) => it.syntax(),
+            Clause::Finish(it) => it.syntax(),
         }
     }
 }
@@ -1068,5 +1078,71 @@ impl AstNode for SchemaName {
 impl SchemaName {
     pub fn symbolic_name(&self) -> Option<super::top_level::SymbolicName> {
         child(&self.0)
+    }
+}
+
+// ============================================================
+// LoadCsvClause
+// ============================================================
+
+#[derive(Clone, Debug)]
+pub struct LoadCsvClause(SyntaxNode);
+
+impl AstNode for LoadCsvClause {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::LOAD_CSV_CLAUSE
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(LoadCsvClause(syntax))
+        } else {
+            None
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.0
+    }
+}
+
+impl LoadCsvClause {
+    pub fn with_headers(&self) -> bool {
+        self.0
+            .children_with_tokens()
+            .any(|t| t.kind() == SyntaxKind::KW_WITH)
+    }
+
+    pub fn source(&self) -> Option<Expression> {
+        self.0.children().filter_map(Expression::cast).next()
+    }
+
+    pub fn variable(&self) -> Option<super::top_level::Variable> {
+        child(&self.0)
+    }
+}
+
+// ============================================================
+// FinishClause
+// ============================================================
+
+#[derive(Clone, Debug)]
+pub struct FinishClause(SyntaxNode);
+
+impl AstNode for FinishClause {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::FINISH_CLAUSE
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(FinishClause(syntax))
+        } else {
+            None
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.0
     }
 }
