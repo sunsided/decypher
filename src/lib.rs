@@ -56,6 +56,14 @@ pub use crate::recover::{ParseOptions, parse_with_options};
 
 use std::sync::Arc;
 
+impl TryFrom<&str> for Query {
+    type Error = CypherError;
+
+    fn try_from(input: &str) -> Result<Self> {
+        parse(input)
+    }
+}
+
 /// Parse a Cypher query string into a typed [`Query`] AST.
 pub fn parse(input: &str) -> Result<Query> {
     parse_with_label(input, "query")
@@ -127,9 +135,29 @@ pub fn parse_cst(input: &str) -> Parse {
     crate::parser::parse(input)
 }
 
-/// Parse and lower a Cypher query string into a HIR [`HirQuery`].
-pub fn analyze(input: &str) -> Result<hir::HirQuery> {
-    let query = parse(input)?;
+/// Parse and lower a Cypher query into a HIR [`HirQuery`].
+///
+/// The input can be either a `&str` (which will be parsed via [`parse`]) or an
+/// already-parsed [`Query`] (which is used as-is, skipping the parse step).
+///
+/// # Example: from a string
+///
+/// ```rust
+/// let hir = cypher::analyze("MATCH (n:Person) RETURN n.name").unwrap();
+/// ```
+///
+/// # Example: from a previously parsed AST
+///
+/// ```rust
+/// let query = cypher::parse("MATCH (n:Person) RETURN n.name").unwrap();
+/// let hir = cypher::analyze(query).unwrap();
+/// ```
+pub fn analyze<T>(input: T) -> Result<hir::HirQuery>
+where
+    T: TryInto<Query>,
+    CypherError: From<T::Error>,
+{
+    let query = input.try_into().map_err(CypherError::from)?;
     hir::lower::lower(&query).map_err(|diagnostics| {
         diagnostics
             .into_iter()
