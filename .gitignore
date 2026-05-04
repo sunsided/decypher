@@ -1,2 +1,4 @@
 /target
 .gitnexus
+tests/property.proptest-regressions
+

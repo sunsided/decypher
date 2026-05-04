@@ -99,9 +99,14 @@ fn quantifier() -> impl Strategy<Value = String> {
     prop_oneof![
         (1u8..4).prop_map(|n| format!("{{{n}}}")),
         (1u8..4, 1u8..4).prop_map(|(a, b)| {
-            let (start, end) = if a <= b { (a, b) } else { (b, a) };
+            let (start, mut end) = if a <= b { (a, b) } else { (b, a) };
+            if start == end {
+                end += 1;
+            }
             format!("{{{start},{end}}}")
         }),
+        (1u8..4).prop_map(|n| format!("{{{n},}}")),
+        (1u8..4).prop_map(|m| format!("{{,{m}}}")),
     ]
 }
 

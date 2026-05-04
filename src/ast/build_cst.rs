@@ -864,9 +864,20 @@ fn build_quantifier(rq: RelationshipQuantifier) -> Result<ast_c::Quantifier> {
         })
         .collect();
     let nums = nums?;
+    let has_comma = rq.syntax().children_with_tokens().any(|t| {
+        t.as_token()
+            .is_some_and(|tok| tok.kind() == SyntaxKind::COMMA)
+    });
     let (start, end) = match nums.as_slice() {
         [a, b] => (Some(*a), Some(*b)),
-        [a] => (Some(*a), None),
+        // `{n}` (no comma) means exactly n; `{n,}` (with comma) means n or more.
+        [a] => {
+            if has_comma {
+                (Some(*a), None)
+            } else {
+                (Some(*a), Some(*a))
+            }
+        }
         _ => (None, None),
     };
     Ok(ast_c::Quantifier {

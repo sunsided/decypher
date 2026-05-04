@@ -728,8 +728,9 @@ impl ToCypher for Quantifier {
     fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
         write!(w, "{{")?;
         match (self.start, self.end) {
+            (Some(s), Some(e)) if s == e => write!(w, "{}", s)?,
             (Some(s), Some(e)) => write!(w, "{},{}", s, e)?,
-            (Some(s), None) => write!(w, "{}", s)?,
+            (Some(s), None) => write!(w, "{},", s)?,
             (None, Some(e)) => write!(w, ",{}", e)?,
             (None, None) => {}
         }
