@@ -8,9 +8,9 @@ fn dummy_span() -> Span {
 #[test]
 fn bind_after_push_pop_works() {
     let mut stack = ScopeStack::new();
-    stack.bind("outer", SymbolKind::PatternBound, dummy_span());
+    let _ = stack.bind("outer", SymbolKind::PatternBound, dummy_span());
     stack.push_scope();
-    stack.bind("inner", SymbolKind::WithAlias, dummy_span());
+    let _ = stack.bind("inner", SymbolKind::WithAlias, dummy_span());
     stack.pop_scope();
     // After popping, "outer" should still be resolvable
     assert!(stack.is_bound("outer"));
@@ -53,7 +53,7 @@ fn shadowing_across_scopes_allowed() {
     let mut stack = ScopeStack::new();
     let span1 = Span::new(0, 1);
     let span2 = Span::new(10, 12);
-    stack.bind("x", SymbolKind::PatternBound, span1);
+    let _ = stack.bind("x", SymbolKind::PatternBound, span1);
     stack.push_scope();
     assert!(stack.bind("x", SymbolKind::WithAlias, span2).is_ok());
 }

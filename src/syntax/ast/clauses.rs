@@ -417,19 +417,17 @@ impl SetItem {
                 }
                 continue;
             }
-            if let Some(node) = child.as_node() {
-                if matches!(
+            if let Some(node) = child.as_node()
+                && matches!(
                     node.kind(),
                     SyntaxKind::VARIABLE
                         | SyntaxKind::PROPERTY_LOOKUP
                         | SyntaxKind::PROPERTY_OR_LABELS_EXPR
                         | SyntaxKind::PROPERTY_EXPRESSION
-                ) {
-                    if let Some(e) = Expression::cast(node.clone()) {
+                )
+                    && let Some(e) = Expression::cast(node.clone()) {
                         last = Some(e);
                     }
-                }
-            }
         }
         last
     }
@@ -456,13 +454,11 @@ impl SetItem {
                 }
                 continue;
             }
-            if seen_op {
-                if let Some(node) = child.as_node() {
-                    if let Some(e) = Expression::cast(node.clone()) {
+            if seen_op
+                && let Some(node) = child.as_node()
+                    && let Some(e) = Expression::cast(node.clone()) {
                         last = Some(e);
                     }
-                }
-            }
         }
         last
     }

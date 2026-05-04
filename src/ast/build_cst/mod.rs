@@ -394,8 +394,8 @@ fn build_set(c: SetClause) -> Result<ast_c::Set> {
 fn build_set_item(item: SetItem) -> Result<ast_c::SetItem> {
     let sp = span_of(item.syntax());
 
-    if let Some(labels) = item.node_labels() {
-        if let Some(_prop_expr) = item.property_expr() {
+    if let Some(labels) = item.node_labels()
+        && let Some(_prop_expr) = item.property_expr() {
             let ast_labels: Result<Vec<_>> = labels
                 .labels()
                 .map(|l| {
@@ -419,7 +419,6 @@ fn build_set_item(item: SetItem) -> Result<ast_c::SetItem> {
                 labels: ast_labels?,
             });
         }
-    }
 
     let property = item
         .property_expr()
@@ -471,8 +470,8 @@ fn build_remove(c: RemoveClause) -> Result<ast_c::Remove> {
 
 fn build_remove_item(item: RemoveItem) -> Result<ast_c::RemoveItem> {
     let sp = span_of(item.syntax());
-    if let Some(labels) = item.node_labels() {
-        if let Some(_prop_expr) = item.property_expr() {
+    if let Some(labels) = item.node_labels()
+        && let Some(_prop_expr) = item.property_expr() {
             let ast_labels: Result<Vec<_>> = labels
                 .labels()
                 .map(|l| {
@@ -496,7 +495,6 @@ fn build_remove_item(item: RemoveItem) -> Result<ast_c::RemoveItem> {
                 labels: ast_labels?,
             });
         }
-    }
     let prop = item
         .property_expr()
         .ok_or_else(|| internal("missing property in REMOVE item", sp))?;
@@ -722,14 +720,13 @@ fn build_pattern_element(pe: PatternElement) -> Result<ast_c::PatternElement> {
         .find_map(NodePattern::cast)
         .or_else(|| pe.node());
     let chains: Vec<_> = pe.chains().collect();
-    if chains.is_empty() {
-        if let Some(n) = node {
+    if chains.is_empty()
+        && let Some(n) = node {
             return Ok(ast_c::PatternElement::Path {
                 start: build_node_pattern(n)?,
                 chains: Vec::new(),
             });
         }
-    }
     let start = node
         .map(build_node_pattern)
         .transpose()?
@@ -878,17 +875,15 @@ fn build_range_literal(rl: RangeLiteral) -> Result<ast_c::RangeLiteral> {
         } else if let Some(node) = child.as_node() {
             // Some grammars wrap integers in NUMBER_LITERAL nodes; descend.
             for inner in node.children_with_tokens() {
-                if let Some(tok) = inner.as_token() {
-                    if tok.kind() == SyntaxKind::INTEGER {
-                        if let Some(val) = parse_integer(tok.text()) {
+                if let Some(tok) = inner.as_token()
+                    && tok.kind() == SyntaxKind::INTEGER
+                        && let Some(val) = parse_integer(tok.text()) {
                             if !seen_dot_dot {
                                 start = Some(val);
                             } else {
                                 end = Some(val);
                             }
                         }
-                    }
-                }
             }
         }
     }
@@ -1117,8 +1112,8 @@ fn build_binary_expr(b: BinaryExpr) -> Result<ast_c::Expression> {
                                 }
                                 continue;
                             }
-                            if let Some(node) = child.as_node() {
-                                if let Some(e) = Expression::cast(node.clone()) {
+                            if let Some(node) = child.as_node()
+                                && let Some(e) = Expression::cast(node.clone()) {
                                     let built = build_expression(e)?;
                                     if !seen_dot_dot {
                                         start_expr = Some(built);
@@ -1126,7 +1121,6 @@ fn build_binary_expr(b: BinaryExpr) -> Result<ast_c::Expression> {
                                         end_expr = Some(built);
                                     }
                                 }
-                            }
                         }
                         Ok(ast_c::Expression::ListSlice {
                             list: Box::new(lhs),
@@ -1277,11 +1271,10 @@ fn build_number_literal(n: NumberLiteral) -> Result<ast_c::NumberLiteral> {
             if let Some(val) = parse_integer(text) {
                 return Ok(ast_c::NumberLiteral::Integer(val));
             }
-        } else if tok.kind() == SyntaxKind::FLOAT {
-            if let Some(val) = parse_double(text) {
+        } else if tok.kind() == SyntaxKind::FLOAT
+            && let Some(val) = parse_double(text) {
                 return Ok(ast_c::NumberLiteral::Float(val));
             }
-        }
     }
     Err(internal("invalid number", sp))
 }
@@ -1598,11 +1591,10 @@ fn build_map_projection_item(mi: MapProjectionItem) -> Result<ast_c::MapProjecti
         };
         if let Some(expr) = mi.expression() {
             let expr_ast = build_expression(expr)?;
-            if let ast_c::Expression::Variable(v) = &expr_ast {
-                if v.name.name == pk.name.name {
+            if let ast_c::Expression::Variable(v) = &expr_ast
+                && v.name.name == pk.name.name {
                     return Ok(ast_c::MapProjectionItem::PropertyLookup { property: pk });
                 }
-            }
             return Ok(ast_c::MapProjectionItem::Literal {
                 key: pk,
                 value: expr_ast,

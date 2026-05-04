@@ -489,7 +489,6 @@ impl RelationshipsPattern {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::parser;
     use crate::syntax::ast::traits::AstNode;
     use assert2::check;

@@ -119,11 +119,10 @@ impl ProjectionItem {
                 }
                 continue;
             }
-            if let Some(node) = child.as_node() {
-                if let Some(e) = Expression::cast(node.clone()) {
+            if let Some(node) = child.as_node()
+                && let Some(e) = Expression::cast(node.clone()) {
                     last = Some(e);
                 }
-            }
         }
         last
     }
@@ -136,13 +135,11 @@ impl ProjectionItem {
                 if token.kind() == SyntaxKind::KW_AS {
                     found_as = true;
                 }
-            } else if found_as {
-                if let Some(node) = child.as_node() {
-                    if let Some(v) = super::top_level::Variable::cast(node.clone()) {
+            } else if found_as
+                && let Some(node) = child.as_node()
+                    && let Some(v) = super::top_level::Variable::cast(node.clone()) {
                         return Some(v);
                     }
-                }
-            }
         }
         None
     }

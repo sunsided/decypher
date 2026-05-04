@@ -203,8 +203,8 @@ impl<'ast> Visit<'ast> for NameResolver {
     fn visit_return(&mut self, node: &'ast Return) {
         for item in &node.items {
             self.visit_expression(&item.expression);
-            if let Some(alias) = &item.alias {
-                if let Err(first_span) =
+            if let Some(alias) = &item.alias
+                && let Err(first_span) =
                     self.scopes
                         .bind(&alias.name.name, SymbolKind::ReturnAlias, alias.name.span)
                 {
@@ -214,7 +214,6 @@ impl<'ast> Visit<'ast> for NameResolver {
                         redecl_span: alias.name.span,
                     });
                 }
-            }
         }
         if let Some(order) = &node.order {
             self.visit_order(order);
@@ -232,8 +231,8 @@ impl<'ast> Visit<'ast> for NameResolver {
         if let Some(yield_items) = &node.yield_items {
             for item in &yield_items.items {
                 self.visit_symbolic_name(&item.procedure_field);
-                if let Some(alias) = &item.alias {
-                    if let Err(first_span) =
+                if let Some(alias) = &item.alias
+                    && let Err(first_span) =
                         self.scopes
                             .bind(&alias.name.name, SymbolKind::YieldAlias, alias.name.span)
                     {
@@ -243,7 +242,6 @@ impl<'ast> Visit<'ast> for NameResolver {
                             redecl_span: alias.name.span,
                         });
                     }
-                }
             }
             if let Some(wc) = &yield_items.where_clause {
                 self.visit_expression(wc);
@@ -259,8 +257,8 @@ impl<'ast> Visit<'ast> for NameResolver {
                 crate::ast::procedure::YieldSpec::Items(yi) => {
                     for item in &yi.items {
                         self.visit_symbolic_name(&item.procedure_field);
-                        if let Some(alias) = &item.alias {
-                            if let Err(first_span) = self.scopes.bind(
+                        if let Some(alias) = &item.alias
+                            && let Err(first_span) = self.scopes.bind(
                                 &alias.name.name,
                                 SymbolKind::YieldAlias,
                                 alias.name.span,
@@ -271,7 +269,6 @@ impl<'ast> Visit<'ast> for NameResolver {
                                     redecl_span: alias.name.span,
                                 });
                             }
-                        }
                     }
                     if let Some(wc) = &yi.where_clause {
                         self.visit_expression(wc);
@@ -286,11 +283,10 @@ impl<'ast> Visit<'ast> for NameResolver {
         let saved_scopes = std::mem::take(&mut self.scopes);
         self.visit_regular_query(&node.query);
         self.scopes = saved_scopes;
-        if let Some(it) = &node.in_transactions {
-            if let Some(of_rows) = &it.of_rows {
+        if let Some(it) = &node.in_transactions
+            && let Some(of_rows) = &it.of_rows {
                 self.visit_expression(of_rows);
             }
-        }
     }
 
     fn visit_foreach(&mut self, node: &'ast Foreach) {
@@ -338,8 +334,8 @@ impl<'ast> Visit<'ast> for NameResolver {
 
     fn visit_pattern_comprehension(&mut self, node: &'ast PatternComprehension) {
         self.scopes.push_scope();
-        if let Some(var) = &node.variable {
-            if let Err(first_span) =
+        if let Some(var) = &node.variable
+            && let Err(first_span) =
                 self.scopes
                     .bind(&var.name.name, SymbolKind::ComprehensionVar, var.name.span)
             {
@@ -349,7 +345,6 @@ impl<'ast> Visit<'ast> for NameResolver {
                     redecl_span: var.name.span,
                 });
             }
-        }
         bind_relationships_pattern(
             &mut self.scopes,
             &node.pattern,
@@ -401,8 +396,8 @@ fn bind_pattern(
     errors: &mut Vec<CypherError>,
 ) {
     for part in &pattern.parts {
-        if let Some(var) = &part.variable {
-            if let Err(first_span) = scopes.bind(&var.name.name, kind, var.name.span) {
+        if let Some(var) = &part.variable
+            && let Err(first_span) = scopes.bind(&var.name.name, kind, var.name.span) {
                 errors.push(
                     SemaError::RedeclaredVariable {
                         name: var.name.name.clone(),
@@ -412,7 +407,6 @@ fn bind_pattern(
                     .into_error(),
                 );
             }
-        }
         bind_node_pattern(scopes, &part.anonymous.element, kind, errors);
     }
 }
@@ -425,8 +419,8 @@ fn bind_node_pattern(
 ) {
     match element {
         PatternElement::Path { start, chains } => {
-            if let Some(var) = &start.variable {
-                if let Err(first_span) = scopes.bind(&var.name.name, kind, var.name.span) {
+            if let Some(var) = &start.variable
+                && let Err(first_span) = scopes.bind(&var.name.name, kind, var.name.span) {
                     errors.push(
                         SemaError::RedeclaredVariable {
                             name: var.name.name.clone(),
@@ -436,15 +430,13 @@ fn bind_node_pattern(
                         .into_error(),
                     );
                 }
-            }
             for chain in chains {
                 if let Some(var) = &chain
                     .relationship
                     .detail
                     .as_ref()
                     .and_then(|d| d.variable.as_ref())
-                {
-                    if let Err(first_span) = scopes.bind(&var.name.name, kind, var.name.span) {
+                    && let Err(first_span) = scopes.bind(&var.name.name, kind, var.name.span) {
                         errors.push(
                             SemaError::RedeclaredVariable {
                                 name: var.name.name.clone(),
@@ -454,9 +446,8 @@ fn bind_node_pattern(
                             .into_error(),
                         );
                     }
-                }
-                if let Some(var) = &chain.node.variable {
-                    if let Err(first_span) = scopes.bind(&var.name.name, kind, var.name.span) {
+                if let Some(var) = &chain.node.variable
+                    && let Err(first_span) = scopes.bind(&var.name.name, kind, var.name.span) {
                         errors.push(
                             SemaError::RedeclaredVariable {
                                 name: var.name.name.clone(),
@@ -466,7 +457,6 @@ fn bind_node_pattern(
                             .into_error(),
                         );
                     }
-                }
             }
         }
         PatternElement::Parenthesized(inner) => {
@@ -481,8 +471,8 @@ fn bind_relationships_pattern(
     kind: SymbolKind,
     errors: &mut Vec<CypherError>,
 ) {
-    if let Some(var) = &pattern.start.variable {
-        if let Err(first_span) = scopes.bind(&var.name.name, kind, var.name.span) {
+    if let Some(var) = &pattern.start.variable
+        && let Err(first_span) = scopes.bind(&var.name.name, kind, var.name.span) {
             errors.push(
                 SemaError::RedeclaredVariable {
                     name: var.name.name.clone(),
@@ -492,15 +482,13 @@ fn bind_relationships_pattern(
                 .into_error(),
             );
         }
-    }
     for chain in &pattern.chains {
         if let Some(var) = &chain
             .relationship
             .detail
             .as_ref()
             .and_then(|d| d.variable.as_ref())
-        {
-            if let Err(first_span) = scopes.bind(&var.name.name, kind, var.name.span) {
+            && let Err(first_span) = scopes.bind(&var.name.name, kind, var.name.span) {
                 errors.push(
                     SemaError::RedeclaredVariable {
                         name: var.name.name.clone(),
@@ -510,9 +498,8 @@ fn bind_relationships_pattern(
                     .into_error(),
                 );
             }
-        }
-        if let Some(var) = &chain.node.variable {
-            if let Err(first_span) = scopes.bind(&var.name.name, kind, var.name.span) {
+        if let Some(var) = &chain.node.variable
+            && let Err(first_span) = scopes.bind(&var.name.name, kind, var.name.span) {
                 errors.push(
                     SemaError::RedeclaredVariable {
                         name: var.name.name.clone(),
@@ -522,7 +509,6 @@ fn bind_relationships_pattern(
                     .into_error(),
                 );
             }
-        }
     }
 }
 

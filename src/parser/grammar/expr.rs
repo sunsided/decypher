@@ -902,8 +902,8 @@ fn looks_like_relationships_pattern(p: &Parser) -> bool {
     }
     // Now we should be at optional IDENT, or : or )
     // Skip optional identifier
-    if let Some(tok) = lx.advance() {
-        if tok.kind == SyntaxKind::WHITESPACE {
+    if let Some(tok) = lx.advance()
+        && tok.kind == SyntaxKind::WHITESPACE {
             loop {
                 match lx.advance() {
                     Some(t) if t.kind == SyntaxKind::WHITESPACE => continue,
@@ -923,22 +923,14 @@ fn looks_like_relationships_pattern(p: &Parser) -> bool {
                 }
             }
         }
-    }
     // Simplified heuristic: scan for ) followed by - or <
-    let mut found_close_paren = false;
     loop {
         match lx.advance() {
             Some(tok) if tok.kind == SyntaxKind::WHITESPACE => continue,
-            Some(tok) if tok.kind == SyntaxKind::R_PAREN => {
-                found_close_paren = true;
-                break;
-            }
+            Some(tok) if tok.kind == SyntaxKind::R_PAREN => break,
             Some(_) => continue,
             None => return false,
         }
-    }
-    if !found_close_paren {
-        return false;
     }
     // After ), check if - or < follows
     loop {
