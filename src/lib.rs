@@ -50,6 +50,7 @@ pub mod cst {
 
 pub use crate::ast::query::Query;
 pub use crate::error::{CypherError, Diagnostics, ErrorKind, Expected, Note, Result, Span};
+pub use crate::parser::Parse;
 pub use crate::recover::{ParseOptions, parse_with_options};
 
 use std::sync::Arc;
@@ -117,8 +118,10 @@ pub fn parse_all(input: &str) -> (Option<Query>, Diagnostics) {
     )
 }
 
-/// Parse a Cypher query string using the rowan-based CST path.
-/// This is an alias for [`parse`].
-pub fn parse_cst(input: &str) -> Result<Query> {
-    parse(input)
+/// Parse a Cypher query string into the lossless rowan CST.
+///
+/// This returns the raw [`Parse`] result containing the concrete syntax tree
+/// and any parser diagnostics. For the typed AST, use [`parse`] instead.
+pub fn parse_cst(input: &str) -> Parse {
+    crate::parser::parse(input)
 }

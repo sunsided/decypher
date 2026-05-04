@@ -80,6 +80,41 @@ fn rt_union_all() {
 }
 
 #[test]
+fn rt_rich_label_expression() {
+    roundtrip("MATCH (n:(Person|Company)&!Deleted) RETURN n;");
+}
+
+#[test]
+fn rt_dynamic_node_label() {
+    roundtrip("MATCH (n:$(label)) RETURN n;");
+}
+
+#[test]
+fn rt_quantified_path_pattern() {
+    roundtrip("MATCH p = ((a:Station)-[:LINK]->(b:Station)){1,3} RETURN p;");
+}
+
+#[test]
+fn rt_quantified_relationship() {
+    roundtrip("MATCH p = (:Station {name: 'A'})-[:LINK]->{1,3}(:Station {name: 'B'}) RETURN p;");
+}
+
+#[test]
+fn rt_count_subquery() {
+    roundtrip("RETURN COUNT { MATCH (n:Person) RETURN n };");
+}
+
+#[test]
+fn rt_collect_subquery() {
+    roundtrip("RETURN COLLECT { MATCH (n:Person) RETURN n.name };");
+}
+
+#[test]
+fn rt_postfix_label_expression() {
+    roundtrip("MATCH (n) WHERE n:Person|Company RETURN n;");
+}
+
+#[test]
 fn rt_parameters() {
     roundtrip("MATCH (n) WHERE n.name = $name RETURN n;");
 }

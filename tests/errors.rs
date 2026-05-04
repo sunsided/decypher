@@ -138,3 +138,47 @@ fn test_parse_with_label() {
     let err = result.unwrap_err();
     check!(err.source_label() == Some("test.cypher"));
 }
+
+#[test]
+fn test_malformed_label_expression_has_help() {
+    let input = "MATCH (n:(Person|)) RETURN n;";
+    let result = parse(input);
+    check!(result.is_err());
+    let err = result.unwrap_err();
+    let rendered = err.render(input);
+    check!(rendered.contains("label"));
+    check!(rendered.contains("dynamic"));
+}
+
+#[test]
+fn test_invalid_quantifier_has_help() {
+    let input = "MATCH p = ((a)-[:R]->(b)){,} RETURN p;";
+    let result = parse(input);
+    check!(result.is_err());
+    let err = result.unwrap_err();
+    let rendered = err.render(input);
+    check!(rendered.contains("quantifier"));
+    check!(rendered.contains("{n,m}") || rendered.contains("{n}"));
+}
+
+#[test]
+fn test_empty_subquery_body_has_help() {
+    let input = "RETURN COUNT { };";
+    let result = parse(input);
+    check!(result.is_err());
+    let err = result.unwrap_err();
+    let rendered = err.render(input);
+    check!(rendered.contains("subquery"));
+    check!(rendered.contains("MATCH") || rendered.contains("RETURN"));
+}
+
+#[test]
+fn test_recovery_with_rich_syntax_errors() {
+    use cypher::{ParseOptions, parse_with_options};
+    let input = "MATCH (n:(Person|)) RETURN n; RETURN 1;";
+    let mut opts = ParseOptions::default();
+    opts.recover = true;
+    let (query, diags) = parse_with_options(input, opts);
+    check!(query.is_some());
+    check!(!diags.is_empty());
+}

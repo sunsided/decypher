@@ -236,6 +236,18 @@ pub trait Visit<'ast> {
     {
         walk_range_literal(self, node)
     }
+    fn visit_quantifier(&mut self, node: &'ast Quantifier)
+    where
+        Self: Sized,
+    {
+        walk_quantifier(self, node)
+    }
+    fn visit_label_expression(&mut self, node: &'ast LabelExpression)
+    where
+        Self: Sized,
+    {
+        walk_label_expression(self, node)
+    }
     fn visit_relationships_pattern(&mut self, node: &'ast RelationshipsPattern)
     where
         Self: Sized,
@@ -325,6 +337,18 @@ pub trait Visit<'ast> {
         Self: Sized,
     {
         walk_exists_expression(self, node)
+    }
+    fn visit_count_subquery_expression(&mut self, node: &'ast CountSubqueryExpression)
+    where
+        Self: Sized,
+    {
+        walk_count_subquery_expression(self, node)
+    }
+    fn visit_collect_subquery_expression(&mut self, node: &'ast CollectSubqueryExpression)
+    where
+        Self: Sized,
+    {
+        walk_collect_subquery_expression(self, node)
     }
     fn visit_exists_inner(&mut self, node: &'ast ExistsInner)
     where
@@ -678,6 +702,18 @@ pub trait VisitMut {
     {
         walk_range_literal_mut(self, node)
     }
+    fn visit_quantifier(&mut self, node: &mut Quantifier)
+    where
+        Self: Sized,
+    {
+        walk_quantifier_mut(self, node)
+    }
+    fn visit_label_expression(&mut self, node: &mut LabelExpression)
+    where
+        Self: Sized,
+    {
+        walk_label_expression_mut(self, node)
+    }
     fn visit_relationships_pattern(&mut self, node: &mut RelationshipsPattern)
     where
         Self: Sized,
@@ -767,6 +803,18 @@ pub trait VisitMut {
         Self: Sized,
     {
         walk_exists_expression_mut(self, node)
+    }
+    fn visit_count_subquery_expression(&mut self, node: &mut CountSubqueryExpression)
+    where
+        Self: Sized,
+    {
+        walk_count_subquery_expression_mut(self, node)
+    }
+    fn visit_collect_subquery_expression(&mut self, node: &mut CollectSubqueryExpression)
+    where
+        Self: Sized,
+    {
+        walk_collect_subquery_expression_mut(self, node)
     }
     fn visit_exists_inner(&mut self, node: &mut ExistsInner)
     where
@@ -1240,6 +1288,14 @@ pub fn walk_pattern_element<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Pattern
         PatternElement::Parenthesized(inner) => {
             v.visit_pattern_element(inner);
         }
+        PatternElement::Quantified {
+            element,
+            quantifier,
+            ..
+        } => {
+            v.visit_pattern_element(element);
+            v.visit_quantifier(quantifier);
+        }
     }
 }
 
@@ -1248,7 +1304,7 @@ pub fn walk_node_pattern<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast NodePatter
         v.visit_variable(var);
     }
     for l in &node.labels {
-        v.visit_symbolic_name(l);
+        v.visit_label_expression(l);
     }
     if let Some(props) = &node.properties {
         v.visit_properties(props);
@@ -1268,14 +1324,17 @@ pub fn walk_relationship_pattern<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Re
     if let Some(d) = &node.detail {
         v.visit_relationship_detail(d);
     }
+    if let Some(q) = &node.quantifier {
+        v.visit_quantifier(q);
+    }
 }
 
 pub fn walk_relationship_detail<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast RelationshipDetail) {
     if let Some(var) = &node.variable {
         v.visit_variable(var);
     }
-    for t in &node.types {
-        v.visit_rel_type_name(t);
+    if let Some(t) = &node.types {
+        v.visit_label_expression(t);
     }
     if let Some(r) = &node.range {
         v.visit_range_literal(r);
@@ -1286,6 +1345,22 @@ pub fn walk_relationship_detail<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Rel
 }
 
 pub fn walk_range_literal<'ast, V: Visit<'ast>>(_v: &mut V, _node: &'ast RangeLiteral) {}
+
+pub fn walk_quantifier<'ast, V: Visit<'ast>>(_v: &mut V, _node: &'ast Quantifier) {}
+
+pub fn walk_label_expression<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast LabelExpression) {
+    match node {
+        LabelExpression::Static(sym) => v.visit_symbolic_name(sym),
+        LabelExpression::Dynamic { expression, .. } => v.visit_expression(expression),
+        LabelExpression::Or { lhs, rhs, .. } | LabelExpression::And { lhs, rhs, .. } => {
+            v.visit_label_expression(lhs);
+            v.visit_label_expression(rhs);
+        }
+        LabelExpression::Not { inner, .. } | LabelExpression::Group { inner, .. } => {
+            v.visit_label_expression(inner);
+        }
+    }
+}
 
 pub fn walk_relationships_pattern<'ast, V: Visit<'ast>>(
     v: &mut V,
@@ -1309,7 +1384,7 @@ pub fn walk_expression<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Expression) 
         Expression::NodeLabels { base, labels, .. } => {
             v.visit_expression(base);
             for l in labels {
-                v.visit_symbolic_name(l);
+                v.visit_label_expression(l);
             }
         }
         Expression::BinaryOp { op, lhs, rhs, .. } => {
@@ -1362,6 +1437,8 @@ pub fn walk_expression<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Expression) 
         Expression::Parenthesized(inner) => v.visit_expression(inner),
         Expression::Pattern(rp) => v.visit_relationships_pattern(rp),
         Expression::Exists(exists) => v.visit_exists_expression(exists),
+        Expression::CountSubquery(count) => v.visit_count_subquery_expression(count),
+        Expression::CollectSubquery(collect) => v.visit_collect_subquery_expression(collect),
         Expression::MapProjection(mp) => v.visit_map_projection(mp),
     }
 }
@@ -1463,6 +1540,20 @@ pub fn walk_filter_expression<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Filte
 
 pub fn walk_exists_expression<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast ExistsExpression) {
     v.visit_exists_inner(&node.inner);
+}
+
+pub fn walk_count_subquery_expression<'ast, V: Visit<'ast>>(
+    v: &mut V,
+    node: &'ast CountSubqueryExpression,
+) {
+    v.visit_regular_query(&node.query);
+}
+
+pub fn walk_collect_subquery_expression<'ast, V: Visit<'ast>>(
+    v: &mut V,
+    node: &'ast CollectSubqueryExpression,
+) {
+    v.visit_regular_query(&node.query);
 }
 
 pub fn walk_exists_inner<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast ExistsInner) {
@@ -1787,6 +1878,14 @@ pub fn walk_pattern_element_mut<V: VisitMut>(v: &mut V, node: &mut PatternElemen
         PatternElement::Parenthesized(inner) => {
             v.visit_pattern_element(inner);
         }
+        PatternElement::Quantified {
+            element,
+            quantifier,
+            ..
+        } => {
+            v.visit_pattern_element(element);
+            v.visit_quantifier(quantifier);
+        }
     }
 }
 
@@ -1795,7 +1894,7 @@ pub fn walk_node_pattern_mut<V: VisitMut>(v: &mut V, node: &mut NodePattern) {
         v.visit_variable(var);
     }
     for l in &mut node.labels {
-        v.visit_symbolic_name(l);
+        v.visit_label_expression(l);
     }
     if let Some(props) = &mut node.properties {
         v.visit_properties(props);
@@ -1811,14 +1910,17 @@ pub fn walk_relationship_pattern_mut<V: VisitMut>(v: &mut V, node: &mut Relation
     if let Some(d) = &mut node.detail {
         v.visit_relationship_detail(d);
     }
+    if let Some(q) = &mut node.quantifier {
+        v.visit_quantifier(q);
+    }
 }
 
 pub fn walk_relationship_detail_mut<V: VisitMut>(v: &mut V, node: &mut RelationshipDetail) {
     if let Some(var) = &mut node.variable {
         v.visit_variable(var);
     }
-    for t in &mut node.types {
-        v.visit_rel_type_name(t);
+    if let Some(t) = &mut node.types {
+        v.visit_label_expression(t);
     }
     if let Some(r) = &mut node.range {
         v.visit_range_literal(r);
@@ -1829,6 +1931,22 @@ pub fn walk_relationship_detail_mut<V: VisitMut>(v: &mut V, node: &mut Relations
 }
 
 pub fn walk_range_literal_mut<V: VisitMut>(_v: &mut V, _node: &mut RangeLiteral) {}
+
+pub fn walk_quantifier_mut<V: VisitMut>(_v: &mut V, _node: &mut Quantifier) {}
+
+pub fn walk_label_expression_mut<V: VisitMut>(v: &mut V, node: &mut LabelExpression) {
+    match node {
+        LabelExpression::Static(sym) => v.visit_symbolic_name(sym),
+        LabelExpression::Dynamic { expression, .. } => v.visit_expression(expression),
+        LabelExpression::Or { lhs, rhs, .. } | LabelExpression::And { lhs, rhs, .. } => {
+            v.visit_label_expression(lhs);
+            v.visit_label_expression(rhs);
+        }
+        LabelExpression::Not { inner, .. } | LabelExpression::Group { inner, .. } => {
+            v.visit_label_expression(inner);
+        }
+    }
+}
 
 pub fn walk_relationships_pattern_mut<V: VisitMut>(v: &mut V, node: &mut RelationshipsPattern) {
     v.visit_node_pattern(&mut node.start);
@@ -1849,7 +1967,7 @@ pub fn walk_expression_mut<V: VisitMut>(v: &mut V, node: &mut Expression) {
         Expression::NodeLabels { base, labels, .. } => {
             v.visit_expression(base);
             for l in labels {
-                v.visit_symbolic_name(l);
+                v.visit_label_expression(l);
             }
         }
         Expression::BinaryOp { lhs, rhs, .. } => {
@@ -1899,6 +2017,8 @@ pub fn walk_expression_mut<V: VisitMut>(v: &mut V, node: &mut Expression) {
         Expression::Parenthesized(inner) => v.visit_expression(inner),
         Expression::Pattern(rp) => v.visit_relationships_pattern(rp),
         Expression::Exists(exists) => v.visit_exists_expression(exists),
+        Expression::CountSubquery(count) => v.visit_count_subquery_expression(count),
+        Expression::CollectSubquery(collect) => v.visit_collect_subquery_expression(collect),
         Expression::MapProjection(mp) => v.visit_map_projection_mut(mp),
     }
 }
@@ -1992,6 +2112,20 @@ pub fn walk_filter_expression_mut<V: VisitMut>(v: &mut V, node: &mut FilterExpre
 
 pub fn walk_exists_expression_mut<V: VisitMut>(v: &mut V, node: &mut ExistsExpression) {
     v.visit_exists_inner(&mut node.inner);
+}
+
+pub fn walk_count_subquery_expression_mut<V: VisitMut>(
+    v: &mut V,
+    node: &mut CountSubqueryExpression,
+) {
+    v.visit_regular_query(&mut node.query);
+}
+
+pub fn walk_collect_subquery_expression_mut<V: VisitMut>(
+    v: &mut V,
+    node: &mut CollectSubqueryExpression,
+) {
+    v.visit_regular_query(&mut node.query);
 }
 
 pub fn walk_exists_inner_mut<V: VisitMut>(v: &mut V, node: &mut ExistsInner) {

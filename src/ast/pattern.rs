@@ -1,5 +1,5 @@
-use crate::ast::expr::Parameter;
-use crate::ast::names::{RelTypeName, SymbolicName, Variable};
+use crate::ast::expr::{Expression, Parameter};
+use crate::ast::names::{SymbolicName, Variable};
 use crate::error::Span;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -27,12 +27,17 @@ pub enum PatternElement {
         chains: Vec<PatternElementChain>,
     },
     Parenthesized(Box<PatternElement>),
+    Quantified {
+        element: Box<PatternElement>,
+        quantifier: Quantifier,
+        span: Span,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct NodePattern {
     pub variable: Option<Variable>,
-    pub labels: Vec<SymbolicName>,
+    pub labels: Vec<LabelExpression>,
     pub properties: Option<Properties>,
     pub span: Span,
 }
@@ -47,6 +52,7 @@ pub struct PatternElementChain {
 pub struct RelationshipPattern {
     pub direction: RelationshipDirection,
     pub detail: Option<RelationshipDetail>,
+    pub quantifier: Option<Quantifier>,
     pub span: Span,
 }
 
@@ -61,7 +67,7 @@ pub enum RelationshipDirection {
 #[derive(Debug, Clone, PartialEq)]
 pub struct RelationshipDetail {
     pub variable: Option<Variable>,
-    pub types: Vec<RelTypeName>,
+    pub types: Option<LabelExpression>,
     pub range: Option<RangeLiteral>,
     pub properties: Option<Properties>,
     pub span: Span,
@@ -69,6 +75,13 @@ pub struct RelationshipDetail {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct RangeLiteral {
+    pub start: Option<i64>,
+    pub end: Option<i64>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Quantifier {
     pub start: Option<i64>,
     pub end: Option<i64>,
     pub span: Span,
@@ -85,4 +98,31 @@ pub struct RelationshipsPattern {
 pub enum Properties {
     Map(crate::ast::expr::MapLiteral),
     Parameter(Parameter),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum LabelExpression {
+    Static(SymbolicName),
+    Dynamic {
+        expression: Box<Expression>,
+        span: Span,
+    },
+    Or {
+        lhs: Box<LabelExpression>,
+        rhs: Box<LabelExpression>,
+        span: Span,
+    },
+    And {
+        lhs: Box<LabelExpression>,
+        rhs: Box<LabelExpression>,
+        span: Span,
+    },
+    Not {
+        inner: Box<LabelExpression>,
+        span: Span,
+    },
+    Group {
+        inner: Box<LabelExpression>,
+        span: Span,
+    },
 }

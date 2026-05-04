@@ -982,14 +982,116 @@ fn collect_subquery_expr() {
         result.errors
     );
     let source = result.tree();
-    let exists_subqueries: Vec<_> = source
+    let collect_subqueries: Vec<_> = source
         .syntax()
         .descendants()
-        .filter(|n| n.kind() == cypher::syntax::SyntaxKind::EXISTS_SUBQUERY)
+        .filter(|n| n.kind() == cypher::syntax::SyntaxKind::COLLECT_SUBQUERY)
         .collect();
     check!(
-        exists_subqueries.len() == 1,
-        "expected 1 EXISTS_SUBQUERY node, got {}",
-        exists_subqueries.len()
+        collect_subqueries.len() == 1,
+        "expected 1 COLLECT_SUBQUERY node, got {}",
+        collect_subqueries.len()
+    );
+}
+
+#[test]
+fn count_subquery_expr() {
+    use cypher::cst::parse as cst_parse;
+    let result = cst_parse("RETURN COUNT { MATCH (n) RETURN n };");
+    check!(
+        result.errors.is_empty(),
+        "parse errors: {:?}",
+        result.errors
+    );
+    let source = result.tree();
+    let count_subqueries: Vec<_> = source
+        .syntax()
+        .descendants()
+        .filter(|n| n.kind() == cypher::syntax::SyntaxKind::COUNT_SUBQUERY)
+        .collect();
+    check!(
+        count_subqueries.len() == 1,
+        "expected 1 COUNT_SUBQUERY node, got {}",
+        count_subqueries.len()
+    );
+}
+
+#[test]
+fn label_expression_cst_nodes() {
+    use cypher::cst::parse as cst_parse;
+    let result = cst_parse("MATCH (n:(Person|Company)&!Deleted) RETURN n;");
+    check!(
+        result.errors.is_empty(),
+        "parse errors: {:?}",
+        result.errors
+    );
+    let source = result.tree();
+    let label_exprs: Vec<_> = source
+        .syntax()
+        .descendants()
+        .filter(|n| n.kind() == cypher::syntax::SyntaxKind::LABEL_EXPRESSION)
+        .collect();
+    let and_nodes: Vec<_> = source
+        .syntax()
+        .descendants()
+        .filter(|n| n.kind() == cypher::syntax::SyntaxKind::LABEL_AND)
+        .collect();
+    let or_nodes: Vec<_> = source
+        .syntax()
+        .descendants()
+        .filter(|n| n.kind() == cypher::syntax::SyntaxKind::LABEL_OR)
+        .collect();
+    let not_nodes: Vec<_> = source
+        .syntax()
+        .descendants()
+        .filter(|n| n.kind() == cypher::syntax::SyntaxKind::LABEL_NOT)
+        .collect();
+    check!(label_exprs.len() == 1);
+    check!(and_nodes.len() >= 1);
+    check!(or_nodes.len() >= 1);
+    check!(not_nodes.len() >= 1);
+}
+
+#[test]
+fn quantified_path_pattern_cst_node() {
+    use cypher::cst::parse as cst_parse;
+    let result = cst_parse("MATCH p = ((a)-[:R]->(b)){1,3} RETURN p;");
+    check!(
+        result.errors.is_empty(),
+        "parse errors: {:?}",
+        result.errors
+    );
+    let source = result.tree();
+    let quantified: Vec<_> = source
+        .syntax()
+        .descendants()
+        .filter(|n| n.kind() == cypher::syntax::SyntaxKind::QUANTIFIED_PATH_PATTERN)
+        .collect();
+    check!(
+        quantified.len() == 1,
+        "expected 1 quantified path node, got {}",
+        quantified.len()
+    );
+}
+
+#[test]
+fn dynamic_label_cst_node() {
+    use cypher::cst::parse as cst_parse;
+    let result = cst_parse("MATCH (n:$(label)) RETURN n;");
+    check!(
+        result.errors.is_empty(),
+        "parse errors: {:?}",
+        result.errors
+    );
+    let source = result.tree();
+    let dynamic: Vec<_> = source
+        .syntax()
+        .descendants()
+        .filter(|n| n.kind() == cypher::syntax::SyntaxKind::DYNAMIC_LABEL)
+        .collect();
+    check!(
+        dynamic.len() == 1,
+        "expected 1 dynamic label node, got {}",
+        dynamic.len()
     );
 }

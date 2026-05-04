@@ -1,4 +1,5 @@
 use crate::ast::names::{PropertyKeyName, SymbolicName, Variable};
+use crate::ast::pattern::LabelExpression;
 use crate::error::Span;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -54,7 +55,7 @@ pub enum Expression {
     },
     NodeLabels {
         base: Box<Expression>,
-        labels: Vec<SymbolicName>,
+        labels: Vec<LabelExpression>,
         span: Span,
     },
     BinaryOp {
@@ -108,6 +109,8 @@ pub enum Expression {
     Parenthesized(Box<Expression>),
     Pattern(super::pattern::RelationshipsPattern),
     Exists(Box<ExistsExpression>),
+    CountSubquery(Box<CountSubqueryExpression>),
+    CollectSubquery(Box<CollectSubqueryExpression>),
     MapProjection(Box<MapProjection>),
 }
 
@@ -195,6 +198,18 @@ pub struct FilterExpression {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ExistsExpression {
     pub inner: Box<ExistsInner>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CountSubqueryExpression {
+    pub query: Box<super::query::RegularQuery>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CollectSubqueryExpression {
+    pub query: Box<super::query::RegularQuery>,
     pub span: Span,
 }
 

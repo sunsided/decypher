@@ -97,7 +97,10 @@ pub struct PatternElement(SyntaxNode);
 
 impl AstNode for PatternElement {
     fn can_cast(kind: SyntaxKind) -> bool {
-        kind == SyntaxKind::PATTERN_ELEMENT
+        matches!(
+            kind,
+            SyntaxKind::PATTERN_ELEMENT | SyntaxKind::QUANTIFIED_PATH_PATTERN
+        )
     }
 
     fn cast(syntax: SyntaxNode) -> Option<Self> {
@@ -120,6 +123,20 @@ impl PatternElement {
 
     pub fn chains(&self) -> AstChildren<PatternElementChain> {
         children(&self.0)
+    }
+
+    pub fn quantifier(&self) -> Option<RelationshipQuantifier> {
+        child(&self.0)
+    }
+
+    pub fn inner(&self) -> Option<PatternElement> {
+        self.0.children().find_map(|node| {
+            if node.kind() == self.0.kind() {
+                None
+            } else {
+                PatternElement::cast(node)
+            }
+        })
     }
 }
 
@@ -224,6 +241,10 @@ impl RelationshipPattern {
     pub fn detail(&self) -> Option<RelationshipDetail> {
         child(&self.0)
     }
+
+    pub fn quantifier(&self) -> Option<RelationshipQuantifier> {
+        child(&self.0)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -289,6 +310,168 @@ impl AstNode for NodeLabels {
 impl NodeLabels {
     pub fn labels(&self) -> AstChildren<NodeLabel> {
         children(&self.0)
+    }
+
+    pub fn expression(&self) -> Option<LabelExpression> {
+        child(&self.0)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct LabelExpression(SyntaxNode);
+
+impl AstNode for LabelExpression {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::LABEL_EXPRESSION
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(LabelExpression(syntax))
+        } else {
+            None
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.0
+    }
+}
+
+impl LabelExpression {
+    pub fn root(&self) -> Option<LabelExprNode> {
+        self.0.children().find_map(LabelExprNode::cast)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub enum LabelExprNode {
+    Or(LabelOr),
+    And(LabelAnd),
+    Not(LabelNot),
+    Paren(LabelParen),
+    Atom(LabelAtom),
+}
+
+impl AstNode for LabelExprNode {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        matches!(
+            kind,
+            SyntaxKind::LABEL_OR
+                | SyntaxKind::LABEL_AND
+                | SyntaxKind::LABEL_NOT
+                | SyntaxKind::LABEL_PAREN
+                | SyntaxKind::LABEL_ATOM
+        )
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        match syntax.kind() {
+            SyntaxKind::LABEL_OR => LabelOr::cast(syntax).map(Self::Or),
+            SyntaxKind::LABEL_AND => LabelAnd::cast(syntax).map(Self::And),
+            SyntaxKind::LABEL_NOT => LabelNot::cast(syntax).map(Self::Not),
+            SyntaxKind::LABEL_PAREN => LabelParen::cast(syntax).map(Self::Paren),
+            SyntaxKind::LABEL_ATOM => LabelAtom::cast(syntax).map(Self::Atom),
+            _ => None,
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        match self {
+            Self::Or(it) => it.syntax(),
+            Self::And(it) => it.syntax(),
+            Self::Not(it) => it.syntax(),
+            Self::Paren(it) => it.syntax(),
+            Self::Atom(it) => it.syntax(),
+        }
+    }
+}
+
+macro_rules! label_node {
+    ($name:ident, $kind:ident) => {
+        #[derive(Clone, Debug)]
+        pub struct $name(SyntaxNode);
+
+        impl AstNode for $name {
+            fn can_cast(kind: SyntaxKind) -> bool {
+                kind == SyntaxKind::$kind
+            }
+
+            fn cast(syntax: SyntaxNode) -> Option<Self> {
+                if Self::can_cast(syntax.kind()) {
+                    Some(Self(syntax))
+                } else {
+                    None
+                }
+            }
+
+            fn syntax(&self) -> &SyntaxNode {
+                &self.0
+            }
+        }
+    };
+}
+
+label_node!(LabelOr, LABEL_OR);
+label_node!(LabelAnd, LABEL_AND);
+label_node!(LabelNot, LABEL_NOT);
+label_node!(LabelParen, LABEL_PAREN);
+label_node!(LabelAtom, LABEL_ATOM);
+label_node!(DynamicLabel, DYNAMIC_LABEL);
+label_node!(DynamicRelType, DYNAMIC_REL_TYPE);
+label_node!(RelationshipQuantifier, RELATIONSHIP_QUANTIFIER);
+
+impl LabelOr {
+    pub fn items(&self) -> AstChildren<LabelExprNode> {
+        children(&self.0)
+    }
+}
+
+impl LabelAnd {
+    pub fn items(&self) -> AstChildren<LabelExprNode> {
+        children(&self.0)
+    }
+}
+
+impl LabelNot {
+    pub fn inner(&self) -> Option<LabelExprNode> {
+        child(&self.0)
+    }
+}
+
+impl LabelParen {
+    pub fn inner(&self) -> Option<LabelExprNode> {
+        child(&self.0)
+    }
+}
+
+impl LabelAtom {
+    pub fn node_label(&self) -> Option<NodeLabel> {
+        child(&self.0)
+    }
+
+    pub fn rel_type_name(&self) -> Option<RelTypeName> {
+        child(&self.0)
+    }
+
+    pub fn dynamic_label(&self) -> Option<DynamicLabel> {
+        child(&self.0)
+    }
+
+    pub fn dynamic_rel_type(&self) -> Option<DynamicRelType> {
+        child(&self.0)
+    }
+}
+
+impl DynamicLabel {
+    pub fn expression(&self) -> Option<super::expressions::Expression> {
+        child(&self.0)
+    }
+}
+
+impl DynamicRelType {
+    pub fn expression(&self) -> Option<super::expressions::Expression> {
+        child(&self.0)
     }
 }
 
@@ -371,6 +554,10 @@ impl RelationshipTypes {
     pub fn types(&self) -> AstChildren<RelTypeName> {
         children(&self.0)
     }
+
+    pub fn expression(&self) -> Option<LabelExpression> {
+        child(&self.0)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -418,6 +605,14 @@ impl AstNode for RangeLiteral {
 
     fn syntax(&self) -> &SyntaxNode {
         &self.0
+    }
+}
+
+impl RelationshipQuantifier {
+    pub fn numbers(&self) -> impl Iterator<Item = super::expressions::Literal> {
+        self.0
+            .children()
+            .filter_map(super::expressions::Literal::cast)
     }
 }
 

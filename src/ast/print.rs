@@ -595,6 +595,20 @@ impl ToCypher for PatternElement {
                 inner.write_cypher(w)?;
                 write!(w, ")")
             }
+            PatternElement::Quantified {
+                element,
+                quantifier,
+                ..
+            } => {
+                if matches!(element.as_ref(), PatternElement::Parenthesized(_)) {
+                    element.write_cypher(w)?;
+                } else {
+                    write!(w, "(")?;
+                    element.write_cypher(w)?;
+                    write!(w, ")")?;
+                }
+                quantifier.write_cypher(w)
+            }
         }
     }
 }
@@ -669,7 +683,11 @@ impl ToCypher for RelationshipPattern {
                     write!(w, "-[]-")
                 }
             }
+        }?;
+        if let Some(quantifier) = &self.quantifier {
+            quantifier.write_cypher(w)?;
         }
+        Ok(())
     }
 }
 
@@ -678,14 +696,9 @@ impl ToCypher for RelationshipDetail {
         if let Some(var) = &self.variable {
             var.write_cypher(w)?;
         }
-        if !self.types.is_empty() {
+        if let Some(types) = &self.types {
             write!(w, ":")?;
-            for (i, t) in self.types.iter().enumerate() {
-                if i > 0 {
-                    write!(w, "|")?;
-                }
-                t.write_cypher(w)?;
-            }
+            types.write_cypher(w)?;
         }
         if let Some(range) = &self.range {
             range.write_cypher(w)?;
@@ -708,6 +721,20 @@ impl ToCypher for RangeLiteral {
             (None, None) => write!(w, "")?,
         }
         Ok(())
+    }
+}
+
+impl ToCypher for Quantifier {
+    fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        write!(w, "{{")?;
+        match (self.start, self.end) {
+            (Some(s), Some(e)) if s == e => write!(w, "{}", s)?,
+            (Some(s), Some(e)) => write!(w, "{},{}", s, e)?,
+            (Some(s), None) => write!(w, "{},", s)?,
+            (None, Some(e)) => write!(w, ",{}", e)?,
+            (None, None) => {}
+        }
+        write!(w, "}}")
     }
 }
 
@@ -837,6 +864,8 @@ impl ToCypher for Expression {
             }
             Expression::Pattern(p) => p.write_cypher(w),
             Expression::Exists(ex) => ex.write_cypher(w),
+            Expression::CountSubquery(ex) => ex.write_cypher(w),
+            Expression::CollectSubquery(ex) => ex.write_cypher(w),
             Expression::MapProjection(mp) => mp.write_cypher(w),
         }
     }
@@ -1063,6 +1092,54 @@ impl ToCypher for ExistsExpression {
     fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
         write!(w, "EXISTS ")?;
         self.inner.write_cypher(w)
+    }
+}
+
+impl ToCypher for CountSubqueryExpression {
+    fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        write!(w, "COUNT {{ ")?;
+        self.query.write_cypher(w)?;
+        write!(w, " }}")
+    }
+}
+
+impl ToCypher for CollectSubqueryExpression {
+    fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        write!(w, "COLLECT {{ ")?;
+        self.query.write_cypher(w)?;
+        write!(w, " }}")
+    }
+}
+
+impl ToCypher for LabelExpression {
+    fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        match self {
+            LabelExpression::Static(sym) => sym.write_cypher(w),
+            LabelExpression::Dynamic { expression, .. } => {
+                write!(w, "$(")?;
+                expression.write_cypher(w)?;
+                write!(w, ")")
+            }
+            LabelExpression::Or { lhs, rhs, .. } => {
+                lhs.write_cypher(w)?;
+                write!(w, "|")?;
+                rhs.write_cypher(w)
+            }
+            LabelExpression::And { lhs, rhs, .. } => {
+                lhs.write_cypher(w)?;
+                write!(w, "&")?;
+                rhs.write_cypher(w)
+            }
+            LabelExpression::Not { inner, .. } => {
+                write!(w, "!")?;
+                inner.write_cypher(w)
+            }
+            LabelExpression::Group { inner, .. } => {
+                write!(w, "(")?;
+                inner.write_cypher(w)?;
+                write!(w, ")")
+            }
+        }
     }
 }
 
