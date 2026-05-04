@@ -38,12 +38,16 @@ pub struct SymbolEntry {
 #[derive(Debug, Clone)]
 pub struct ScopeStack {
     scopes: Vec<HashMap<String, SymbolEntry>>,
+    /// Barriers mark scope boundaries (e.g. after WITH). Resolution only
+    /// searches scopes from the topmost barrier onward.
+    barriers: Vec<usize>,
 }
 
 impl ScopeStack {
     pub fn new() -> Self {
         Self {
             scopes: vec![HashMap::new()],
+            barriers: Vec::new(),
         }
     }
 
@@ -61,6 +65,27 @@ impl ScopeStack {
         if self.scopes.len() > 1 {
             self.scopes.pop();
         }
+        // Remove any barriers that now point beyond the stack.
+        while let Some(&barrier) = self.barriers.last() {
+            if barrier >= self.scopes.len() {
+                self.barriers.pop();
+            } else {
+                break;
+            }
+        }
+    }
+
+    /// Push a barrier that hides all scopes below the current innermost one.
+    ///
+    /// Used after a WITH clause so that only variables projected by the WITH
+    /// are visible to subsequent clauses.
+    pub fn push_barrier(&mut self) {
+        self.barriers.push(self.scopes.len().saturating_sub(1));
+    }
+
+    /// Pop the most recent barrier.
+    pub fn pop_barrier(&mut self) {
+        self.barriers.pop();
     }
 
     /// Bind a variable in the current (innermost) scope.
@@ -76,9 +101,14 @@ impl ScopeStack {
         Ok(())
     }
 
-    /// Resolve a variable name by searching from innermost to outermost scope.
+    /// Resolve a variable name by searching from innermost to outermost scope,
+    /// stopping at the most recent barrier.
     pub fn resolve(&self, name: &str) -> Option<(&SymbolEntry, usize)> {
+        let start = self.barriers.last().copied().unwrap_or(0);
         for (depth, scope) in self.scopes.iter().enumerate().rev() {
+            if depth < start {
+                break;
+            }
             if let Some(entry) = scope.get(name) {
                 return Some((entry, depth));
             }
@@ -86,7 +116,7 @@ impl ScopeStack {
         None
     }
 
-    /// Check whether a variable is bound in any scope.
+    /// Check whether a variable is bound in any visible scope.
     pub fn is_bound(&self, name: &str) -> bool {
         self.resolve(name).is_some()
     }

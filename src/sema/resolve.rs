@@ -339,9 +339,9 @@ impl<'ast> Visit<'ast> for NameResolver {
     fn visit_pattern_comprehension(&mut self, node: &'ast PatternComprehension) {
         self.scopes.push_scope();
         if let Some(var) = &node.variable {
-            if let Err(first_span) = self
-                .scopes
-                .bind(&var.name.name, SymbolKind::ComprehensionVar, var.name.span)
+            if let Err(first_span) =
+                self.scopes
+                    .bind(&var.name.name, SymbolKind::ComprehensionVar, var.name.span)
             {
                 self.emit(SemaError::RedeclaredVariable {
                     name: var.name.name.clone(),

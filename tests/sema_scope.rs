@@ -1,5 +1,5 @@
-use cypher::sema::{ScopeStack, SymbolKind};
 use cypher::error::Span;
+use cypher::sema::{ScopeStack, SymbolKind};
 
 fn dummy_span() -> Span {
     Span::new(0, 1)
@@ -42,7 +42,9 @@ fn redeclaration_in_current_scope_fails() {
     let span1 = Span::new(0, 1);
     let span2 = Span::new(10, 12);
     assert!(stack.bind("x", SymbolKind::PatternBound, span1).is_ok());
-    let err = stack.bind("x", SymbolKind::PatternBound, span2).unwrap_err();
+    let err = stack
+        .bind("x", SymbolKind::PatternBound, span2)
+        .unwrap_err();
     assert_eq!(err, span1);
 }
 

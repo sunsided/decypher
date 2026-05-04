@@ -1,5 +1,5 @@
-use cypher::{parse, ErrorKind};
 use cypher::sema::analyze;
+use cypher::{ErrorKind, parse};
 
 #[test]
 fn redeclare_in_match_pattern() {
@@ -12,7 +12,10 @@ fn redeclare_in_match_pattern() {
         ErrorKind::RedeclaredVariable { name, .. } => {
             assert_eq!(name, "a");
         }
-        _ => panic!("expected RedeclaredVariable, got {:?}", errs.errors[0].kind()),
+        _ => panic!(
+            "expected RedeclaredVariable, got {:?}",
+            errs.errors[0].kind()
+        ),
     }
 }
 
@@ -27,7 +30,10 @@ fn redeclare_in_unwind() {
         ErrorKind::RedeclaredVariable { name, .. } => {
             assert_eq!(name, "x");
         }
-        _ => panic!("expected RedeclaredVariable, got {:?}", errs.errors[0].kind()),
+        _ => panic!(
+            "expected RedeclaredVariable, got {:?}",
+            errs.errors[0].kind()
+        ),
     }
 }
 
@@ -42,7 +48,10 @@ fn redeclare_in_with_alias() {
         ErrorKind::RedeclaredVariable { name, .. } => {
             assert_eq!(name, "x");
         }
-        _ => panic!("expected RedeclaredVariable, got {:?}", errs.errors[0].kind()),
+        _ => panic!(
+            "expected RedeclaredVariable, got {:?}",
+            errs.errors[0].kind()
+        ),
     }
 }
 
@@ -57,7 +66,10 @@ fn redeclare_in_return_alias() {
         ErrorKind::RedeclaredVariable { name, .. } => {
             assert_eq!(name, "x");
         }
-        _ => panic!("expected RedeclaredVariable, got {:?}", errs.errors[0].kind()),
+        _ => panic!(
+            "expected RedeclaredVariable, got {:?}",
+            errs.errors[0].kind()
+        ),
     }
 }
 
@@ -92,6 +104,9 @@ fn redeclare_in_pattern_chain() {
         ErrorKind::RedeclaredVariable { name, .. } => {
             assert_eq!(name, "a");
         }
-        _ => panic!("expected RedeclaredVariable, got {:?}", errs.errors[0].kind()),
+        _ => panic!(
+            "expected RedeclaredVariable, got {:?}",
+            errs.errors[0].kind()
+        ),
     }
 }
