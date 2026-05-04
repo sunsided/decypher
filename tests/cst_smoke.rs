@@ -1,13 +1,10 @@
-//! Parity tests: verify that the rowan-based CST→AST path produces
-//! valid results for the same queries that the pest-based parser handles.
-//!
-//! Note: parse() now uses the rowan path, so parse_cst is an alias.
-//! These tests verify both paths succeed for the smoke corpus.
+//! CST smoke tests: verify that the rowan-based CST path parses
+//! common openCypher queries correctly.
 
 use assert2::check;
 use open_cypher::parse;
 
-/// All smoke-test queries from tests/smoke.rs, verified against the rowan parser.
+/// All smoke-test queries, verified against the rowan parser.
 #[test]
 fn cst_parity_smoke_queries() {
     let queries: &[&str] = &[
@@ -53,7 +50,7 @@ fn cst_parity_smoke_queries() {
     }
 }
 
-/// Expression-level parity: simple RETURN queries.
+/// Expression-level: simple RETURN queries.
 #[test]
 fn cst_parity_expressions() {
     let queries: &[&str] = &[
@@ -74,7 +71,7 @@ fn cst_parity_expressions() {
     }
 }
 
-/// Pattern-level parity: MATCH queries with various pattern shapes.
+/// Pattern-level: MATCH queries with various pattern shapes.
 #[test]
 fn cst_parity_patterns() {
     let queries: &[&str] = &[

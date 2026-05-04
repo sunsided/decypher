@@ -1,8 +1,8 @@
-# open-cypher
+# cypher
 
-Parse [openCypher](https://opencypher.org/) queries using Rust.
+Parse Neo4j 5 and [openCypher](https://opencypher.org/) queries using Rust.
 
-`open-cypher` provides a typed AST for openCypher queries, built on top of a [pest](https://pest.rs/) grammar derived from the openCypher EBNF specification.
+`cypher` provides a typed AST for openCypher queries, built on a hand-written error-resilient rowan parser derived from the openCypher EBNF specification.
 
 ## Quick Start
 
@@ -27,8 +27,7 @@ println!("{:#?}", query);
 - **Ergonomic errors** — `CypherError` with syntax, AST build, and unsupported-production variants via `thiserror`.
 - **Cypher emission** — The `ToCypher` trait renders any AST node back into valid openCypher text, enabling round-trips (`parse → ast → to_cypher → parse`).
 - **`serde` support** — Optional `serde` feature for `Serialize`/`Deserialize` derives on all AST nodes.
-- **Low-level escape hatch** — The `low-level` feature re-exports the raw pest `Rule` and `Pairs` types for advanced use.
-- **Typed CST (unstable)** — A rust-analyzer-style typed wrapper layer over a lossless rowan CST, available under `open_cypher::cst`. Each CST node (`SourceFile`, `MatchClause`, `Expression`, …) exposes typed accessor methods instead of raw `SyntaxKind` matches. Pest remains the oracle for the public `parse()` API; the CST is provided for tooling and incremental migration.
+- **Typed CST (unstable)** — A rust-analyzer-style typed wrapper layer over a lossless rowan CST, available under `open_cypher::cst`. Each CST node (`SourceFile`, `MatchClause`, `Expression`, …) exposes typed accessor methods instead of raw `SyntaxKind` matches. This is what the public `parse()` function uses internally.
 
 ### Typed CST example
 
@@ -66,9 +65,9 @@ The `ToCypher` trait and round-trip guarantees are also **unstable** — formatt
 
 ## Project Structure
 
-- `src/cypher.pest` — The pest grammar file, based on the openCypher EBNF.
-- `src/ast/` — Typed AST node definitions.
-- `src/ast/build.rs` — Builder that converts pest parse trees into the typed AST.
+- `src/parser/` — Hand-written error-resilient rowan parser (grammar + lexer).
+- `src/syntax/` — Rowan language definition and typed CST wrappers.
+- `src/ast/` — Typed AST node definitions and the CST → AST lowering logic (`src/ast/build_cst/`).
 - `src/error.rs` — `CypherError` and `Span` types.
 - `src/lib.rs` — Public API (`parse`, `Query`, `CypherError`).
 - `assets/cypher.ebnf` — OpenCypher grammar definition from the openCypher site.
