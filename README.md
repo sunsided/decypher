@@ -4,13 +4,15 @@ Parse Neo4j 5 and [openCypher](https://opencypher.org/) queries using Rust.
 
 `cypher` provides a typed AST for openCypher queries, built on a hand-written error-resilient rowan parser derived from the openCypher EBNF specification.
 
+> **Note**: This project is a fork and complete re-implementation of the [original pest-based parser](https://github.com/a-poor/open-cypher) by [Austin Poor](https://github.com/a-poor). The parser has been rewritten from the ground up using [rowan](https://github.com/rust-analyzer/rowan) instead of pest.
+
 ## Quick Start
 
 Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-open-cypher = "0.2"
+cypher = "0.2"
 ```
 
 ```rust
