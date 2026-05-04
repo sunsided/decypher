@@ -2,7 +2,7 @@ use assert2::check;
 use cypher::parse;
 
 fn run_suite(name: &str, source: &str) {
-    let queries: Vec<String> = source
+    let queries: Vec<String> = format!("\n{source}")
         .split("\n// ")
         .skip(1)
         .filter_map(|block| {
@@ -15,6 +15,8 @@ fn run_suite(name: &str, source: &str) {
             }
         })
         .collect();
+
+    assert!(!queries.is_empty(), "Suite {name} extracted zero queries");
 
     for (i, query) in queries.iter().enumerate() {
         let result = parse(query);
@@ -30,7 +32,7 @@ fn run_suite(name: &str, source: &str) {
 }
 
 fn run_suite_expect_fail(name: &str, source: &str) {
-    let queries: Vec<String> = source
+    let queries: Vec<String> = format!("\n{source}")
         .split("\n// ")
         .skip(1)
         .filter_map(|block| {
@@ -43,6 +45,8 @@ fn run_suite_expect_fail(name: &str, source: &str) {
             }
         })
         .collect();
+
+    assert!(!queries.is_empty(), "Suite {name} extracted zero queries");
 
     for (i, query) in queries.iter().enumerate() {
         let result = parse(query);
