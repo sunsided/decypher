@@ -80,4 +80,4 @@ Contributions of any size are welcome! Please feel free to submit issues or PRs.
 
 ## License
 
-MIT OR Apache-2.0
+EUPL-1.2 OR MIT OR Apache-2.0
