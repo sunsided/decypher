@@ -87,6 +87,7 @@ impl InMemoryGraph {
 fn build_graph() -> InMemoryGraph {
     let mut g = InMemoryGraph::new();
 
+    // ── Actors (Person) ────────────────────────────────────────────────
     let indy = g.add_node(
         &["Person"],
         &[("name", Value::String("Harrison Ford".to_string()))],
@@ -128,6 +129,7 @@ fn build_graph() -> InMemoryGraph {
         &[("name", Value::String("Cate Blanchett".to_string()))],
     );
 
+    // ── Movies ─────────────────────────────────────────────────────────
     let raiders = g.add_node(
         &["Movie"],
         &[("name", Value::String("Raiders of the Lost Ark".to_string()))],
@@ -145,6 +147,7 @@ fn build_graph() -> InMemoryGraph {
         &[("name", Value::String("Crystal Skull".to_string()))],
     );
 
+    // ── Artifacts ──────────────────────────────────────────────────────
     let ark = g.add_node(
         &["Artifact"],
         &[("name", Value::String("Ark of the Covenant".to_string()))],
@@ -158,112 +161,91 @@ fn build_graph() -> InMemoryGraph {
         &[("name", Value::String("Holy Grail".to_string()))],
     );
 
-    g.add_edge(
-        indy,
-        raiders,
-        "ACTED_IN",
-        &[("as", Value::String("Indiana Jones".to_string()))],
+    // ── Roles (characters played) ──────────────────────────────────────
+    let role_indy = g.add_node(
+        &["Role"],
+        &[("name", Value::String("Indiana Jones".to_string()))],
     );
-    g.add_edge(
-        indy,
-        temple,
-        "ACTED_IN",
-        &[("as", Value::String("Indiana Jones".to_string()))],
+    let role_marcus = g.add_node(
+        &["Role"],
+        &[("name", Value::String("Marcus Brody".to_string()))],
     );
-    g.add_edge(
-        indy,
-        crusade,
-        "ACTED_IN",
-        &[("as", Value::String("Indiana Jones".to_string()))],
+    let role_sallah = g.add_node(&["Role"], &[("name", Value::String("Sallah".to_string()))]);
+    let role_henry = g.add_node(
+        &["Role"],
+        &[("name", Value::String("Henry Jones Sr.".to_string()))],
     );
-    g.add_edge(
-        indy,
-        crystal,
-        "ACTED_IN",
-        &[("as", Value::String("Indiana Jones".to_string()))],
+    let role_elsa = g.add_node(
+        &["Role"],
+        &[("name", Value::String("Elsa Schneider".to_string()))],
     );
-
-    g.add_edge(
-        marcus,
-        raiders,
-        "ACTED_IN",
-        &[("as", Value::String("Marcus Brody".to_string()))],
+    let role_donovan = g.add_node(
+        &["Role"],
+        &[("name", Value::String("Walter Donovan".to_string()))],
     );
-    g.add_edge(
-        marcus,
-        crusade,
-        "ACTED_IN",
-        &[("as", Value::String("Marcus Brody".to_string()))],
+    let role_belloq = g.add_node(
+        &["Role"],
+        &[("name", Value::String("René Belloq".to_string()))],
     );
-
-    g.add_edge(
-        sallah,
-        raiders,
-        "ACTED_IN",
-        &[("as", Value::String("Sallah".to_string()))],
+    let role_mola_ram = g.add_node(
+        &["Role"],
+        &[("name", Value::String("Mola Ram".to_string()))],
     );
-    g.add_edge(
-        sallah,
-        crusade,
-        "ACTED_IN",
-        &[("as", Value::String("Sallah".to_string()))],
+    let role_vogel = g.add_node(
+        &["Role"],
+        &[("name", Value::String("Colonel Ernst Vogel".to_string()))],
+    );
+    let role_spalko = g.add_node(
+        &["Role"],
+        &[("name", Value::String("Irina Spalko".to_string()))],
     );
 
-    g.add_edge(
-        henry,
-        crusade,
-        "ACTED_IN",
-        &[("as", Value::String("Henry Jones Sr.".to_string()))],
-    );
-    g.add_edge(
-        elsa,
-        crusade,
-        "ACTED_IN",
-        &[("as", Value::String("Elsa Schneider".to_string()))],
-    );
-    g.add_edge(
-        donovan,
-        crusade,
-        "ACTED_IN",
-        &[("as", Value::String("Walter Donovan".to_string()))],
-    );
+    // ── Person -> PLAYS_IN -> Movie ────────────────────────────────────
+    g.add_edge(indy, raiders, "PLAYS_IN", &[]);
+    g.add_edge(indy, temple, "PLAYS_IN", &[]);
+    g.add_edge(indy, crusade, "PLAYS_IN", &[]);
+    g.add_edge(indy, crystal, "PLAYS_IN", &[]);
 
-    g.add_edge(
-        belloq,
-        raiders,
-        "ACTED_IN",
-        &[("as", Value::String("René Belloq".to_string()))],
-    );
-    g.add_edge(
-        mola_ram,
-        temple,
-        "ACTED_IN",
-        &[("as", Value::String("Mola Ram".to_string()))],
-    );
-    g.add_edge(
-        vogel,
-        crusade,
-        "ACTED_IN",
-        &[("as", Value::String("Colonel Ernst Vogel".to_string()))],
-    );
-    g.add_edge(
-        spalko,
-        crystal,
-        "ACTED_IN",
-        &[("as", Value::String("Irina Spalko".to_string()))],
-    );
+    g.add_edge(marcus, raiders, "PLAYS_IN", &[]);
+    g.add_edge(marcus, crusade, "PLAYS_IN", &[]);
 
-    g.add_edge(indy, ark, "SEEKS", &[]);
-    g.add_edge(indy, sankara, "SEEKS", &[]);
-    g.add_edge(indy, grail, "SEEKS", &[]);
+    g.add_edge(sallah, raiders, "PLAYS_IN", &[]);
+    g.add_edge(sallah, crusade, "PLAYS_IN", &[]);
 
-    g.add_edge(belloq, ark, "SEEKS", &[]);
-    g.add_edge(mola_ram, sankara, "SEEKS", &[]);
-    g.add_edge(vogel, grail, "SEEKS", &[]);
+    g.add_edge(henry, crusade, "PLAYS_IN", &[]);
+    g.add_edge(elsa, crusade, "PLAYS_IN", &[]);
+    g.add_edge(donovan, crusade, "PLAYS_IN", &[]);
 
-    g.add_edge(ark, raiders, "APPEARS_IN", &[]);
-    g.add_edge(sankara, temple, "APPEARS_IN", &[]);
-    g.add_edge(grail, crusade, "APPEARS_IN", &[]);
+    g.add_edge(belloq, raiders, "PLAYS_IN", &[]);
+    g.add_edge(mola_ram, temple, "PLAYS_IN", &[]);
+    g.add_edge(vogel, crusade, "PLAYS_IN", &[]);
+    g.add_edge(spalko, crystal, "PLAYS_IN", &[]);
+
+    // ── Person -> PLAYS_AS -> Role ─────────────────────────────────────
+    g.add_edge(indy, role_indy, "PLAYS_AS", &[]);
+    g.add_edge(marcus, role_marcus, "PLAYS_AS", &[]);
+    g.add_edge(sallah, role_sallah, "PLAYS_AS", &[]);
+    g.add_edge(henry, role_henry, "PLAYS_AS", &[]);
+    g.add_edge(elsa, role_elsa, "PLAYS_AS", &[]);
+    g.add_edge(donovan, role_donovan, "PLAYS_AS", &[]);
+    g.add_edge(belloq, role_belloq, "PLAYS_AS", &[]);
+    g.add_edge(mola_ram, role_mola_ram, "PLAYS_AS", &[]);
+    g.add_edge(vogel, role_vogel, "PLAYS_AS", &[]);
+    g.add_edge(spalko, role_spalko, "PLAYS_AS", &[]);
+
+    // ── Role -> SEEKS -> Artifact ──────────────────────────────────────
+    g.add_edge(role_indy, ark, "SEEKS", &[]);
+    g.add_edge(role_indy, sankara, "SEEKS", &[]);
+    g.add_edge(role_indy, grail, "SEEKS", &[]);
+
+    g.add_edge(role_belloq, ark, "SEEKS", &[]);
+    g.add_edge(role_mola_ram, sankara, "SEEKS", &[]);
+    g.add_edge(role_vogel, grail, "SEEKS", &[]);
+
+    // ── Artifact -> IN_MOVIE -> Movie ──────────────────────────────────
+    g.add_edge(ark, raiders, "IN_MOVIE", &[]);
+    g.add_edge(sankara, temple, "IN_MOVIE", &[]);
+    g.add_edge(grail, crusade, "IN_MOVIE", &[]);
 
     g
 }
@@ -683,16 +665,16 @@ fn main() {
 
     run_query(
         &graph,
-        "MATCH (p:Person)-[r:ACTED_IN]->(m:Movie) RETURN p.name, r.as, m.name",
+        "MATCH (p:Person)-[:PLAYS_IN]->(m:Movie) RETURN p.name, m.name",
     );
 
     run_query(
         &graph,
-        "MATCH (p:Person)-[:ACTED_IN]->(m:Movie) WHERE m.name = \"Last Crusade\" RETURN p.name",
+        "MATCH (p:Person)-[:PLAYS_IN]->(m:Movie) WHERE m.name = \"Last Crusade\" RETURN p.name",
     );
 
     run_query(
         &graph,
-        "MATCH (p:Person)-[:SEEKS]->(a:Artifact) RETURN p.name, a.name",
+        "MATCH (r:Role)-[:SEEKS]->(a:Artifact) RETURN r.name, a.name",
     );
 }
