@@ -104,7 +104,7 @@ impl HirDiagnostic {
                 non_grouping: vec![],
             },
             HirDiagnostic::UnsupportedFeature { feature, .. } => ErrorKind::Unsupported {
-                production: Box::leak(feature.clone().into_boxed_str()),
+                production: std::borrow::Cow::Owned(feature.clone()),
             },
             _ => ErrorKind::Internal {
                 message: format!("{:?}", self),

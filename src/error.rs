@@ -101,11 +101,11 @@ impl<T> Spanned<T> {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Expected {
     /// A keyword like `"MATCH"`, `"RETURN"`, etc.
-    Keyword(&'static str),
+    Keyword(Cow<'static, str>),
     /// A symbol like `"("`, `")"`, `"+"`, etc.
-    Symbol(&'static str),
+    Symbol(Cow<'static, str>),
     /// A general category like `"expression"`, `"variable"`, `"literal"`, etc.
-    Category(&'static str),
+    Category(Cow<'static, str>),
 }
 
 impl fmt::Display for Expected {
@@ -173,7 +173,7 @@ pub enum ErrorKind {
     /// An assignment was syntactically or semantically invalid.
     InvalidAssignment { reason: &'static str },
     /// A grammar production is not yet supported by the AST builder.
-    Unsupported { production: &'static str },
+    Unsupported { production: Cow<'static, str> },
     /// An internal error — last-resort fallback.
     Internal { message: String },
     /// A variable was referenced but never bound in scope (semantic).

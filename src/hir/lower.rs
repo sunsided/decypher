@@ -1116,6 +1116,7 @@ impl LoweringContext {
                 })
             }
             Expression::ListComprehension(lc) => {
+                let _scope = self.scope_stack.push_scope(&mut self.arenas);
                 let var = self.scope_stack.bind(
                     &mut self.arenas,
                     &lc.variable.name.name,
@@ -1163,6 +1164,7 @@ impl LoweringContext {
                     Expression::Single(_) => CollectionQuantifier::Single,
                     _ => unreachable!(),
                 };
+                let _scope = self.scope_stack.push_scope(&mut self.arenas);
                 let var = self.scope_stack.bind(
                     &mut self.arenas,
                     &fe.variable.name.name,
