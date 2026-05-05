@@ -377,6 +377,12 @@ impl fmt::Display for CypherError {
 
 impl std::error::Error for CypherError {}
 
+impl From<std::convert::Infallible> for CypherError {
+    fn from(e: std::convert::Infallible) -> Self {
+        match e {}
+    }
+}
+
 /// A collection of diagnostic errors (for multi-error reporting).
 ///
 /// Returned by [`crate::parse_all`] and [`crate::parse_with_options`].

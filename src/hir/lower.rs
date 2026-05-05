@@ -998,10 +998,7 @@ impl LoweringContext {
             }
             Expression::PropertyLookup { base, property, .. } => {
                 let base_id = self.lower_expr(base);
-                let key_id = self
-                    .arenas
-                    .property_keys
-                    .intern(&property.name.name, Id);
+                let key_id = self.arenas.property_keys.intern(&property.name.name, Id);
                 ExprKind::Property {
                     base: base_id,
                     key: key_id,
@@ -1211,10 +1208,7 @@ impl LoweringContext {
                             HirMapProjectionItem::AllProperties
                         }
                         MapProjectionItem::PropertyLookup { property } => {
-                            let key = self
-                                .arenas
-                                .property_keys
-                                .intern(&property.name.name, Id);
+                            let key = self.arenas.property_keys.intern(&property.name.name, Id);
                             HirMapProjectionItem::PropertyLookup { key }
                         }
                         MapProjectionItem::Literal { key, value } => {
@@ -1398,7 +1392,6 @@ impl LoweringContext {
 
         for part in &pattern.parts {
             let path_binding = part.variable.as_ref().map(|v| {
-                
                 self.scope_stack.bind(
                     &mut self.arenas,
                     &v.name.name,

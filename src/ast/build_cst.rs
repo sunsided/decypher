@@ -2021,7 +2021,7 @@ fn build_standalone_call(c: StandaloneCall) -> Result<ast_c::StandaloneCall> {
     };
     let yield_items = c
         .yield_items()
-        .map(|y| {
+        .map(|y| -> Result<ast_c::YieldSpec> {
             if y.star_token().is_some() {
                 Ok(ast_c::YieldSpec::Star {
                     span: span_of(y.syntax()),
@@ -2102,7 +2102,7 @@ fn build_in_query_call(c: InQueryCall) -> Result<ast_c::InQueryCall> {
     let sp = span_of(c.syntax());
     let yield_items = c
         .yield_items()
-        .map(|y| {
+        .map(|y| -> Result<ast_c::YieldItems> {
             let items: Result<Vec<_>> = y.items().map(build_yield_item).collect();
             let wc = y.where_expr().map(build_expression).transpose()?;
             Ok(ast_c::YieldItems {
@@ -2462,7 +2462,7 @@ fn build_show(c: ShowClause) -> Result<ast_c::Show> {
         .ok_or_else(|| internal("missing SHOW kind", sp))?;
     let yield_items = c
         .show_return()
-        .map(|sr| {
+        .map(|sr| -> Result<ast_c::ShowYieldSpec> {
             if sr.star_token().is_some() {
                 Ok(ast_c::ShowYieldSpec::Star {
                     span: span_of(sr.syntax()),
