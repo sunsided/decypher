@@ -2,391 +2,391 @@
 # One entry per line; multi-word entries are valid
 
 # --- Clauses ---
-MATCH
-OPTIONAL MATCH
-RETURN
-WITH
-WHERE
-CREATE
-MERGE
-DELETE
-DETACH DELETE
-SET
-REMOVE
-UNWIND
-FOREACH
-CALL
-LOAD CSV
-USE
-EXPLAIN
-PROFILE
-CYPHER
-UNION
-UNION ALL
-ORDER BY
-SKIP
-LIMIT
-ASC
-DESC
-DISTINCT
-AS
-YIELD
-ON CREATE
-ON MATCH
-FINISH
+"MATCH"
+"OPTIONAL MATCH"
+"RETURN"
+"WITH"
+"WHERE"
+"CREATE"
+"MERGE"
+"DELETE"
+"DETACH DELETE"
+"SET"
+"REMOVE"
+"UNWIND"
+"FOREACH"
+"CALL"
+"LOAD CSV"
+"USE"
+"EXPLAIN"
+"PROFILE"
+"CYPHER"
+"UNION"
+"UNION ALL"
+"ORDER BY"
+"SKIP"
+"LIMIT"
+"ASC"
+"DESC"
+"DISTINCT"
+"AS"
+"YIELD"
+"ON CREATE"
+"ON MATCH"
+"FINISH"
 
 # --- Schema / DDL ---
-CONSTRAINT
-INDEX
-FOR
-REQUIRE
-UNIQUE
-IS UNIQUE
-IS NOT NULL
-IS NODE KEY
-NODE KEY
-RANGE
-TEXT
-FULLTEXT
-POINT
-LOOKUP
-ON EACH
-DROP
-IF NOT EXISTS
-IF EXISTS
+"CONSTRAINT"
+"INDEX"
+"FOR"
+"REQUIRE"
+"UNIQUE"
+"IS UNIQUE"
+"IS NOT NULL"
+"IS NODE KEY"
+"NODE KEY"
+"RANGE"
+"TEXT"
+"FULLTEXT"
+"POINT"
+"LOOKUP"
+"ON EACH"
+"DROP"
+"IF NOT EXISTS"
+"IF EXISTS"
 
 # --- Boolean / null literals ---
-true
-false
-null
+"true"
+"false"
+"null"
 
 # --- Boolean operators ---
-AND
-OR
-NOT
-XOR
+"AND"
+"OR"
+"NOT"
+"XOR"
 
 # --- Null checks ---
-IS NULL
-IS NOT NULL
+"IS NULL"
+"IS NOT NULL"
 
 # --- Comparison operators ---
-=
-<>
-!=
-<
->
-<=
->=
-=~
+"="
+"<>"
+"!="
+"<"
+">"
+"<="
+">="
+"=~"
 
 # --- Arithmetic operators ---
-+
--
-*
-/
-%
-^
+"+"
+"-"
+"*"
+"/"
+"%"
+"^"
 
 # --- String operators ---
-STARTS WITH
-ENDS WITH
-CONTAINS
+"STARTS WITH"
+"ENDS WITH"
+"CONTAINS"
 
 # --- Assignment / compound ---
-+=
-:
-::
+"+="
+":"
+"::"
 
 # --- Punctuation ---
-(
-)
-[
-]
-{
-}
-,
-.
-;
-->
-<-
---
--->
-<--
-..
-|
-&
-!
-$
-`
-'
-"
+"("
+")"
+"["
+"]"
+"{"
+"}"
+","
+"."
+";"
+"->"
+"<-"
+"--"
+"-->"
+"<--"
+".."
+"|"
+"&"
+"!"
+"$"
+"`"
+"'"
+"""
 
 # --- CASE ---
-CASE
-WHEN
-THEN
-ELSE
-END
+"CASE"
+"WHEN"
+"THEN"
+"ELSE"
+"END"
 
 # --- Aggregation ---
-count
-count(*)
-collect
-avg
-sum
-min
-max
+"count"
+"count(*)"
+"collect"
+"avg"
+"sum"
+"min"
+"max"
 
 # --- List / map ---
-[]
-{}
-IN
+"[]"
+"{}"
+"IN"
 
 # --- Common identifiers ---
-n
-p
-a
-b
-c
-r
-f
-x
-xs
-m
-path
-name
-age
-id
-status
-email
-phone
-label
-kind
-key
-value
-text
-s
-row
-friend
-company
-employee
+"n"
+"p"
+"a"
+"b"
+"c"
+"r"
+"f"
+"x"
+"xs"
+"m"
+"path"
+"name"
+"age"
+"id"
+"status"
+"email"
+"phone"
+"label"
+"kind"
+"key"
+"value"
+"text"
+"s"
+"row"
+"friend"
+"company"
+"employee"
 
 # --- Type names ---
-INTEGER
-STRING
-BOOLEAN
-FLOAT
-DATE
-DATETIME
-POINT
-LIST
-MAP
-NODE
-RELATIONSHIP
-PATH
+"INTEGER"
+"STRING"
+"BOOLEAN"
+"FLOAT"
+"DATE"
+"DATETIME"
+"POINT"
+"LIST"
+"MAP"
+"NODE"
+"RELATIONSHIP"
+"PATH"
 
 # --- Common functions ---
-exists
-shortestPath
-allShortestPaths
-length
-nodes
-relationships
-type
-labels
-id
-coalesce
-date
-datetime
-trim
-toUpper
-size
-abs
-round
-reduce
-all
-any
-none
-single
+"exists"
+"shortestPath"
+"allShortestPaths"
+"length"
+"nodes"
+"relationships"
+"type"
+"labels"
+"id"
+"coalesce"
+"date"
+"datetime"
+"trim"
+"toUpper"
+"size"
+"abs"
+"round"
+"reduce"
+"all"
+"any"
+"none"
+"single"
 
 # --- Parameters ---
-$id
-$name
-$minAge
-$from
-$to
-$label
-$type
+"$id"
+"$name"
+"$minAge"
+"$from"
+"$to"
+"$label"
+"$type"
 
 # --- Common string literals ---
-'hello'
-"world"
-'active'
-'pending'
-'blocked'
-'Alice'
-'Bob'
-'Carol'
-'Neo4j'
-'Person'
-'Company'
-'Employee'
-'Admin'
-'Thing'
-'Cypher'
-'Deleted'
-'A'
-'B'
-'ann'
-'é'
-'file:///people.csv'
-'file:///semicolon.csv'
+"'hello'"
+""world""
+"'active'"
+"'pending'"
+"'blocked'"
+"'Alice'"
+"'Bob'"
+"'Carol'"
+"'Neo4j'"
+"'Person'"
+"'Company'"
+"'Employee'"
+"'Admin'"
+"'Thing'"
+"'Cypher'"
+"'Deleted'"
+"'A'"
+"'B'"
+"'ann'"
+"'\xC3\xA9'"
+"'file:///people.csv'"
+"'file:///semicolon.csv'"
 
 # --- Common numbers ---
-0
-1
-2
-3
-4
-5
-10
-18
-20
-30
-42
-65
-100
-256
-1.25
-1e3
-1.2e-3
--4.5E+6
+"0"
+"1"
+"2"
+"3"
+"4"
+"5"
+"10"
+"18"
+"20"
+"30"
+"42"
+"65"
+"100"
+"256"
+"1.25"
+"1e3"
+"1.2e-3"
+"-4.5E+6"
 
 # --- Property patterns ---
-{name: 'Alice'}
-{id: $id}
-{age: 30}
+"{name: 'Alice'}"
+"{id: $id}"
+"{age: 30}"
 
 # --- Label patterns ---
-:Person
-:Company
-:Employee
-:Admin
-:KNOWS
-:LIKES
-:HATES
-:RELATED
-:WORKS_AT
-:PARENT_OF
-:NEXT
-:LINK
-:Station
-:Stop
-:Place
-:Event
-:Tmp
+":Person"
+":Company"
+":Employee"
+":Admin"
+":KNOWS"
+":LIKES"
+":HATES"
+":RELATED"
+":WORKS_AT"
+":PARENT_OF"
+":NEXT"
+":LINK"
+":Station"
+":Stop"
+":Place"
+":Event"
+":Tmp"
 
 # --- Relationship patterns ---
--[:KNOWS]->
-<-[:LIKES]-
--[:RELATED]-
--[:KNOWS|LIKES|HATES]->
--[*..5]-
--[*1..5]->
--[*0..]->
--[*3]->
--[*2..5]->
--[*1..3]->
--[*1..4]->
+"-[:KNOWS]->"
+"<-[:LIKES]-"
+"-[:RELATED]-"
+"-[:KNOWS|LIKES|HATES]->"
+"-[*..5]-"
+"-[*1..5]->"
+"-[*0..]->"
+"-[*3]->"
+"-[*2..5]->"
+"-[*1..3]->"
+"-[*1..4]->"
 
 # --- Quantified patterns (Neo4j 5) ---
-){1,3}
-){2,5}
-->{1,3}
-->{1,4}
-$(label)
-$(type)
+"){1,3}"
+"){2,5}"
+"->{1,3}"
+"->{1,4}"
+"$(label)"
+"$(type)"
 
 # --- Subquery expressions ---
-COUNT {
-COLLECT {
-EXISTS {
+"COUNT {"
+"COLLECT {"
+"EXISTS {"
 
 # --- Query prefixes ---
-CYPHER runtime=pipelined
+"CYPHER runtime=pipelined"
 
 # --- Procedure calls ---
-CALL db.labels()
-CALL db.propertyKeys()
+"CALL db.labels()"
+"CALL db.propertyKeys()"
 
 # --- Comments ---
-//
-/* */
+"//"
+"/* */"
 
 # --- Escaped identifiers ---
-`weird variable`
-`strange property`
-`MATCH`
-`RETURN`
-`WHERE`
+"`weird variable`"
+"`strange property`"
+"`MATCH`"
+"`RETURN`"
+"`WHERE`"
 
 # --- Normalization ---
-IS NORMALIZED
-IS NOT NORMALIZED
+"IS NORMALIZED"
+"IS NOT NORMALIZED"
 
 # --- Type predicate ---
-IS :: INTEGER
-IS :: STRING
-IS :: BOOLEAN
-IS NOT :: BOOLEAN
+"IS :: INTEGER"
+"IS :: STRING"
+"IS :: BOOLEAN"
+"IS NOT :: BOOLEAN"
 
 # --- Map projection ---
-.name
-.age
-.nested
+".name"
+".age"
+".nested"
 
 # --- Wildcard ---
-*
+"*"
 
 # --- Misc patterns from test suites ---
-RETURN 1 AS x
-RETURN n
-RETURN p, r, b, c
-MATCH (n)
-MATCH (a)-[r]->(b)
-MATCH p = (a)-[:R]->(b)
-WITH p, p.age AS age
-WITH DISTINCT c
-WITH *, p.name AS name
-UNWIND [1, 2, 3] AS x
-UNWIND xs AS x
-ORDER BY age DESC, name ASC
-SKIP 5
-LIMIT 10
-p.age > 18
-p.age < 65
-p.name STARTS WITH 'A'
-p.name ENDS WITH 'z'
-p.email IS NULL
-p.phone IS NOT NULL
-p.name CONTAINS 'ann'
-p.status IN ['active', 'pending', 'blocked']
-EXISTS { MATCH (p)-[:WORKS_AT]->(:Company {name: 'Neo4j'}) }
-ON CREATE SET p.createdAt = datetime()
-ON MATCH SET p.seenAt = datetime()
-SET p:Employee:Admin
-SET p += {age: 31, city: 'Berlin'}
-REMOVE p:Admin
-[x IN p.scores WHERE x > 10 | x * 2]
-[(p)-[:KNOWS]->(friend) | friend.name]
-p { .name, .age, id: id(p), extra: 'value' }
-CASE p.status WHEN 'active' THEN 1 ELSE 0 END
-CASE WHEN p.age IS NULL THEN 'unknown' ELSE 'adult' END
-reduce(total = 0, x IN xs | total + x)
-all(x IN xs WHERE x > 0)
-any(x IN xs WHERE x = 2)
-none(x IN xs WHERE x < 0)
-single(x IN xs WHERE x = 3)
-foo.bar.baz(1, 'x', null)
-count(DISTINCT n.name)
+"RETURN 1 AS x"
+"RETURN n"
+"RETURN p, r, b, c"
+"MATCH (n)"
+"MATCH (a)-[r]->(b)"
+"MATCH p = (a)-[:R]->(b)"
+"WITH p, p.age AS age"
+"WITH DISTINCT c"
+"WITH *, p.name AS name"
+"UNWIND [1, 2, 3] AS x"
+"UNWIND xs AS x"
+"ORDER BY age DESC, name ASC"
+"SKIP 5"
+"LIMIT 10"
+"p.age > 18"
+"p.age < 65"
+"p.name STARTS WITH 'A'"
+"p.name ENDS WITH 'z'"
+"p.email IS NULL"
+"p.phone IS NOT NULL"
+"p.name CONTAINS 'ann'"
+"p.status IN ['active', 'pending', 'blocked']"
+"EXISTS { MATCH (p)-[:WORKS_AT]->(:Company {name: 'Neo4j'}) }"
+"ON CREATE SET p.createdAt = datetime()"
+"ON MATCH SET p.seenAt = datetime()"
+"SET p:Employee:Admin"
+"SET p += {age: 31, city: 'Berlin'}"
+"REMOVE p:Admin"
+"[x IN p.scores WHERE x > 10 | x * 2]"
+"[(p)-[:KNOWS]->(friend) | friend.name]"
+"p { .name, .age, id: id(p), extra: 'value' }"
+"CASE p.status WHEN 'active' THEN 1 ELSE 0 END"
+"CASE WHEN p.age IS NULL THEN 'unknown' ELSE 'adult' END"
+"reduce(total = 0, x IN xs | total + x)"
+"all(x IN xs WHERE x > 0)"
+"any(x IN xs WHERE x = 2)"
+"none(x IN xs WHERE x < 0)"
+"single(x IN xs WHERE x = 3)"
+"foo.bar.baz(1, 'x', null)"
+"count(DISTINCT n.name)"

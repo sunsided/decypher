@@ -1125,7 +1125,6 @@ impl LoweringContext {
                 let collection = self.lower_expr(&Expression::Variable(lc.variable.clone()));
                 let filter = lc.filter.as_ref().map(|f| self.lower_expr(f));
                 let map = lc.map.as_ref().map(|m| self.lower_expr(m));
-                self.scope_stack.pop_scope();
                 ExprKind::ListComprehension(HirListComprehension {
                     variable: var,
                     collection,
@@ -1171,7 +1170,6 @@ impl LoweringContext {
                 );
                 let collection = self.lower_expr(&fe.collection);
                 let predicate = fe.predicate.as_ref().map(|p| self.lower_expr(p));
-                self.scope_stack.pop_scope();
                 ExprKind::CollectionFilter {
                     quantifier,
                     variable: var,

@@ -138,6 +138,11 @@ tasks:
       - fuzz:smoke:ast
       - fuzz:smoke:hir
 
+  fuzz:seed:
+    desc: Seed fuzz corpus from test suites
+    cmds:
+      - bash fuzz/seed_corpus.sh
+
   fuzz:dict:
     desc: Generate fuzz dictionary from test suites (static; see fuzz/dictionary.txt)
     cmds:
