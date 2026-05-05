@@ -22,9 +22,22 @@ rowan = "0.15"
 unicode-ident = "1"
 
 [features]
-default = []
+default = ["hir"]
+hir = []
 serde = ["dep:serde"]
 miette = ["dep:miette"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]
+
+[[test]]
+name = "hir_lower"
+required-features = ["hir"]
+
+[[example]]
+name = "indiana_jones"
+required-features = ["hir"]
 
 [dev-dependencies]
 assert2 = "0.3"

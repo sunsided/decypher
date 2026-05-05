@@ -1,3 +1,5 @@
+#![cfg_attr(docsrs, doc(cfg(feature = "hir")))]
+
 //! High-level intermediate representation (HIR) for Cypher queries.
 //!
 //! The HIR is a scope-resolved, normalised representation that sits between

@@ -10,7 +10,8 @@
 //! 2. **AST** – a typed, high-level abstract syntax tree, available via
 //!    [`parse`] and the [`ast`] module.
 //! 3. **HIR** – a lowered, scope-resolved high-level intermediate
-//!    representation, available via [`analyze`] and the [`hir`] module.
+//!    representation, available via [`analyze`] and the [`hir`] module
+//!    (requires the `hir` feature, enabled by default).
 //!
 //! # Quick start
 //!
@@ -35,6 +36,7 @@
 
 pub mod ast;
 pub mod error;
+#[cfg(feature = "hir")]
 pub mod hir;
 mod parser;
 mod recover;
@@ -321,6 +323,7 @@ pub fn parse_cst(input: &str) -> Parse {
 /// let hir = cypher::analyze(query).unwrap();
 /// assert!(!hir.parts.is_empty());
 /// ```
+#[cfg(feature = "hir")]
 pub fn analyze<T>(input: T) -> Result<hir::HirQuery>
 where
     T: TryInto<Query>,
