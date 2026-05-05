@@ -1,7 +1,7 @@
 //! Typed abstract syntax tree (AST) for openCypher queries.
 //!
 //! This module contains all AST node types produced by the parser and the
-//! [`build_cst`] constructor that converts the lossless rowan CST into these
+//! internal CST→AST builder that converts the lossless rowan CST into these
 //! high-level types.
 //!
 //! # Structure
@@ -15,9 +15,8 @@
 //! | [`pattern`] | Graph pattern types (`NodePattern`, `RelationshipPattern`, …) |
 //! | [`schema`] | Schema command types (`CreateIndex`, `CreateConstraint`, …) |
 //! | [`procedure`] | Procedure call types (`StandaloneCall`, `InQueryCall`, …) |
-//! | [`print`] | [`ToCypher`] trait for serialising AST nodes back to text |
-//! | [`visit`] | [`Visit`] / [`VisitMut`] traits for read-only and mutable traversal |
-//! | [`build_cst`] | Internal CST→AST builder (not part of the public API) |
+//! | [`mod@print`] | [`ToCypher`] trait for serialising AST nodes back to text |
+//! | [`visit`] | [`visit::Visit`] / [`visit::VisitMut`] traits for traversal |
 
 pub(crate) mod build_cst;
 pub mod clause;

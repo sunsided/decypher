@@ -1,7 +1,19 @@
+//! Integration tests that verify the structural shape of the parsed AST.
+//!
+//! These tests exercise the typed AST node hierarchy by inspecting fields
+//! such as `statements`, `reading_clauses`, `body`, etc. to confirm that
+//! the parser constructs the correct AST variants for various query shapes.
+
 use assert2::check;
 use cypher::ast::query::{QueryBody, SinglePartBody};
 use cypher::parse;
 
+/// A `MATCH … RETURN n` query produces a `SinglePartBody::Return` with one
+/// projection item.
+///
+/// Unit: `parse()` / AST `SinglePartBody`
+/// Precondition: `MATCH (n) RETURN n;` — single MATCH and a RETURN with one item.
+/// Expectation: AST has `SinglePartBody::Return` with `items.len() == 1`.
 #[test]
 fn test_match_return_has_return_body() {
     let query = parse("MATCH (n) RETURN n;").unwrap();
@@ -19,6 +31,12 @@ fn test_match_return_has_return_body() {
     }
 }
 
+/// A `MATCH … CREATE …` query produces a `SinglePartBody::Updating` with one
+/// updating clause and no RETURN.
+///
+/// Unit: `parse()` / AST `SinglePartBody`
+/// Precondition: `MATCH (a) CREATE (a)-[:KNOWS]->(b);`.
+/// Expectation: `updating.len() == 1` and `return_clause.is_none()`.
 #[test]
 fn test_match_create_has_updating_body() {
     let query = parse("MATCH (a) CREATE (a)-[:KNOWS]->(b);").unwrap();
@@ -40,6 +58,11 @@ fn test_match_create_has_updating_body() {
     }
 }
 
+/// An `OPTIONAL MATCH` clause has `optional == true` on the `Match` AST node.
+///
+/// Unit: `parse()` / AST `Match::optional`
+/// Precondition: `OPTIONAL MATCH (n) RETURN n;`.
+/// Expectation: `m.optional == true`.
 #[test]
 fn test_optional_match_flag() {
     let query = parse("OPTIONAL MATCH (n) RETURN n;").unwrap();
@@ -57,6 +80,11 @@ fn test_optional_match_flag() {
     }
 }
 
+/// An `UNWIND … AS x` clause stores the binding variable name `"x"`.
+///
+/// Unit: `parse()` / AST `Unwind::variable`
+/// Precondition: `UNWIND [1, 2, 3] AS x RETURN x;`.
+/// Expectation: `u.variable.name.name == "x"`.
 #[test]
 fn test_unwind_has_expression_and_variable() {
     let query = parse("UNWIND [1, 2, 3] AS x RETURN x;").unwrap();
@@ -74,6 +102,12 @@ fn test_unwind_has_expression_and_variable() {
     }
 }
 
+/// A node pattern `(n:Person)` has a bound variable `"n"` and one label.
+///
+/// Unit: `parse()` / AST `NodePattern`
+/// Precondition: `MATCH (n:Person) RETURN n;`.
+/// Expectation: The start node of the first path has `variable.name == "n"` and
+///   `labels.len() == 1`.
 #[test]
 fn test_pattern_has_node() {
     let query = parse("MATCH (n:Person) RETURN n;").unwrap();
@@ -105,6 +139,11 @@ fn test_pattern_has_node() {
     }
 }
 
+/// A `UNION` query is represented in the parsed `Query` statement list.
+///
+/// Unit: `parse()` / AST `RegularQuery::unions`
+/// Precondition: Two MATCH/RETURN branches joined by `UNION`.
+/// Expectation: `query.statements.len() >= 1`.
 #[test]
 fn test_union_has_two_queries() {
     let query =
@@ -114,6 +153,11 @@ fn test_union_has_two_queries() {
     // Our current structure stores it in RegularQuery.unions
 }
 
+/// A parsed query's top-level span is a non-empty range.
+///
+/// Unit: `parse()` / AST `Query::span`
+/// Precondition: `MATCH (n) RETURN n;` — non-empty input.
+/// Expectation: `query.span.start < query.span.end`.
 #[test]
 fn test_span_is_nonzero() {
     let query = parse("MATCH (n) RETURN n;").unwrap();

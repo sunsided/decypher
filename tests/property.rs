@@ -1,28 +1,43 @@
+//! Property-based tests for the openCypher parser.
+//!
+//! These tests use `proptest` to generate random but syntactically valid
+//! Cypher fragments and verify that:
+//! - All generated queries parse without error.
+//! - Round-tripping (parse → `to_cypher` → re-parse) preserves the AST.
+//! - The rowan CST path produces the same high-level result as the typed AST
+//!   path for the same input.
+
 use cypher::ast::ToCypher;
 use cypher::cst::AstNode;
 use cypher::{cst, parse};
 use proptest::prelude::*;
 
+/// Generate a simple valid identifier of the form `v[a-z0-9]{0,5}`.
 fn ident() -> impl Strategy<Value = String> {
     "[a-z][a-z0-9]{0,5}".prop_map(|s| format!("v{s}"))
 }
 
+/// Generate a single-quoted string literal with alphanumeric content.
 fn string_lit() -> impl Strategy<Value = String> {
     "[A-Za-z0-9]{0,8}".prop_map(|s| format!("'{s}'"))
 }
 
+/// Generate a small positive integer literal.
 fn int_lit() -> impl Strategy<Value = String> {
     (0i64..1000).prop_map(|n| n.to_string())
 }
 
+/// Generate a `$identifier` parameter reference.
 fn parameter() -> impl Strategy<Value = String> {
     ident().prop_map(|name| format!("${name}"))
 }
 
+/// Generate a property-access expression `base.key`.
 fn property_expr() -> impl Strategy<Value = String> {
     (ident(), ident()).prop_map(|(base, key)| format!("{base}.{key}"))
 }
 
+/// Generate a scalar atom (literal, identifier, parameter, or property).
 fn scalar_atom() -> impl Strategy<Value = String> {
     prop_oneof![
         int_lit(),
@@ -36,6 +51,8 @@ fn scalar_atom() -> impl Strategy<Value = String> {
     ]
 }
 
+/// Like [`scalar_atom`] but without `property_expr`, for stable round-trip tests
+/// where property access aliases cannot be inferred.
 fn scalar_atom_stable() -> impl Strategy<Value = String> {
     prop_oneof![
         int_lit(),
@@ -48,6 +65,7 @@ fn scalar_atom_stable() -> impl Strategy<Value = String> {
     ]
 }
 
+/// Generate a recursive expression tree.
 fn expr() -> impl Strategy<Value = String> {
     let leaf = scalar_atom();
     leaf.prop_recursive(4, 32, 2, |inner| {
@@ -62,6 +80,7 @@ fn expr() -> impl Strategy<Value = String> {
     })
 }
 
+/// Like [`expr`] but using [`scalar_atom_stable`] leaves for stable round-trip tests.
 fn expr_stable() -> impl Strategy<Value = String> {
     let leaf = scalar_atom_stable();
     leaf.prop_recursive(4, 32, 2, |inner| {
@@ -76,6 +95,7 @@ fn expr_stable() -> impl Strategy<Value = String> {
     })
 }
 
+/// Generate a label atom (named label or dynamic `$(var)` label).
 fn label_atom() -> impl Strategy<Value = String> {
     prop_oneof![
         Just(String::from("Person")),
@@ -85,6 +105,7 @@ fn label_atom() -> impl Strategy<Value = String> {
     ]
 }
 
+/// Generate a recursive label expression (NOT, OR `|`, AND `&`).
 fn label_expr() -> impl Strategy<Value = String> {
     label_atom().prop_recursive(4, 32, 2, |inner| {
         prop_oneof![
@@ -95,6 +116,7 @@ fn label_expr() -> impl Strategy<Value = String> {
     })
 }
 
+/// Generate a valid quantifier string (`{n}`, `{n,m}`, `{n,}`, `{,m}`).
 fn quantifier() -> impl Strategy<Value = String> {
     prop_oneof![
         (1u8..4).prop_map(|n| format!("{{{n}}}")),
@@ -110,36 +132,43 @@ fn quantifier() -> impl Strategy<Value = String> {
     ]
 }
 
+/// Generate a `RETURN <expr>;` query string.
 fn return_query() -> impl Strategy<Value = String> {
     expr().prop_map(|e| format!("RETURN {e};"))
 }
 
+/// Like [`return_query`] but using stable expressions suitable for round-trip tests.
 fn return_query_stable() -> impl Strategy<Value = String> {
     expr_stable().prop_map(|e| format!("RETURN {e};"))
 }
 
+/// Generate `MATCH (var:labelExpr) RETURN var;` queries.
 fn rich_match_query() -> impl Strategy<Value = String> {
     (label_expr(), ident())
         .prop_map(|(labels, var)| format!("MATCH ({var}:{labels}) RETURN {var};"))
 }
 
+/// Generate `MATCH (var) WHERE var:labelExpr RETURN var;` queries.
 fn postfix_label_query() -> impl Strategy<Value = String> {
     (ident(), label_expr())
         .prop_map(|(var, labels)| format!("MATCH ({var}) WHERE {var}:{labels} RETURN {var};"))
 }
 
+/// Generate quantified-path pattern queries.
 fn quantified_path_query() -> impl Strategy<Value = String> {
     (label_expr(), label_expr(), quantifier()).prop_map(|(left, right, q)| {
         format!("MATCH p = ((a:{left})-[:LINK]->(b:{right})){q} RETURN p;")
     })
 }
 
+/// Generate quantified-relationship queries.
 fn quantified_relationship_query() -> impl Strategy<Value = String> {
     (label_expr(), label_expr(), quantifier()).prop_map(|(left, right, q)| {
         format!("MATCH p = (a:{left})-[:LINK]->{q}(b:{right}) RETURN p;")
     })
 }
 
+/// Generate `COUNT { … }`, `COLLECT { … }`, and `EXISTS { … }` subquery queries.
 fn subquery_query() -> impl Strategy<Value = String> {
     prop_oneof![
         Just(String::from("RETURN COUNT { MATCH (n:Person) RETURN n };")),
@@ -152,6 +181,7 @@ fn subquery_query() -> impl Strategy<Value = String> {
     ]
 }
 
+/// Combine all valid-query strategies into one.
 fn valid_query() -> impl Strategy<Value = String> {
     prop_oneof![
         return_query(),
@@ -163,6 +193,7 @@ fn valid_query() -> impl Strategy<Value = String> {
     ]
 }
 
+/// Subset of valid queries suitable for AST round-trip testing.
 fn ast_roundtrip_query() -> impl Strategy<Value = String> {
     prop_oneof![
         return_query_stable(),
@@ -178,6 +209,11 @@ fn ast_roundtrip_query() -> impl Strategy<Value = String> {
 }
 
 proptest! {
+    /// All randomly generated valid queries parse losslessly via the CST path.
+    ///
+    /// Unit: `cst::parse()`
+    /// Precondition: Query generated by `valid_query()` strategy.
+    /// Expectation: No CST parse errors; CST text round-trips to the original string.
     #[test]
     fn prop_generated_queries_parse_losslessly(query in valid_query()) {
         let parsed = cst::parse(&query);
@@ -190,6 +226,11 @@ proptest! {
         prop_assert_eq!(parsed.tree().syntax().text().to_string(), query);
     }
 
+    /// Round-trip: parse → `to_cypher` → re-parse must yield equal ASTs.
+    ///
+    /// Unit: `ToCypher::to_cypher` / `parse()`
+    /// Precondition: Query generated by `ast_roundtrip_query()` strategy.
+    /// Expectation: Re-parsed AST equals the originally parsed AST.
     #[test]
     fn prop_generated_queries_roundtrip_ast(query in ast_roundtrip_query()) {
         let parsed = parse(&query).unwrap_or_else(|err| panic!("AST parse failed for `{query}`: {err}"));

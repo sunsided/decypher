@@ -171,6 +171,12 @@ fn test_null_comparison_note_skipped() {
     check!(result.is_ok());
 }
 
+/// `CypherError::render` produces a string containing `"error:"` and the
+/// phrase `"projection"`.
+///
+/// Unit: `CypherError::render()`
+/// Precondition: `RETURN;` fails with `MissingClause`.
+/// Expectation: Rendered string contains `"error:"` and `"projection"`.
 #[test]
 fn test_render_produces_output() {
     let result = parse("RETURN;");
@@ -181,6 +187,11 @@ fn test_render_produces_output() {
     check!(rendered.contains("projection"));
 }
 
+/// `parse_all` returns `(None, Diagnostics)` for a completely invalid query.
+///
+/// Unit: `parse_all()`
+/// Precondition: `RETURN;` has no valid projection.
+/// Expectation: `query.is_none()`, `diags` is non-empty with exactly one error.
 #[test]
 fn test_diagnostics_wrapper() {
     use cypher::parse_all;
@@ -190,6 +201,12 @@ fn test_diagnostics_wrapper() {
     check!(diags.len() == 1);
 }
 
+/// `parse_with_label` attaches the source label to the error on failure.
+///
+/// Unit: `parse_with_label()`
+/// Precondition: Two parses — one succeeds (`RETURN 1`), one fails (`RETURN;`).
+/// Expectation: Successful parse returns `Ok`; failed parse returns `Err` with
+///   `source_label() == Some("test.cypher")`.
 #[test]
 fn test_parse_with_label() {
     use cypher::parse_with_label;
@@ -202,6 +219,11 @@ fn test_parse_with_label() {
     check!(err.source_label() == Some("test.cypher"));
 }
 
+/// A malformed label expression renders a diagnostic mentioning "label" and "dynamic".
+///
+/// Unit: `parse()` / `CypherError::render()`
+/// Precondition: `MATCH (n:(Person|)) RETURN n;` — empty label alternative.
+/// Expectation: Returns `Err`; rendered output contains `"label"` and `"dynamic"`.
 #[test]
 fn test_malformed_label_expression_has_help() {
     let input = "MATCH (n:(Person|)) RETURN n;";
@@ -213,6 +235,13 @@ fn test_malformed_label_expression_has_help() {
     check!(rendered.contains("dynamic"));
 }
 
+/// An invalid `{,}` quantifier renders a diagnostic mentioning "quantifier"
+/// and the valid format `{n,m}` or `{n}`.
+///
+/// Unit: `parse()` / `CypherError::render()`
+/// Precondition: Path quantifier `{,}` has neither minimum nor maximum.
+/// Expectation: Returns `Err`; rendered output contains `"quantifier"` and a
+///   format hint.
 #[test]
 fn test_invalid_quantifier_has_help() {
     let input = "MATCH p = ((a)-[:R]->(b)){,} RETURN p;";
@@ -224,6 +253,13 @@ fn test_invalid_quantifier_has_help() {
     check!(rendered.contains("{n,m}") || rendered.contains("{n}"));
 }
 
+/// An empty `COUNT { }` subquery body renders a diagnostic mentioning
+/// "subquery" and prompting to add `MATCH` or `RETURN`.
+///
+/// Unit: `parse()` / `CypherError::render()`
+/// Precondition: `RETURN COUNT { };` — subquery body has no clauses.
+/// Expectation: Returns `Err`; rendered output contains `"subquery"` and
+///   either `"MATCH"` or `"RETURN"`.
 #[test]
 fn test_empty_subquery_body_has_help() {
     let input = "RETURN COUNT { };";
@@ -235,6 +271,13 @@ fn test_empty_subquery_body_has_help() {
     check!(rendered.contains("MATCH") || rendered.contains("RETURN"));
 }
 
+/// In recovery mode, a second valid statement is returned even when the first
+/// has syntax errors.
+///
+/// Unit: `parse_with_options()` with `recover = true`
+/// Precondition: Input has an invalid first statement followed by `RETURN 1;`.
+/// Expectation: `query.is_some()` (the second statement succeeds) and `diags`
+///   is non-empty.
 #[test]
 fn test_recovery_with_rich_syntax_errors() {
     use cypher::{ParseOptions, parse_with_options};
