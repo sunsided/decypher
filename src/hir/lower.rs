@@ -143,9 +143,10 @@ impl LoweringScopeStack {
     /// Bind `name` in the current innermost scope.
     ///
     /// Allocates a new [`Binding`] in the arena, registers it in the scope,
-    /// and returns its [`BindingId`]. If the name already exists in the
-    /// current scope the entry is silently overwritten (duplicate detection
-    /// is handled by the name-resolution pass before lowering).
+    /// and returns its [`BindingId`]. If the same name is already present in
+    /// the current scope the existing entry is silently overwritten. Callers
+    /// that need to detect duplicate bindings (e.g. the semantic-analysis
+    /// pass) must check for conflicts before calling this method.
     fn bind(
         &mut self,
         arenas: &mut HirArenas,

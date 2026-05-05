@@ -44,14 +44,21 @@ pub use pattern::{
 /// A fully lowered and scope-resolved HIR query.
 ///
 /// Produced by [`lower::lower`] from a parsed [`crate::ast::query::Query`].
-/// Contains all arenas, the pipeline of query parts, and any non-fatal
-/// semantic diagnostics collected during lowering.
+/// Contains all arenas and the pipeline of query parts.
+///
+/// > **Note:** `lower()` currently returns `Err(Diagnostics)` whenever any
+/// > diagnostic is produced, so successful `HirQuery` values always have an
+/// > empty `diagnostics` vector. Non-fatal warning support may be added in a
+/// > future release.
 #[derive(Debug, Clone)]
 pub struct HirQuery {
     /// Arena storage for scopes, bindings, and expressions.
     pub arenas: HirArenas,
     /// The sequence of query parts (pipeline stages).
     pub parts: Vec<QueryPart>,
-    /// Non-fatal semantic diagnostics collected during lowering.
+    /// Reserved for future non-fatal semantic diagnostics.
+    ///
+    /// Currently always empty: `lower()` returns `Err` on the first
+    /// diagnostic rather than accumulating warnings here.
     pub diagnostics: Vec<HirDiagnostic>,
 }

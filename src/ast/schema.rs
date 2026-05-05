@@ -43,7 +43,7 @@ pub struct CreateIndex {
 pub enum IndexKind {
     /// A range (B-tree) index — the default.
     Range,
-    /// A full-text string index.
+    /// A text index on string-typed properties (not a full-text index — see [`IndexKind::Fulltext`]).
     Text,
     /// A spatial point index.
     Point,
@@ -159,7 +159,10 @@ pub struct ReturnBody {
 /// Selects the target graph for subsequent clauses.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Use {
-    /// The graph name or expression.
+    /// The symbolic graph name targeted by this clause.
+    ///
+    /// Only a [`SymbolicName`] is accepted here; arbitrary expressions are
+    /// not supported by the parser.
     pub graph: SymbolicName,
     /// Byte-offset span of the clause.
     pub span: Span,

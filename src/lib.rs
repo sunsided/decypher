@@ -191,8 +191,11 @@ pub fn parse_with_label(input: &str, label: impl Into<Arc<str>>) -> Result<Query
 ///
 /// Unlike [`parse`], this function does not stop at the first error; it
 /// attempts to resynchronise at statement boundaries and continue. The
-/// returned `Option<Query>` is `Some` only when at least one statement was
-/// successfully parsed.
+/// returned `Option<Query>` is `Some` only when a statement was successfully
+/// parsed *after* the last resynchronisation point. A valid statement that
+/// appears before a later syntax error does not guarantee `Some`: the
+/// implementation keeps only the successfully parsed suffix after recovery,
+/// not any valid prefix.
 ///
 /// # Example
 ///

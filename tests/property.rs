@@ -2,17 +2,15 @@
 //!
 //! These tests use `proptest` to generate random but syntactically valid
 //! Cypher fragments and verify that:
-//! - All generated queries parse without error.
+//! - All generated queries parse losslessly via the CST path.
 //! - Round-tripping (parse → `to_cypher` → re-parse) preserves the AST.
-//! - The rowan CST path produces the same high-level result as the typed AST
-//!   path for the same input.
 
 use cypher::ast::ToCypher;
 use cypher::cst::AstNode;
 use cypher::{cst, parse};
 use proptest::prelude::*;
 
-/// Generate a simple valid identifier of the form `v[a-z0-9]{0,5}`.
+/// Generate a simple valid identifier of the form `v[a-z][a-z0-9]{0,5}`.
 fn ident() -> impl Strategy<Value = String> {
     "[a-z][a-z0-9]{0,5}".prop_map(|s| format!("v{s}"))
 }
@@ -22,7 +20,7 @@ fn string_lit() -> impl Strategy<Value = String> {
     "[A-Za-z0-9]{0,8}".prop_map(|s| format!("'{s}'"))
 }
 
-/// Generate a small positive integer literal.
+/// Generate a small non-negative integer literal (0 to 999).
 fn int_lit() -> impl Strategy<Value = String> {
     (0i64..1000).prop_map(|n| n.to_string())
 }

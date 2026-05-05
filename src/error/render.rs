@@ -59,8 +59,10 @@ pub fn render_diagnostic(err: &CypherError, source: &str) -> String {
 
 /// Build an underline string of `^` characters.
 ///
-/// Produces a string with `start` leading spaces followed by `(end -
-/// start)` caret characters, used to point at a span within a source line.
+/// Produces a string with `start` leading spaces followed by caret
+/// characters pointing at a span within a source line. The number of
+/// carets is `end - start`, with a minimum of one caret guaranteed so that
+/// zero-length spans are still visually indicated.
 fn underline(start: usize, end: usize) -> String {
     let len = if end > start { end - start } else { 1 };
     format!("{: >width$}{}", "", "^".repeat(len), width = start)

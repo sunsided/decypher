@@ -42,8 +42,10 @@ pub struct ParseOptions {
 ///
 /// When [`ParseOptions::recover`] is `true`, the function skips to the next
 /// statement boundary after each error and retries, accumulating up to
-/// `max_errors` diagnostics. The first *successfully* parsed statement is
-/// returned.
+/// `max_errors` diagnostics. Only a *successfully parsed suffix* after the
+/// last resynchronisation point is returned; a valid statement that appeared
+/// before a later syntax error does not contribute to the result, so
+/// `Some(query)` is not guaranteed even when some input was parseable.
 ///
 /// # Example
 ///

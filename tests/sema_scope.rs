@@ -6,7 +6,7 @@
 use cypher::error::Span;
 use cypher::sema::{ScopeStack, SymbolKind};
 
-/// Return a zero-length dummy span for tests that do not care about position.
+/// Return a unit-length dummy span (byte offsets 0..1) for tests that do not care about position.
 fn dummy_span() -> Span {
     Span::new(0, 1)
 }

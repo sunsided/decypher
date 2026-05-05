@@ -385,10 +385,12 @@ impl From<std::convert::Infallible> for CypherError {
 
 /// A collection of diagnostic errors (for multi-error reporting).
 ///
-/// Returned by [`crate::parse_all`] and [`crate::parse_with_options`].
+/// Returned by [`crate::parse_all`] and [`crate::parse_with_options`], and
+/// used internally by [`crate::sema`] and [`crate::hir::lower`] for
+/// semantic-analysis and HIR-lowering failures.
 #[derive(Debug, Clone)]
 pub struct Diagnostics {
-    /// All errors collected during parsing.
+    /// All errors collected during parsing, semantic analysis, or HIR lowering.
     pub errors: Vec<CypherError>,
 }
 
