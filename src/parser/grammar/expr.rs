@@ -1,6 +1,7 @@
 use crate::error::Expected;
 use crate::parser::Parser;
 use crate::syntax::SyntaxKind;
+use std::borrow::Cow;
 
 /// Precedence levels for Pratt parsing (lowest to highest).
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -398,9 +399,9 @@ fn parse_label_atom(
     } else {
         p.error_here_with_help(
             &[
-                Expected::Category("label name"),
-                Expected::Category("dynamic label expression"),
-                Expected::Symbol("("),
+                Expected::Category(Cow::Borrowed("label name")),
+                Expected::Category(Cow::Borrowed("dynamic label expression")),
+                Expected::Symbol(Cow::Borrowed("(")),
             ],
             "label expressions use names, parentheses, `!`, `|`, `&`, or dynamic forms like `$(label)`",
         );
@@ -432,7 +433,7 @@ fn parse_relationship_quantifier(p: &mut Parser) {
     }
     if !saw_bound {
         p.error_here_with_help(
-            &[Expected::Category("quantifier bound")],
+            &[Expected::Category(Cow::Borrowed("quantifier bound"))],
             "quantifiers use `{n}`, `{n,m}`, `{n,}`, or `{,m}`",
         );
     }
@@ -455,7 +456,7 @@ fn parse_subquery_body(p: &mut Parser) {
     }
     if !saw_clause {
         p.error_here_with_help(
-            &[Expected::Category("subquery clause")],
+            &[Expected::Category(Cow::Borrowed("subquery clause"))],
             "subquery bodies usually start with clauses like `MATCH`, `WITH`, `CALL`, or `RETURN`",
         );
     }
@@ -922,17 +923,17 @@ fn parse_atom(p: &mut Parser) {
                 let end = start + p.current_len;
                 if let Some(text) = p.input.get(start..end) {
                     if text.starts_with('\'') || text.starts_with('"') {
-                        p.error_here(&[Expected::Category(
+                        p.error_here(&[Expected::Category(Cow::Borrowed(
                             "closing quote for unterminated string",
-                        )]);
+                        ))]);
                     } else {
-                        p.error_here(&[Expected::Category("expression")]);
+                        p.error_here(&[Expected::Category(Cow::Borrowed("expression"))]);
                     }
                 } else {
-                    p.error_here(&[Expected::Category("expression")]);
+                    p.error_here(&[Expected::Category(Cow::Borrowed("expression"))]);
                 }
             } else {
-                p.error_here(&[Expected::Category("expression")]);
+                p.error_here(&[Expected::Category(Cow::Borrowed("expression"))]);
             }
             p.start_node(SyntaxKind::ERROR);
             if p.current_len() > 0 {
@@ -1787,7 +1788,10 @@ fn parse_pattern_element(p: &mut Parser) {
         }
     } else {
         // Not a valid pattern element start — emit error and recover
-        p.expect_one_of(&[Expected::Symbol("("), Expected::Category("node pattern")]);
+        p.expect_one_of(&[
+            Expected::Symbol(Cow::Borrowed("(")),
+            Expected::Category(Cow::Borrowed("node pattern")),
+        ]);
     }
     // Optional quantified postfix on the whole element: {m,n}
     if p.at(SyntaxKind::L_BRACE) {

@@ -101,11 +101,11 @@ impl<T> Spanned<T> {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Expected {
     /// A keyword like `"MATCH"`, `"RETURN"`, etc.
-    Keyword(&'static str),
+    Keyword(Cow<'static, str>),
     /// A symbol like `"("`, `")"`, `"+"`, etc.
-    Symbol(&'static str),
+    Symbol(Cow<'static, str>),
     /// A general category like `"expression"`, `"variable"`, `"literal"`, etc.
-    Category(&'static str),
+    Category(Cow<'static, str>),
 }
 
 impl fmt::Display for Expected {
