@@ -110,22 +110,16 @@ tasks:
 
   fuzz:smoke:cst:
     desc: Run the CST fuzz target briefly
-    env:
-      LSAN_OPTIONS: detect_leaks=0
     cmds:
       - "{{.FUZZ_CARGO}} fuzz run fuzz_parse_cst -- -runs=256"
 
   fuzz:smoke:ast:
     desc: Run the AST fuzz target briefly
-    env:
-      LSAN_OPTIONS: detect_leaks=0
     cmds:
       - "{{.FUZZ_CARGO}} fuzz run fuzz_parse_ast -- -runs=256"
 
   fuzz:smoke:hir:
     desc: Run the HIR fuzz target briefly
-    env:
-      LSAN_OPTIONS: detect_leaks=0
     cmds:
       - "{{.FUZZ_CARGO}} fuzz run fuzz_parse_hir -- -runs=256"
 

@@ -13,6 +13,10 @@ libfuzzer-sys = "0.4"
 [dependencies.cypher]
 path = ".."
 
+[features]
+serde = ["cypher/serde"]
+miette = ["cypher/miette"]
+
 [[bin]]
 name = "fuzz_parse_cst"
 path = "fuzz_targets/fuzz_parse_cst.rs"

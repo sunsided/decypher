@@ -120,7 +120,7 @@
 "$"
 "`"
 "'"
-"""
+"\""
 
 # --- CASE ---
 "CASE"
@@ -221,7 +221,7 @@
 
 # --- Common string literals ---
 "'hello'"
-""world""
+"\"world\""
 "'active'"
 "'pending'"
 "'blocked'"
