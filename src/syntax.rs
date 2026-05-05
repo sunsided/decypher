@@ -320,6 +320,9 @@ impl SyntaxKind {
     /// Returns [`SyntaxKind::ERROR`] for values that are out of range.
     pub fn from(raw: u16) -> Self {
         if raw <= Self::ERROR as u16 {
+            // SAFETY: `raw` is bounded to `0..=ERROR`, which exactly covers
+            // the valid discriminants of `#[repr(u16)] SyntaxKind`. This is
+            // the standard pattern used by `rowan` Language implementations.
             unsafe { std::mem::transmute::<u16, SyntaxKind>(raw) }
         } else {
             SyntaxKind::ERROR

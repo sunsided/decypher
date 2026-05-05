@@ -1,4 +1,8 @@
 #![cfg_attr(docsrs, feature(doc_cfg))]
+// Allow unsafe code for the single `std::mem::transmute` in `SyntaxKind::from`
+// (see `syntax.rs`). The transmute is bounded and sound: we only convert
+// `u16` values that are known to match a valid `SyntaxKind` discriminant.
+#![allow(unsafe_code)]
 
 //! A Rust library for parsing Cypher queries into a typed AST.
 //!
