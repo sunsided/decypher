@@ -1,3 +1,5 @@
+#![cfg_attr(docsrs, feature(doc_cfg))]
+
 //! A Rust library for parsing Cypher queries into a typed AST.
 //!
 //! # Overview
@@ -10,7 +12,7 @@
 //! 2. **AST** – a typed, high-level abstract syntax tree, available via
 //!    [`parse`] and the [`ast`] module.
 //! 3. **HIR** – a lowered, scope-resolved high-level intermediate
-//!    representation, available via [`analyze`] and the [`hir`] module
+//!    representation, available via `analyze` and the `hir` module
 //!    (requires the `hir` feature, enabled by default).
 //!
 //! # Quick start
