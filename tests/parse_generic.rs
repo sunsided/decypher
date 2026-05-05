@@ -107,23 +107,27 @@ fn parse_from_string_ref() {
     assert!(result.is_ok());
 }
 
-/// Passing a `Parse` CST with an `EmptyInput` error (created by
-/// `parse_cst("")`) is handled without panic; the error is returned with the
-/// supplied label.
+/// Passing a raw `Parse` CST built directly from `parse_cst` (which does not
+/// go through `From<&str> for Parse`) is handled without panic.
+///
+/// Unlike `From<&str> for Parse`, `parse_cst` does not inject an `EmptyInput`
+/// error for empty input — the parser simply produces an empty `SOURCE_FILE`
+/// with no errors.  Feeding that CST to `parse_with_label` returns an `Err`
+/// because `build_source_file` rejects a file with zero statements.
 ///
 /// Unit: `parse_with_label()`
-/// Precondition: `parse_cst` called on an empty string (errors are injected
-///   via `From<&str> for Parse`), then forwarded through `parse_with_label`.
+/// Precondition: `parse_cst("")` — CST built via the low-level parser (no
+///   `EmptyInput` injection).
 /// Expectation: Returns `Err` with `source_label == Some("lbl")`.
 #[test]
 fn parse_with_label_from_empty_cst() {
     // parse_cst calls crate::parser::parse directly (not From<&str>), so its
-    // Parse has no EmptyInput error yet.  The generic parse_with_label path
-    // must still handle it gracefully (it will produce an empty Query since
-    // the parser silently accepts empty input at the CST level).
+    // Parse has no EmptyInput error.  The empty SOURCE_FILE has no statements,
+    // and build_source_file rejects that with an internal "empty source file"
+    // error — so we expect Err here.
     let cst = cypher::parse_cst("");
-    // An empty CST has no errors, so parse_with_label will attempt to build
-    // the AST from an empty SourceFile, which is valid (zero statements).
-    // We just verify no panic and that it returns Ok or Err without crashing.
-    let _ = parse_with_label(cst, "lbl");
+    let result = parse_with_label(cst, "lbl");
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert_eq!(err.source_label(), Some("lbl"));
 }

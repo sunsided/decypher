@@ -226,9 +226,7 @@ where
     if !parse.errors.is_empty() {
         let mut err = parse.errors.into_iter().next().unwrap();
         err.source_label = Some(source.clone());
-        if err.source.is_none() {
-            err.source = original_source.clone();
-        }
+        err.source = err.source.or(original_source.clone());
         return Err(err);
     }
 
@@ -243,9 +241,7 @@ where
     })?;
     crate::ast::build_cst::build_source_file(source_file).map_err(|mut e| {
         e.source_label = e.source_label.or_else(|| Some(source.clone()));
-        if e.source.is_none() {
-            e.source = original_source.clone();
-        }
+        e.source = e.source.or(original_source.clone());
         e
     })
 }
