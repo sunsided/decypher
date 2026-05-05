@@ -24,6 +24,8 @@ use std::borrow::Cow;
 pub struct Parse {
     pub tree: SyntaxNode,
     pub errors: Vec<CypherError>,
+    /// The original source text, if available (set when parsing from a `&str`).
+    pub(crate) source: Option<std::sync::Arc<str>>,
 }
 
 impl Parse {
@@ -557,6 +559,7 @@ impl<'a> Parser<'a> {
         Parse {
             tree,
             errors: self.errors,
+            source: None,
         }
     }
 }
