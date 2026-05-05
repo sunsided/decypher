@@ -1,17 +1,17 @@
-/// AST-to-text emission for openCypher queries.
+/// AST-to-text emission for Cypher queries.
 ///
-/// The [`ToCypher`] trait converts any AST node back into valid openCypher text.
+/// The [`ToCypher`] trait converts any AST node back into valid Cypher text.
 /// This enables round-trips: `parse(src) → ast → to_cypher() → parse`.
 ///
 /// # Formatting guarantees
 ///
 /// - **Single-line output** — no line breaks or indentation are inserted.
-/// - **Keyword casing** — all keywords are emitted in uppercase, matching openCypher convention.
+/// - **Keyword casing** — all keywords are emitted in uppercase, matching Cypher convention.
 /// - **Strings** — emitted in single quotes. Escape sequences are preserved as stored
 ///   by the parser (the parser strips surrounding quotes but does not unescape).
 /// - **Numbers** — integers use `Display`; floats use [`ryu`] for shortest round-trip-safe
 ///   representation. NaN and Inf are emitted as `NaN` / `Infinity` / `-Infinity`
-///   (note: openCypher has no literals for these values).
+///   (note: Cypher has no literals for these values).
 /// - **Parentheses** — emitted only for `Expression::Parenthesized` nodes.
 ///   Precedence-based parentheses are NOT added; the output relies on the parser
 ///   having already inserted `Parenthesized` nodes where needed.
@@ -35,12 +35,32 @@ use crate::ast::query::*;
 use crate::ast::schema::*;
 
 pub trait ToCypher {
+    /// Serialise this AST node to a Cypher string.
+    ///
+    /// Keywords are uppercased. Identifiers that require backtick-quoting
+    /// (reserved words or non-alphanumeric characters) are quoted
+    /// automatically. Comments are not preserved.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use cypher::ast::ToCypher;
+    /// use cypher::parse;
+    ///
+    /// let query = parse("MATCH (n) RETURN n;").unwrap();
+    /// assert!(query.to_cypher().starts_with("MATCH"));
+    /// ```
     fn to_cypher(&self) -> String {
         let mut s = String::new();
         let _ = self.write_cypher(&mut s);
         s
     }
 
+    /// Write the Cypher representation of this node into `w`.
+    ///
+    /// Implementors should write exactly the tokens that form this node's
+    /// Cypher text. The caller is responsible for any surrounding whitespace
+    /// or separators.
     fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result;
 
     /// Returns a wrapper that implements [`fmt::Display`], allowing the AST node

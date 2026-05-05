@@ -1,4 +1,9 @@
 //! Lexical scope stack for Cypher variable tracking.
+//!
+//! [`ScopeStack`] models the lexical scoping rules of Cypher. Scopes are
+//! stacked as `WITH` and `RETURN` clauses introduce new variable contexts.
+//! A "barrier" mechanism enforces that clauses after a `WITH` can only see
+//! variables that were explicitly projected by the `WITH`.
 
 use crate::error::Span;
 use std::collections::{HashMap, HashSet};
@@ -6,44 +11,49 @@ use std::collections::{HashMap, HashSet};
 /// What kind of symbol a variable represents.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SymbolKind {
-    /// Introduced by MATCH pattern binding.
+    /// Introduced by a `MATCH` pattern binding.
     PatternBound,
-    /// Introduced by UNWIND.
+    /// Introduced by `UNWIND … AS variable`.
     UnwindBound,
-    /// Introduced by WITH … AS alias.
+    /// Introduced by `WITH … AS alias`.
     WithAlias,
-    /// Introduced by RETURN … AS alias.
+    /// Introduced by `RETURN … AS alias`.
     ReturnAlias,
-    /// Introduced by CALL … YIELD … AS alias.
+    /// Introduced by `CALL … YIELD … AS alias`.
     YieldAlias,
-    /// Introduced by FOREACH loop variable.
+    /// Introduced by `FOREACH (variable IN list | …)`.
     ForeachVar,
-    /// Introduced by comprehension (list/pattern/ANY/ALL/etc.).
+    /// Introduced by a comprehension (`[x IN list | …]`, `ALL(x IN …)`, etc.).
     ComprehensionVar,
     /// A raw variable reference (not a binding).
     Reference,
 }
 
-/// A single symbol entry.
+/// A single symbol entry in a scope.
 #[derive(Debug, Clone)]
 pub struct SymbolEntry {
+    /// The role in which this symbol was introduced.
     pub kind: SymbolKind,
+    /// The source location at which the symbol was bound.
     pub span: Span,
 }
 
-/// A stack of lexical scopes.
+/// A stack of lexical scopes for variable resolution.
 ///
-/// Each scope is a `HashMap<String, (SymbolKind, Span)>`.
-/// Push/pop maps to WITH / RETURN boundaries.
+/// Each scope is a `HashMap<String, SymbolEntry>`. Scopes are pushed and
+/// popped at clause boundaries. "Barriers" prevent resolution from looking
+/// through `WITH`-projected scope boundaries.
 #[derive(Debug, Clone)]
 pub struct ScopeStack {
+    /// The scope stack, innermost last.
     scopes: Vec<HashMap<String, SymbolEntry>>,
-    /// Barriers mark scope boundaries (e.g. after WITH). Resolution only
-    /// searches scopes from the topmost barrier onward.
+    /// Barriers mark the outermost scope that is visible from the current
+    /// position. Resolution only searches scopes at index ≥ the top barrier.
     barriers: Vec<usize>,
 }
 
 impl ScopeStack {
+    /// Create a new scope stack with one empty base scope.
     pub fn new() -> Self {
         Self {
             scopes: vec![HashMap::new()],
@@ -171,6 +181,8 @@ mod tests {
     use crate::error::Span;
 
     #[test]
+    /// Popping a pushed scope should leave the base scope intact so that
+    /// bindings in the base scope are still accessible.
     fn pop_scope_preserves_base_scope() {
         let mut scopes = ScopeStack::new();
         scopes.push_scope();

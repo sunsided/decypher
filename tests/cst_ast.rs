@@ -1,7 +1,16 @@
+//! Integration tests for the rowan-based typed CST (`cypher::cst`).
+//!
+//! These tests verify that CST nodes can be cast to the expected typed
+//! wrappers and that specific fields and child nodes are accessible.
+
 use assert2::check;
 use cypher::cst::{AstNode, BinOp, BinaryExpr, Expression, UnOp, UnaryExpr, parse};
 
-/// Every sample query from tests/smoke.rs parses and casts to SourceFile.
+/// Every sample query parses and can be cast to a `SourceFile` CST node.
+///
+/// Unit: `cypher::cst::SourceFile::cast`
+/// Precondition: A set of common Cypher queries.
+/// Expectation: All queries produce a `Some(SourceFile)` on cast.
 #[test]
 fn smoke_queries_cast_to_source_file() {
     let queries = [
@@ -28,6 +37,7 @@ fn smoke_queries_cast_to_source_file() {
     }
 }
 
+/// Walk to the first `MATCH` clause in the first statement of `source`.
 fn find_match_clause(source: &cypher::cst::SourceFile) -> Option<cypher::cst::MatchClause> {
     for clause in source.statements().next()?.clauses() {
         if let cypher::cst::Clause::Match(m) = clause {
@@ -37,6 +47,7 @@ fn find_match_clause(source: &cypher::cst::SourceFile) -> Option<cypher::cst::Ma
     None
 }
 
+/// Walk to the first `RETURN` clause in the first statement of `source`.
 fn find_return_clause(source: &cypher::cst::SourceFile) -> Option<cypher::cst::ReturnClause> {
     for clause in source.statements().next()?.clauses() {
         if let cypher::cst::Clause::Return(r) = clause {
@@ -46,6 +57,7 @@ fn find_return_clause(source: &cypher::cst::SourceFile) -> Option<cypher::cst::R
     None
 }
 
+/// Walk to the first `DELETE` clause in the first statement of `source`.
 fn find_delete_clause(source: &cypher::cst::SourceFile) -> Option<cypher::cst::DeleteClause> {
     for clause in source.statements().next()?.clauses() {
         if let cypher::cst::Clause::Delete(d) = clause {
@@ -55,6 +67,7 @@ fn find_delete_clause(source: &cypher::cst::SourceFile) -> Option<cypher::cst::D
     None
 }
 
+/// Walk to the first `SET` clause in the first statement of `source`.
 fn find_set_clause(source: &cypher::cst::SourceFile) -> Option<cypher::cst::SetClause> {
     for clause in source.statements().next()?.clauses() {
         if let cypher::cst::Clause::Set(s) = clause {
@@ -64,6 +77,7 @@ fn find_set_clause(source: &cypher::cst::SourceFile) -> Option<cypher::cst::SetC
     None
 }
 
+/// Walk to the first `UNWIND` clause in the first statement of `source`.
 fn find_unwind_clause(source: &cypher::cst::SourceFile) -> Option<cypher::cst::UnwindClause> {
     for clause in source.statements().next()?.clauses() {
         if let cypher::cst::Clause::Unwind(u) = clause {
@@ -73,6 +87,7 @@ fn find_unwind_clause(source: &cypher::cst::SourceFile) -> Option<cypher::cst::U
     None
 }
 
+/// Walk to the first `CREATE` clause in the first statement of `source`.
 fn find_create_clause(source: &cypher::cst::SourceFile) -> Option<cypher::cst::CreateClause> {
     for clause in source.statements().next()?.clauses() {
         if let cypher::cst::Clause::Create(c) = clause {
@@ -82,6 +97,7 @@ fn find_create_clause(source: &cypher::cst::SourceFile) -> Option<cypher::cst::C
     None
 }
 
+/// Walk to the first `MERGE` clause in the first statement of `source`.
 fn find_merge_clause(source: &cypher::cst::SourceFile) -> Option<cypher::cst::MergeClause> {
     for clause in source.statements().next()?.clauses() {
         if let cypher::cst::Clause::Merge(m) = clause {
@@ -91,6 +107,7 @@ fn find_merge_clause(source: &cypher::cst::SourceFile) -> Option<cypher::cst::Me
     None
 }
 
+/// Walk to the first `REMOVE` clause in the first statement of `source`.
 fn find_remove_clause(source: &cypher::cst::SourceFile) -> Option<cypher::cst::RemoveClause> {
     for clause in source.statements().next()?.clauses() {
         if let cypher::cst::Clause::Remove(r) = clause {
@@ -100,6 +117,11 @@ fn find_remove_clause(source: &cypher::cst::SourceFile) -> Option<cypher::cst::R
     None
 }
 
+/// Verify CST shape for: match clause pattern parts.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn match_clause_pattern_parts() {
     let result = parse("MATCH (n:Person) RETURN n.name");
@@ -115,6 +137,11 @@ fn match_clause_pattern_parts() {
     check!(parts.len() == 1);
 }
 
+/// Verify CST shape for: match clause with label.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn match_clause_with_label() {
     let result = parse("MATCH (n:Person) RETURN n.name");
@@ -129,6 +156,11 @@ fn match_clause_with_label() {
     check!(labels.len() == 1);
 }
 
+/// Verify CST shape for: return clause projection.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn return_clause_projection() {
     let result = parse("RETURN 1 + 2");
@@ -140,6 +172,11 @@ fn return_clause_projection() {
     check!(items.len() == 1);
 }
 
+/// Verify CST shape for: binary expr add.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn binary_expr_add() {
     let result = parse("RETURN 1 + 2");
@@ -155,6 +192,11 @@ fn binary_expr_add() {
     check!(bin.op_kind() == Some(BinOp::Add));
 }
 
+/// Verify CST shape for: binary expr mul precedence.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn binary_expr_mul_precedence() {
     let result = parse("RETURN 1 + 2 * 3");
@@ -178,6 +220,11 @@ fn binary_expr_mul_precedence() {
     check!(mul.op_kind() == Some(BinOp::Mul));
 }
 
+/// Verify CST shape for: unary expr not.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn unary_expr_not() {
     let result = parse("RETURN NOT true");
@@ -193,6 +240,11 @@ fn unary_expr_not() {
     check!(unary.op() == Some(UnOp::Not));
 }
 
+/// Verify CST shape for: comparison expr.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn comparison_expr() {
     let result = parse("RETURN n.age > 18");
@@ -208,6 +260,11 @@ fn comparison_expr() {
     check!(bin.op_kind() == Some(BinOp::Gt));
 }
 
+/// Verify CST shape for: roundtrip text.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn roundtrip_text() {
     let inputs = [
@@ -226,6 +283,11 @@ fn roundtrip_text() {
     }
 }
 
+/// Verify CST shape for: can cast non matching returns none.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn can_cast_non_matching_returns_none() {
     use cypher::syntax::{CypherLang, SyntaxNode};
@@ -249,6 +311,11 @@ fn can_cast_non_matching_returns_none() {
     check!(cypher::cst::SourceFile::can_cast(cypher::syntax::SyntaxKind::SOURCE_FILE) == true);
 }
 
+/// Verify CST shape for: delete clause with detach.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn delete_clause_with_detach() {
     let result = parse("MATCH (n) DETACH DELETE n");
@@ -259,6 +326,11 @@ fn delete_clause_with_detach() {
     check!(exprs.len() == 1);
 }
 
+/// Verify CST shape for: set clause items.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn set_clause_items() {
     let result = parse("MATCH (n) SET n.name = 'Alice'");
@@ -270,6 +342,11 @@ fn set_clause_items() {
     check!(item.eq_token().is_some());
 }
 
+/// Verify CST shape for: where clause in match.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn where_clause_in_match() {
     let result = parse("MATCH (n) WHERE n.age > 18 RETURN n");
@@ -278,6 +355,11 @@ fn where_clause_in_match() {
     check!(match_clause.where_clause().is_some());
 }
 
+/// Verify CST shape for: function invocation.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn function_invocation() {
     let result = parse("RETURN count(n)");
@@ -294,6 +376,11 @@ fn function_invocation() {
     }
 }
 
+/// Verify CST shape for: list literal elements.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn list_literal_elements() {
     let result = parse("RETURN [1, 2, 3]");
@@ -311,6 +398,11 @@ fn list_literal_elements() {
     }
 }
 
+/// Verify CST shape for: map literal entries.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn map_literal_entries() {
     let result = parse("RETURN {key: 'value'}");
@@ -328,6 +420,11 @@ fn map_literal_entries() {
     }
 }
 
+/// Verify CST shape for: starts with expr.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn starts_with_expr() {
     let result = parse("RETURN name STARTS WITH 'A'");
@@ -343,6 +440,11 @@ fn starts_with_expr() {
     check!(bin.op_kind() == Some(BinOp::StartsWith));
 }
 
+/// Verify CST shape for: is null expr.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn is_null_expr() {
     let result = parse("RETURN x IS NULL");
@@ -358,6 +460,11 @@ fn is_null_expr() {
     check!(bin.op_kind() == Some(BinOp::IsNull));
 }
 
+/// Verify CST shape for: is not null expr.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn is_not_null_expr() {
     let result = parse("RETURN x IS NOT NULL");
@@ -373,6 +480,11 @@ fn is_not_null_expr() {
     check!(bin.op_kind() == Some(BinOp::IsNotNull));
 }
 
+/// Verify CST shape for: parenthesized expr.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn parenthesized_expr() {
     let result = parse("RETURN (1 + 2) * 3");
@@ -395,6 +507,11 @@ fn parenthesized_expr() {
     }
 }
 
+/// Verify CST shape for: unwind clause.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn unwind_clause() {
     let result = parse("UNWIND [1, 2, 3] AS x RETURN x");
@@ -404,6 +521,11 @@ fn unwind_clause() {
     check!(unwind.as_name().is_some());
 }
 
+/// Verify CST shape for: create clause.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn create_clause() {
     let result = parse("CREATE (n:Person {name: 'Alice'})");
@@ -412,6 +534,11 @@ fn create_clause() {
     check!(create.pattern().is_some());
 }
 
+/// Verify CST shape for: merge clause.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn merge_clause() {
     let result = parse("MERGE (n:Person {name: 'Alice'}) ON CREATE SET n.created = timestamp()");
@@ -422,6 +549,11 @@ fn merge_clause() {
     check!(actions.len() >= 1);
 }
 
+/// Verify CST shape for: remove clause.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn remove_clause() {
     let result = parse("MATCH (n) REMOVE n.name");
@@ -469,6 +601,11 @@ fn find_call_subquery(source: &cypher::cst::SourceFile) -> Option<cypher::cst::C
     None
 }
 
+/// Verify CST shape for: foreach clause.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn foreach_clause() {
     let result = parse("MATCH (n) FOREACH (x IN [1,2,3] | SET n.val = x) RETURN n");
@@ -480,6 +617,11 @@ fn foreach_clause() {
     check!(clauses.len() >= 1);
 }
 
+/// Verify CST shape for: debug cst dump.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn debug_cst_dump() {
     let result = parse("MATCH (n) WHERE EXISTS { (n)-->(m) } RETURN n");
@@ -504,6 +646,11 @@ fn debug_cst_dump() {
     dump(source.syntax(), 0);
 }
 
+/// Verify CST shape for: relationships pattern can cast.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn relationships_pattern_can_cast() {
     use cypher::syntax::SyntaxKind;
@@ -518,6 +665,11 @@ fn relationships_pattern_can_cast() {
     ));
 }
 
+/// Verify CST shape for: yield items star.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn yield_items_star() {
     let result = parse("MATCH (n) CALL apoc.load.json('url') YIELD value RETURN value");
@@ -531,6 +683,11 @@ fn yield_items_star() {
     check!(!items.is_empty());
 }
 
+/// Verify CST shape for: yield item with alias.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn yield_item_with_alias() {
     let result = parse("MATCH (n) CALL apoc.load.json('url') YIELD value AS v RETURN v");
@@ -544,6 +701,11 @@ fn yield_item_with_alias() {
     check!(item.field_name().is_some());
 }
 
+/// Verify CST shape for: standalone call with yield.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn standalone_call_with_yield() {
     let result = parse("MATCH (n) CALL db.labels() YIELD label RETURN label");
@@ -552,6 +714,11 @@ fn standalone_call_with_yield() {
     check!(call.implicit_invocation().is_some());
 }
 
+/// Verify CST shape for: implicit procedure invocation.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn implicit_procedure_invocation() {
     let result = parse("CALL db.labels");
@@ -562,6 +729,11 @@ fn implicit_procedure_invocation() {
     check!(implicit.procedure_name().is_some());
 }
 
+/// Verify CST shape for: in query call.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn in_query_call() {
     let result = parse("MATCH (n) YIELD foo RETURN n");
@@ -570,6 +742,11 @@ fn in_query_call() {
     check!(in_query.yield_items().is_some());
 }
 
+/// Verify CST shape for: call subquery with in transactions.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn call_subquery_with_in_transactions() {
     let result = parse("MATCH (n) CALL { RETURN n } IN TRANSACTIONS OF 1000 ROWS");
@@ -580,6 +757,11 @@ fn call_subquery_with_in_transactions() {
     check!(in_tx.rows_expr().is_some());
 }
 
+/// Verify CST shape for: call subquery with on error continue.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn call_subquery_with_on_error_continue() {
     let result = parse("MATCH (n) CALL { RETURN n } IN TRANSACTIONS ON ERROR CONTINUE");
@@ -591,6 +773,11 @@ fn call_subquery_with_on_error_continue() {
     check!(action.text() == "CONTINUE");
 }
 
+/// Verify CST shape for: show clause with kind.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn show_clause_with_kind() {
     let result = parse("SHOW INDEXES");
@@ -603,6 +790,11 @@ fn show_clause_with_kind() {
     check!(show.kind().is_some());
 }
 
+/// Verify CST shape for: use clause.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn use_clause() {
     let result = parse("USE mydb");
@@ -617,6 +809,11 @@ fn use_clause() {
     check!(schema_name.symbolic_name().is_some());
 }
 
+/// Verify CST shape for: union all.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn union_all() {
     let result = parse("MATCH (n:Person) RETURN n.name UNION ALL MATCH (m:Company) RETURN m.name");
@@ -630,6 +827,11 @@ fn union_all() {
     check!(union.all_token().is_some());
 }
 
+/// Verify CST shape for: create index.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn create_index() {
     let result = parse("CREATE INDEX my_index FOR (n:Person) ON (n.name)");
@@ -644,6 +846,11 @@ fn create_index() {
     check!(ci.name().is_some());
 }
 
+/// Verify CST shape for: create index if not exists.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn create_index_if_not_exists() {
     let result = parse("CREATE INDEX IF NOT EXISTS my_index FOR (n:Person) ON (n.name)");
@@ -656,6 +863,11 @@ fn create_index_if_not_exists() {
     check!(ci.if_not_exists() == true);
 }
 
+/// Verify CST shape for: drop index.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn drop_index() {
     let result = parse("DROP INDEX my_index");
@@ -670,6 +882,11 @@ fn drop_index() {
     check!(di.if_exists() == false);
 }
 
+/// Verify CST shape for: drop index if exists.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn drop_index_if_exists() {
     let result = parse("DROP INDEX my_index IF EXISTS");
@@ -682,6 +899,11 @@ fn drop_index_if_exists() {
     check!(di.if_exists() == true);
 }
 
+/// Verify CST shape for: create constraint.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn create_constraint() {
     let result = parse("CREATE CONSTRAINT my_constraint FOR (n:Person) REQUIRE n.name IS UNIQUE");
@@ -693,6 +915,11 @@ fn create_constraint() {
     check!(cc.is_some(), "CreateConstraint found");
 }
 
+/// Verify CST shape for: drop constraint.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn drop_constraint() {
     let result = parse("DROP CONSTRAINT my_constraint IF EXISTS");
@@ -706,6 +933,11 @@ fn drop_constraint() {
     check!(dc.if_exists() == true);
 }
 
+/// Verify CST shape for: debug cst dump rel.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn debug_cst_dump_rel() {
     let result = parse("MATCH (a)-[r]->(b) RETURN a, r, b");
@@ -764,6 +996,11 @@ fn debug_cst_dump_rel2() {
         );
     }
 }
+/// Verify CST shape for: debug cst dump case.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn debug_cst_dump_case() {
     let result = parse("MATCH (n) RETURN CASE WHEN n.active THEN 'yes' ELSE 'no' END");
@@ -788,6 +1025,11 @@ fn debug_cst_dump_case() {
     dump(source.syntax(), 0);
 }
 
+/// Verify CST shape for: debug cst dump is not null.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn debug_cst_dump_is_not_null() {
     let result = parse("RETURN x IS NOT NULL");
@@ -831,6 +1073,11 @@ fn debug_cst_dump_is_not_null() {
     }
 }
 
+/// Verify CST shape for: debug cst dump null.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn debug_cst_dump_null() {
     let result = parse("RETURN null;");
@@ -875,6 +1122,11 @@ fn debug_cst_dump_null() {
     }
 }
 
+/// Verify CST shape for: constraint composite node key.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn constraint_composite_node_key() {
     use cypher::cst::parse as cst_parse;
@@ -912,6 +1164,11 @@ fn constraint_composite_node_key() {
     }
 }
 
+/// Verify CST shape for: index label alternatives.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn index_label_alternatives() {
     use cypher::cst::parse as cst_parse;
@@ -940,6 +1197,11 @@ fn index_label_alternatives() {
     }
 }
 
+/// Verify CST shape for: index relationship type alternatives.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn index_relationship_type_alternatives() {
     use cypher::cst::parse as cst_parse;
@@ -972,6 +1234,11 @@ fn index_relationship_type_alternatives() {
     }
 }
 
+/// Verify CST shape for: collect subquery expr.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn collect_subquery_expr() {
     use cypher::cst::parse as cst_parse;
@@ -994,6 +1261,11 @@ fn collect_subquery_expr() {
     );
 }
 
+/// Verify CST shape for: count subquery expr.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn count_subquery_expr() {
     use cypher::cst::parse as cst_parse;
@@ -1016,6 +1288,11 @@ fn count_subquery_expr() {
     );
 }
 
+/// Verify CST shape for: label expression cst nodes.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn label_expression_cst_nodes() {
     use cypher::cst::parse as cst_parse;
@@ -1052,6 +1329,11 @@ fn label_expression_cst_nodes() {
     check!(not_nodes.len() >= 1);
 }
 
+/// Verify CST shape for: quantified path pattern cst node.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn quantified_path_pattern_cst_node() {
     use cypher::cst::parse as cst_parse;
@@ -1074,6 +1356,11 @@ fn quantified_path_pattern_cst_node() {
     );
 }
 
+/// Verify CST shape for: dynamic label cst node.
+///
+/// Unit: rowan CST typed wrappers
+/// Precondition: Valid Cypher input.
+/// Expectation: Expected CST node types are present.
 #[test]
 fn dynamic_label_cst_node() {
     use cypher::cst::parse as cst_parse;

@@ -1,4 +1,4 @@
-//! AST visitor traits for openCypher query trees.
+//! AST visitor traits for Cypher query trees.
 //!
 //! This module provides two traits for traversing the AST:
 //! - [`Visit`] — immutable read-only traversal

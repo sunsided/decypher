@@ -1,5 +1,37 @@
-//! open-cypher — parse openCypher queries into a typed AST.
-#![allow(missing_docs)]
+//! A Rust library for parsing Cypher queries into a typed AST.
+//!
+//! # Overview
+//!
+//! This crate exposes three levels of representation for a Cypher query
+//! string:
+//!
+//! 1. **CST** – a lossless concrete syntax tree built on [rowan], available
+//!    via [`parse_cst`] and the [`cst`] module.
+//! 2. **AST** – a typed, high-level abstract syntax tree, available via
+//!    [`parse`] and the [`ast`] module.
+//! 3. **HIR** – a lowered, scope-resolved high-level intermediate
+//!    representation, available via [`analyze`] and the [`hir`] module.
+//!
+//! # Quick start
+//!
+//! ```
+//! use cypher::parse;
+//!
+//! let query = parse("MATCH (n:Person) RETURN n.name").unwrap();
+//! println!("{} statement(s)", query.statements.len());
+//! ```
+//!
+//! For multi-error recovery use [`parse_all`]:
+//!
+//! ```
+//! use cypher::parse_all;
+//!
+//! let (query, diagnostics) = parse_all("RETURN;");
+//! assert!(query.is_none());
+//! assert!(!diagnostics.is_empty());
+//! ```
+//!
+//! [rowan]: https://docs.rs/rowan
 
 pub mod ast;
 pub mod error;
@@ -65,11 +97,49 @@ impl TryFrom<&str> for Query {
 }
 
 /// Parse a Cypher query string into a typed [`Query`] AST.
+///
+/// Returns `Ok(Query)` on success. On the first parse error the function
+/// returns `Err(CypherError)` with position information and diagnostic notes.
+/// For collecting *all* errors in one pass, use [`parse_all`].
+///
+/// # Errors
+///
+/// Returns [`CypherError`] when the input is empty, syntactically invalid, or
+/// contains unsupported grammar constructs.
+///
+/// # Example
+///
+/// ```
+/// use cypher::parse;
+///
+/// let query = parse("MATCH (n:Person) RETURN n.name").unwrap();
+/// assert_eq!(query.statements.len(), 1);
+/// ```
 pub fn parse(input: &str) -> Result<Query> {
     parse_with_label(input, "query")
 }
 
-/// Parse a Cypher query string with a source label for diagnostics.
+/// Parse a Cypher query string with an explicit source label used in diagnostics.
+///
+/// The `label` is stored in any [`CypherError`] produced, allowing consumers to
+/// display the originating file or source name alongside error messages.
+///
+/// # Errors
+///
+/// Returns [`CypherError`] on any parse or AST-construction error.
+///
+/// # Example
+///
+/// ```
+/// use cypher::parse_with_label;
+///
+/// let result = parse_with_label("RETURN 1", "my_script.cypher");
+/// assert!(result.is_ok());
+///
+/// let result = parse_with_label("RETURN;", "my_script.cypher");
+/// let err = result.unwrap_err();
+/// assert_eq!(err.source_label(), Some("my_script.cypher"));
+/// ```
 pub fn parse_with_label(input: &str, label: impl Into<Arc<str>>) -> Result<Query> {
     use crate::syntax::ast::AstNode;
     use crate::syntax::ast::top_level::SourceFile;
@@ -116,7 +186,26 @@ pub fn parse_with_label(input: &str, label: impl Into<Arc<str>>) -> Result<Query
     })
 }
 
-/// Parse a Cypher query string, returning all diagnostics found.
+/// Parse a Cypher query string in error-recovery mode, returning all
+/// diagnostics discovered during parsing.
+///
+/// Unlike [`parse`], this function does not stop at the first error; it
+/// attempts to resynchronise at statement boundaries and continue. The
+/// returned `Option<Query>` is `Some` only when a statement was successfully
+/// parsed *after* the last resynchronisation point. A valid statement that
+/// appears before a later syntax error does not guarantee `Some`: the
+/// implementation keeps only the successfully parsed suffix after recovery,
+/// not any valid prefix.
+///
+/// # Example
+///
+/// ```
+/// use cypher::parse_all;
+///
+/// let (query, diagnostics) = parse_all("RETURN;");
+/// assert!(query.is_none());
+/// assert!(!diagnostics.is_empty());
+/// ```
 pub fn parse_all(input: &str) -> (Option<Query>, Diagnostics) {
     parse_with_options(
         input,
@@ -131,26 +220,46 @@ pub fn parse_all(input: &str) -> (Option<Query>, Diagnostics) {
 ///
 /// This returns the raw [`Parse`] result containing the concrete syntax tree
 /// and any parser diagnostics. For the typed AST, use [`parse`] instead.
+///
+/// # Example
+///
+/// ```
+/// use cypher::parse_cst;
+///
+/// let cst = parse_cst("MATCH (n) RETURN n");
+/// assert!(cst.errors.is_empty());
+/// ```
 pub fn parse_cst(input: &str) -> Parse {
     crate::parser::parse(input)
 }
 
-/// Parse and lower a Cypher query into a HIR [`HirQuery`].
+/// Parse and lower a Cypher query into a [`hir::HirQuery`].
+///
+/// This is a convenience function that chains [`parse`] and
+/// [`hir::lower::lower`]. It performs syntax parsing, AST construction, and
+/// HIR lowering (scope resolution, graph pattern normalisation) in a single
+/// call. Returns the first [`CypherError`] on failure.
 ///
 /// The input can be either a `&str` (which will be parsed via [`parse`]) or an
 /// already-parsed [`Query`] (which is used as-is, skipping the parse step).
 ///
+/// # Errors
+///
+/// Returns the first error encountered during parsing or HIR lowering.
+///
 /// # Example: from a string
 ///
-/// ```rust
+/// ```
 /// let hir = cypher::analyze("MATCH (n:Person) RETURN n.name").unwrap();
+/// assert!(!hir.parts.is_empty());
 /// ```
 ///
 /// # Example: from a previously parsed AST
 ///
-/// ```rust
+/// ```
 /// let query = cypher::parse("MATCH (n:Person) RETURN n.name").unwrap();
 /// let hir = cypher::analyze(query).unwrap();
+/// assert!(!hir.parts.is_empty());
 /// ```
 pub fn analyze<T>(input: T) -> Result<hir::HirQuery>
 where

@@ -1,5 +1,28 @@
+//! Syntactic vocabulary for the Cypher lossless CST.
+//!
+//! This module defines [`SyntaxKind`], the token and node kind enum used by
+//! the rowan CST, and [`CypherLang`], the rowan [`Language`] impl that maps
+//! between `SyntaxKind` and rowan's raw `u16` IDs.
+//!
+//! It also re-exports the [`SyntaxNode`] and [`SyntaxToken`] type aliases
+//! used throughout the parser and CST traversal code.
+//!
+//! # Sub-modules
+//!
+//! The [`ast`] sub-module provides typed newtype wrappers over raw rowan
+//! nodes for all Cypher grammar productions (clauses, expressions,
+//! patterns, etc.).
+
 use rowan::Language;
 
+/// All token and internal-node kinds used in the Cypher CST.
+///
+/// Token kinds represent leaf tokens (whitespace, punctuation, literals,
+/// keywords). Internal-node kinds represent non-leaf grammar productions
+/// (statements, expressions, patterns, etc.).
+///
+/// The enum is `#[repr(u16)]` so that values can be stored and compared
+/// efficiently, and it implements [`rowan::Language`] through [`CypherLang`].
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 #[repr(u16)]
 #[allow(non_camel_case_types)]
@@ -292,6 +315,9 @@ pub enum SyntaxKind {
 }
 
 impl SyntaxKind {
+    /// Convert a raw `u16` token id into a [`SyntaxKind`].
+    ///
+    /// Returns [`SyntaxKind::ERROR`] for values that are out of range.
     pub fn from(raw: u16) -> Self {
         if raw <= Self::ERROR as u16 {
             unsafe { std::mem::transmute::<u16, SyntaxKind>(raw) }
@@ -300,11 +326,16 @@ impl SyntaxKind {
         }
     }
 
+    /// Convert this kind into its raw `u16` discriminant.
     pub fn into_u16(self) -> u16 {
         self as u16
     }
 }
 
+/// The rowan [`Language`] marker for Cypher.
+///
+/// Bridges between [`SyntaxKind`] and the raw `u16` IDs stored in
+/// rowan's generic CST.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct CypherLang;
 
@@ -320,12 +351,19 @@ impl Language for CypherLang {
     }
 }
 
+/// A concrete syntax-tree node typed with [`CypherLang`].
 pub type SyntaxNode = rowan::SyntaxNode<CypherLang>;
+/// A syntax token typed with [`CypherLang`].
 pub type SyntaxToken = rowan::SyntaxToken<CypherLang>;
+/// A syntax element (either a node or a token) typed with [`CypherLang`].
 pub type SyntaxElement = rowan::SyntaxElement<CypherLang>;
+/// An iterator over the children of a [`SyntaxNode`].
 pub type SyntaxNodeChildren = rowan::SyntaxNodeChildren<CypherLang>;
+/// An iterator over element children (nodes and tokens) of a [`SyntaxNode`].
 pub type SyntaxElementChildren = rowan::SyntaxElementChildren<CypherLang>;
+/// A pre-order traversal iterator over [`SyntaxNode`]s.
 pub type Preorder = rowan::api::Preorder<CypherLang>;
+/// A pre-order traversal iterator that also yields [`SyntaxToken`]s.
 pub type PreorderWithTokens = rowan::api::PreorderWithTokens<CypherLang>;
 
 pub mod ast;

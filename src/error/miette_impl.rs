@@ -1,4 +1,9 @@
-//! Optional `miette::Diagnostic` implementation for `CypherError`.
+//! Optional `miette::Diagnostic` implementation for [`CypherError`].
+//!
+//! Compiled only when the `miette` feature is enabled. Provides a
+//! [`miette::Report`] conversion and the full `Diagnostic` trait
+//! implementation, allowing `CypherError` to be used with miette's
+//! `GraphicalReportHandler` and `NarratableReportHandler`.
 
 #[cfg(feature = "miette")]
 pub use miette_impl::*;
@@ -41,6 +46,11 @@ mod miette_impl {
     }
 
     impl CypherError {
+        /// Convert this error into a [`miette::Report`].
+        ///
+        /// If the error carries a source string, the report is attached to a
+        /// [`NamedSource`] so that miette's renderers can display the
+        /// annotated source snippet.
         pub fn to_report(&self) -> miette::Report {
             if let Some(ref src) = self.source {
                 let label = self.source_label.as_deref().unwrap_or("query");
