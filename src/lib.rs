@@ -96,7 +96,55 @@ impl TryFrom<&str> for Query {
     }
 }
 
-/// Parse a Cypher query string into a typed [`Query`] AST.
+impl From<&String> for Parse {
+    fn from(input: &String) -> Self {
+        Parse::from(input.as_str())
+    }
+}
+
+impl From<String> for Parse {
+    fn from(input: String) -> Self {
+        Parse::from(input.as_str())
+    }
+}
+
+impl From<&str> for Parse {
+    /// Build a [`Parse`] (CST) from a Cypher source string.
+    ///
+    /// If the input is empty or consists only of whitespace an [`ErrorKind::EmptyInput`]
+    /// diagnostic is injected into the returned [`Parse::errors`] so that the
+    /// usual error-checking path in [`parse`] / [`parse_with_label`] handles it
+    /// uniformly.  For non-empty input the source text is stored inside the
+    /// [`Parse`] so that error messages can include the original snippet even
+    /// when the caller only has access to the final [`Parse`] value.
+    fn from(input: &str) -> Self {
+        let source: Arc<str> = Arc::from(input);
+        let mut parse = crate::parser::parse(input);
+        parse.source = Some(source.clone());
+        if input.trim().is_empty() {
+            parse.errors.push(CypherError {
+                kind: ErrorKind::EmptyInput,
+                span: Span::new(0, 0),
+                source_label: None,
+                notes: Vec::new(),
+                source: Some(source),
+            });
+        } else {
+            for err in &mut parse.errors {
+                if err.source.is_none() {
+                    err.source = Some(source.clone());
+                }
+            }
+        }
+        parse
+    }
+}
+
+/// Parse a Cypher query into a typed [`Query`] AST.
+///
+/// The input can be either a `&str` (which will be parsed into a CST on the
+/// fly) or an already-parsed [`Parse`] CST (which is used as-is, skipping the
+/// lexer/parser step).
 ///
 /// Returns `Ok(Query)` on success. On the first parse error the function
 /// returns `Err(CypherError)` with position information and diagnostic notes.
@@ -107,7 +155,7 @@ impl TryFrom<&str> for Query {
 /// Returns [`CypherError`] when the input is empty, syntactically invalid, or
 /// contains unsupported grammar constructs.
 ///
-/// # Example
+/// # Example: from a string
 ///
 /// ```
 /// use cypher::parse;
@@ -115,11 +163,27 @@ impl TryFrom<&str> for Query {
 /// let query = parse("MATCH (n:Person) RETURN n.name").unwrap();
 /// assert_eq!(query.statements.len(), 1);
 /// ```
-pub fn parse(input: &str) -> Result<Query> {
+///
+/// # Example: from a pre-built CST
+///
+/// ```
+/// let cst = cypher::parse_cst("MATCH (n:Person) RETURN n.name");
+/// let query = cypher::parse(cst).unwrap();
+/// assert_eq!(query.statements.len(), 1);
+/// ```
+pub fn parse<T>(input: T) -> Result<Query>
+where
+    T: Into<Parse>,
+{
     parse_with_label(input, "query")
 }
 
-/// Parse a Cypher query string with an explicit source label used in diagnostics.
+/// Parse a Cypher query into a typed [`Query`] AST with an explicit source label
+/// used in diagnostics.
+///
+/// The input can be either a `&str` (which will be parsed into a CST on the
+/// fly) or an already-parsed [`Parse`] CST (which is used as-is, skipping the
+/// lexer/parser step).
 ///
 /// The `label` is stored in any [`CypherError`] produced, allowing consumers to
 /// display the originating file or source name alongside error messages.
@@ -128,7 +192,7 @@ pub fn parse(input: &str) -> Result<Query> {
 ///
 /// Returns [`CypherError`] on any parse or AST-construction error.
 ///
-/// # Example
+/// # Example: from a string
 ///
 /// ```
 /// use cypher::parse_with_label;
@@ -140,31 +204,29 @@ pub fn parse(input: &str) -> Result<Query> {
 /// let err = result.unwrap_err();
 /// assert_eq!(err.source_label(), Some("my_script.cypher"));
 /// ```
-pub fn parse_with_label(input: &str, label: impl Into<Arc<str>>) -> Result<Query> {
+///
+/// # Example: from a pre-built CST
+///
+/// ```
+/// let cst = cypher::parse_cst("RETURN 1");
+/// let result = cypher::parse_with_label(cst, "my_script.cypher");
+/// assert!(result.is_ok());
+/// ```
+pub fn parse_with_label<T>(input: T, label: impl Into<Arc<str>>) -> Result<Query>
+where
+    T: Into<Parse>,
+{
     use crate::syntax::ast::AstNode;
     use crate::syntax::ast::top_level::SourceFile;
 
-    if input.trim().is_empty() {
-        return Err(CypherError {
-            kind: ErrorKind::EmptyInput,
-            span: Span::new(0, 0),
-            source_label: Some(label.into()),
-            notes: Vec::new(),
-            source: Some(Arc::from(input)),
-        });
-    }
-
     let source: Arc<str> = label.into();
-    let original_source: Arc<str> = Arc::from(input);
-
-    let parse = crate::parser::parse(input);
+    let parse = input.into();
+    let original_source = parse.source.clone();
 
     if !parse.errors.is_empty() {
         let mut err = parse.errors.into_iter().next().unwrap();
         err.source_label = Some(source.clone());
-        if err.source.is_none() {
-            err.source = Some(original_source.clone());
-        }
+        err.source = err.source.or(original_source.clone());
         return Err(err);
     }
 
@@ -175,13 +237,11 @@ pub fn parse_with_label(input: &str, label: impl Into<Arc<str>>) -> Result<Query
         span: Span::new(0, 0),
         source_label: Some(source.clone()),
         notes: Vec::new(),
-        source: Some(original_source.clone()),
+        source: original_source.clone(),
     })?;
     crate::ast::build_cst::build_source_file(source_file).map_err(|mut e| {
         e.source_label = e.source_label.or_else(|| Some(source.clone()));
-        if e.source.is_none() {
-            e.source = Some(original_source.clone());
-        }
+        e.source = e.source.or(original_source.clone());
         e
     })
 }
