@@ -1,4 +1,4 @@
-//! High-level intermediate representation (HIR) for openCypher queries.
+//! High-level intermediate representation (HIR) for Cypher queries.
 //!
 //! The HIR is a scope-resolved, normalised representation that sits between
 //! the typed AST ([`crate::ast`]) and a hypothetical execution engine. It is

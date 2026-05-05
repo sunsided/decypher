@@ -1,4 +1,4 @@
-//! Graph pattern AST nodes for openCypher queries.
+//! Graph pattern AST nodes for Cypher queries.
 //!
 //! A graph pattern describes the structural shapes that the query engine
 //! matches against the graph. The top-level type is [`Pattern`], which
@@ -180,7 +180,7 @@ pub enum Properties {
 
 /// A label or relationship-type expression, supporting boolean algebra.
 ///
-/// openCypher supports compound label expressions:
+/// Cypher supports compound label expressions:
 /// - `Person` (static)
 /// - `$(labelVar)` (dynamic)
 /// - `Person|Company` (or)

@@ -1,5 +1,5 @@
 //! CST smoke tests: verify that the rowan-based CST path parses
-//! common openCypher queries correctly.
+//! common Cypher queries correctly.
 
 use assert2::check;
 use cypher::parse;

@@ -1,4 +1,4 @@
-//! Typed abstract syntax tree (AST) for openCypher queries.
+//! Typed abstract syntax tree (AST) for Cypher queries.
 //!
 //! This module contains all AST node types produced by the parser and the
 //! internal CST→AST builder that converts the lossless rowan CST into these

@@ -1,4 +1,4 @@
-//! Smoke tests: verify that common openCypher statement forms parse without error.
+//! Smoke tests: verify that common Cypher statement forms parse without error.
 //!
 //! Each test in this module exercises a small, self-contained Cypher fragment
 //! to ensure that the parser accepts it and produces an `Ok` result.

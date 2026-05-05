@@ -1,4 +1,4 @@
-//! Hand-written error-resilient parser for openCypher.
+//! Hand-written error-resilient parser for Cypher.
 //!
 //! This module contains the lexer and grammar rules that produce a lossless CST
 //! backed by `rowan`. This is the only parser in the crate — the public
@@ -6,7 +6,7 @@
 //!
 //! # Diagnostic guarantee
 //!
-//! `Parse::errors` is non-empty when the input is not a well-formed openCypher
+//! `Parse::errors` is non-empty when the input is not a well-formed Cypher
 //! query that the rowan grammar accepts. Every `CypherError` has a byte span
 //! pointing at the offending token and an `Expected` set populated from the
 //! call site that raised it.

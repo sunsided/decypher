@@ -2,7 +2,7 @@
 //!
 //! The HIR decomposes a query into a sequence of [`QueryPart`]s, each of
 //! which is a list of [`Operation`]s executed in order. The operations map
-//! closely to openCypher clauses but use arena IDs instead of AST nodes.
+//! closely to Cypher clauses but use arena IDs instead of AST nodes.
 
 use super::arena::{BindingId, ExprId, FunctionId, ScopeId};
 use super::pattern::GraphPattern;
@@ -23,7 +23,7 @@ pub struct QueryPart {
 
 /// A single pipeline operation.
 ///
-/// Each variant corresponds to one openCypher clause or sub-operation.
+/// Each variant corresponds to one Cypher clause or sub-operation.
 #[derive(Debug, Clone)]
 pub enum Operation {
     /// `MATCH pattern [WHERE …]`

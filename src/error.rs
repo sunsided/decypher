@@ -1,4 +1,4 @@
-//! Rich error types and diagnostics for openCypher parsing.
+//! Rich error types and diagnostics for Cypher parsing.
 //!
 //! This module provides structured error kinds (`ErrorKind`), human-readable
 //! expectations (`Expected`), diagnostic notes (`Note`), and a multi-error

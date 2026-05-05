@@ -1,4 +1,4 @@
-//! Hand-written lexer for openCypher source text.
+//! Hand-written lexer for Cypher source text.
 //!
 //! The lexer converts raw source bytes into a flat sequence of [`Token`]s.
 //! It handles whitespace (including Unicode whitespace), single-line (`//`)
@@ -25,7 +25,7 @@ pub struct Token {
     pub text_len: usize,
 }
 
-/// Incremental hand-written lexer for openCypher.
+/// Incremental hand-written lexer for Cypher.
 ///
 /// Call [`Lexer::advance`] repeatedly until it returns `None` to obtain all
 /// tokens in the source. The lexer never emits `None` until the entire input
@@ -475,7 +475,7 @@ fn is_id_continue(c: char) -> bool {
     unicode_ident::is_xid_continue(c)
 }
 
-/// Return `true` if `c` is considered whitespace by the openCypher spec.
+/// Return `true` if `c` is considered whitespace by the Cypher spec.
 ///
 /// Includes ASCII whitespace and a range of Unicode space separators.
 fn is_whitespace(c: char) -> bool {

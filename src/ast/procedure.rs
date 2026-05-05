@@ -1,6 +1,6 @@
-//! Procedure call AST nodes for openCypher queries.
+//! Procedure call AST nodes for Cypher queries.
 //!
-//! openCypher supports two forms of procedure invocation:
+//! Cypher supports two forms of procedure invocation:
 //! - [`StandaloneCall`]: a top-level `CALL proc()` statement.
 //! - [`InQueryCall`]: an in-query `CALL proc() YIELD …` clause embedded
 //!   inside a larger query.

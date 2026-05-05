@@ -1,4 +1,4 @@
-//! Semantic analysis for openCypher queries.
+//! Semantic analysis for Cypher queries.
 //!
 //! The semantic analyzer performs name resolution, scope tracking, and
 //! aggregation-rule validation over a parsed [`Query`] AST.

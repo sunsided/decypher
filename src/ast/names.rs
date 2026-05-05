@@ -1,4 +1,4 @@
-//! Identifier and name types used throughout the openCypher AST.
+//! Identifier and name types used throughout the Cypher AST.
 //!
 //! All name types carry a [`Span`] so that diagnostics can point to the exact
 //! source location.

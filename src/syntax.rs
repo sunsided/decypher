@@ -1,4 +1,4 @@
-//! Syntactic vocabulary for the openCypher lossless CST.
+//! Syntactic vocabulary for the Cypher lossless CST.
 //!
 //! This module defines [`SyntaxKind`], the token and node kind enum used by
 //! the rowan CST, and [`CypherLang`], the rowan [`Language`] impl that maps
@@ -10,12 +10,12 @@
 //! # Sub-modules
 //!
 //! The [`ast`] sub-module provides typed newtype wrappers over raw rowan
-//! nodes for all openCypher grammar productions (clauses, expressions,
+//! nodes for all Cypher grammar productions (clauses, expressions,
 //! patterns, etc.).
 
 use rowan::Language;
 
-/// All token and internal-node kinds used in the openCypher CST.
+/// All token and internal-node kinds used in the Cypher CST.
 ///
 /// Token kinds represent leaf tokens (whitespace, punctuation, literals,
 /// keywords). Internal-node kinds represent non-leaf grammar productions
@@ -332,7 +332,7 @@ impl SyntaxKind {
     }
 }
 
-/// The rowan [`Language`] marker for openCypher.
+/// The rowan [`Language`] marker for Cypher.
 ///
 /// Bridges between [`SyntaxKind`] and the raw `u16` IDs stored in
 /// rowan's generic CST.

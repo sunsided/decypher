@@ -1,4 +1,4 @@
-//! Schema command AST nodes for openCypher DDL statements.
+//! Schema command AST nodes for Cypher DDL statements.
 //!
 //! These types represent `CREATE INDEX`, `DROP INDEX`, `CREATE CONSTRAINT`,
 //! `DROP CONSTRAINT`, `SHOW …`, and `USE` commands that manage the graph

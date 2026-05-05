@@ -1,7 +1,7 @@
-//! Expression AST nodes for openCypher queries.
+//! Expression AST nodes for Cypher queries.
 //!
 //! The central type is [`Expression`], which is a recursive enum covering
-//! every expression form defined in the openCypher specification: literals,
+//! every expression form defined in the Cypher specification: literals,
 //! variables, operators, function calls, list/map constructors, subqueries,
 //! and more.
 
@@ -9,7 +9,7 @@ use crate::ast::names::{PropertyKeyName, SymbolicName, Variable};
 use crate::ast::pattern::LabelExpression;
 use crate::error::Span;
 
-/// A literal value in an openCypher expression.
+/// A literal value in a Cypher expression.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
     /// Integer or float numeric literal.
@@ -74,7 +74,7 @@ pub struct Parameter {
     pub span: Span,
 }
 
-/// Any openCypher expression.
+/// Any Cypher expression.
 ///
 /// This enum covers every expression form in the language. Recursive variants
 /// (`BinaryOp`, `UnaryOp`, etc.) use `Box<Expression>` to avoid infinite
@@ -127,7 +127,7 @@ pub enum Expression {
     },
     /// A chained comparison: `lhs op1 rhs1 op2 rhs2 …`
     ///
-    /// openCypher allows chaining comparisons which are equivalent to
+    /// Cypher allows chaining comparisons which are equivalent to
     /// `lhs op1 rhs1 AND rhs1 op2 rhs2`.
     Comparison {
         /// The leftmost operand.

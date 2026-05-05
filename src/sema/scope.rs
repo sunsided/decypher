@@ -1,6 +1,6 @@
 //! Lexical scope stack for Cypher variable tracking.
 //!
-//! [`ScopeStack`] models the lexical scoping rules of openCypher. Scopes are
+//! [`ScopeStack`] models the lexical scoping rules of Cypher. Scopes are
 //! stacked as `WITH` and `RETURN` clauses introduce new variable contexts.
 //! A "barrier" mechanism enforces that clauses after a `WITH` can only see
 //! variables that were explicitly projected by the `WITH`.

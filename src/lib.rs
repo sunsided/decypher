@@ -1,8 +1,8 @@
-//! A Rust library for parsing [openCypher] queries into a typed AST.
+//! A Rust library for parsing Cypher queries into a typed AST.
 //!
 //! # Overview
 //!
-//! This crate exposes three levels of representation for an openCypher query
+//! This crate exposes three levels of representation for a Cypher query
 //! string:
 //!
 //! 1. **CST** – a lossless concrete syntax tree built on [rowan], available
@@ -31,7 +31,6 @@
 //! assert!(!diagnostics.is_empty());
 //! ```
 //!
-//! [openCypher]: https://opencypher.org/
 //! [rowan]: https://docs.rs/rowan
 
 pub mod ast;

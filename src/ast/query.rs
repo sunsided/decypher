@@ -1,6 +1,6 @@
-//! Top-level query types for the openCypher AST.
+//! Top-level query types for the Cypher AST.
 //!
-//! A parsed openCypher source is represented as a [`Query`] containing one or
+//! A parsed Cypher source is represented as a [`Query`] containing one or
 //! more [`QueryBody`] statements. Each statement can be a data query
 //! ([`SingleQuery`], [`RegularQuery`]), a standalone procedure call
 //! ([`StandaloneCall`]), a schema command ([`SchemaCommand`]), a `SHOW`
@@ -14,7 +14,7 @@ use crate::ast::procedure::{InQueryCall, StandaloneCall};
 use crate::ast::schema::{SchemaCommand, Show, Use};
 use crate::error::Span;
 
-/// The root of a parsed openCypher source: a list of top-level statements.
+/// The root of a parsed Cypher source: a list of top-level statements.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Query {
     /// The top-level statements in the source, in order.

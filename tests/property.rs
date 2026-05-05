@@ -1,4 +1,4 @@
-//! Property-based tests for the openCypher parser.
+//! Property-based tests for the Cypher parser.
 //!
 //! These tests use `proptest` to generate random but syntactically valid
 //! Cypher fragments and verify that:

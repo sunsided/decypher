@@ -1,4 +1,4 @@
-//! Name-resolution pass over a parsed openCypher query.
+//! Name-resolution pass over a parsed Cypher query.
 //!
 //! This module implements the [`Visit`] trait to walk the AST and verify that
 //! every variable reference can be resolved in the visible scope. Undeclared
@@ -553,7 +553,7 @@ fn bind_relationships_pattern(
 /// Derive the projected name from an unaliased expression.
 /// Returns (name, span) only for plain variable projections.
 ///
-/// openCypher requires `AS` to introduce a new variable for property lookups
+/// Cypher requires `AS` to introduce a new variable for property lookups
 /// and other expressions.
 fn derive_projection_name(expr: &Expression) -> Option<(String, crate::error::Span)> {
     match expr {

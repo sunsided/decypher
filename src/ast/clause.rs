@@ -1,6 +1,6 @@
-//! Clause AST nodes for openCypher queries.
+//! Clause AST nodes for Cypher queries.
 //!
-//! Each struct in this module corresponds to one openCypher clause keyword.
+//! Each struct in this module corresponds to one Cypher clause keyword.
 //! Clauses are assembled into queries by the types in [`crate::ast::query`].
 
 use crate::ast::expr::Expression;
