@@ -31,10 +31,10 @@ fn print_tree(node: &cypher::syntax::SyntaxNode, depth: usize) {
             if !is_trivia(n.kind()) {
                 print_tree(n, depth + 1);
             }
-        } else if let Some(t) = child.as_token() {
-            if !is_trivia(t.kind()) {
-                println!("{}  {:?}", indent, t);
-            }
+        } else if let Some(t) = child.as_token()
+            && !is_trivia(t.kind())
+        {
+            println!("{}  {:?}", indent, t);
         }
     }
 }

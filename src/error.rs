@@ -386,7 +386,7 @@ impl From<std::convert::Infallible> for CypherError {
 /// A collection of diagnostic errors (for multi-error reporting).
 ///
 /// Returned by [`crate::parse_all`] and [`crate::parse_with_options`], and
-/// used internally by [`crate::sema`] and [`crate::hir::lower`] for
+/// used internally by [`crate::sema`] and the HIR lowering pass for
 /// semantic-analysis and HIR-lowering failures.
 #[derive(Debug, Clone)]
 pub struct Diagnostics {
