@@ -1,8 +1,19 @@
+//! Integration tests for parser error reporting.
+//!
+//! These tests verify that the parser returns appropriate [`CypherError`]s
+//! (correct [`ErrorKind`], non-empty spans, and rendered diagnostic text) for
+//! various categories of invalid input.
+
 use assert2::check;
 use cypher::CypherError;
 use cypher::ErrorKind;
 use cypher::parse;
 
+/// An empty string produces an `EmptyInput` error.
+///
+/// Unit: `parse()`
+/// Precondition: Input is an empty string.
+/// Expectation: Returns `Err(CypherError { kind: ErrorKind::EmptyInput, .. })`.
 #[test]
 fn test_empty_string() {
     let result = parse("");
@@ -16,12 +27,23 @@ fn test_empty_string() {
     }
 }
 
+/// An unknown top-level keyword produces a parse error.
+///
+/// Unit: `parse()`
+/// Precondition: Input starts with an unrecognised identifier `FOOBAR`.
+/// Expectation: Returns `Err`.
 #[test]
 fn test_invalid_keyword() {
     let result = parse("FOOBAR;");
     check!(result.is_err());
 }
 
+/// An unterminated single-quoted string produces a parse error whose
+/// rendered text mentions "unterminated" or "string".
+///
+/// Unit: `parse()` / `CypherError::render()`
+/// Precondition: String literal opened with `'` is never closed.
+/// Expectation: Returns `Err` and rendered message mentions the issue.
 #[test]
 fn test_unterminated_string() {
     let result = parse("MATCH (n) WHERE n.name = 'hello RETURN n;");
@@ -35,18 +57,33 @@ fn test_unterminated_string() {
     );
 }
 
+/// A missing closing parenthesis in a node pattern produces a parse error.
+///
+/// Unit: `parse()`
+/// Precondition: Node pattern `(n` is never closed with `)`.
+/// Expectation: Returns `Err`.
 #[test]
 fn test_missing_closing_paren() {
     let result = parse("MATCH (n RETURN n;");
     check!(result.is_err());
 }
 
+/// A `MATCH` keyword without a subsequent pattern produces a parse error.
+///
+/// Unit: `parse()`
+/// Precondition: `MATCH` is immediately followed by `RETURN` with no pattern.
+/// Expectation: Returns `Err`.
 #[test]
 fn test_invalid_pattern() {
     let result = parse("MATCH RETURN n;");
     check!(result.is_err());
 }
 
+/// `RETURN;` (no projection) produces a `MissingClause` error.
+///
+/// Unit: `parse()`
+/// Precondition: `RETURN` is followed immediately by `;`.
+/// Expectation: Returns `Err` with `ErrorKind::MissingClause { clause: "projection", .. }`.
 #[test]
 fn test_incomplete_return() {
     let result = parse("RETURN;");
@@ -61,12 +98,22 @@ fn test_incomplete_return() {
     ));
 }
 
+/// A string of punctuation that forms no valid grammar produces a parse error.
+///
+/// Unit: `parse()`
+/// Precondition: Input is `"!!!@@@###"`.
+/// Expectation: Returns `Err`.
 #[test]
 fn test_garbage_input() {
     let result = parse("!!!@@@###");
     check!(result.is_err());
 }
 
+/// A parse error produces a non-empty `Display` string.
+///
+/// Unit: `CypherError::fmt()`
+/// Precondition: A query with a syntax error (missing `)` before WHERE).
+/// Expectation: The formatted error string is non-empty.
 #[test]
 fn test_error_contains_position_info() {
     let result = parse("MATCH (n WHERE n.name = 'hello' RETURN n;");
@@ -76,6 +123,11 @@ fn test_error_contains_position_info() {
     check!(!err_string.is_empty());
 }
 
+/// The `ErrorKind` on a parse error can be pattern-matched.
+///
+/// Unit: `CypherError::kind()`
+/// Precondition: Two parses — one succeeds (`RETURN 1`), one fails (`RETURN`).
+/// Expectation: The failing parse returns `MissingClause { clause: "projection", after: "RETURN" }`.
 #[test]
 fn test_error_kind_is_matchable() {
     let result = parse("RETURN 1");
@@ -93,6 +145,11 @@ fn test_error_kind_is_matchable() {
     }
 }
 
+/// The span on a `RETURN;` error has at least one non-zero boundary.
+///
+/// Unit: `CypherError::span()`
+/// Precondition: `RETURN;` produces a `MissingClause` error.
+/// Expectation: `span.start > 0 || span.end > 0`.
 #[test]
 fn test_error_span_is_valid() {
     let result = parse("RETURN;");
@@ -102,6 +159,12 @@ fn test_error_span_is_valid() {
     check!(span.start > 0 || span.end > 0);
 }
 
+/// Comparing with `NULL` using `=` parses without error (no strict-mode rejection).
+///
+/// Unit: `parse()`
+/// Precondition: WHERE clause with `n.x = NULL`.
+/// Expectation: Returns `Ok` (the comparison is syntactically valid; semantic
+///   checks may flag this separately).
 #[test]
 fn test_null_comparison_note_skipped() {
     let result = parse("MATCH (n) WHERE n.x = NULL RETURN n");

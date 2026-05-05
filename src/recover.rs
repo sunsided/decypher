@@ -1,17 +1,62 @@
 //! Multi-error recovery via resync-at-statement-boundary.
+//!
+//! When a user wants to collect *all* parse errors in a source file rather
+//! than stopping at the first failure, they can call [`parse_with_options`]
+//! with [`ParseOptions::recover`] set to `true`. The function attempts to
+//! re-synchronise after each error by scanning for the next statement
+//! boundary (`;` or a clause keyword) and restarting the parser there.
 
 use crate::error::{CypherError, Diagnostics, Span};
 use crate::{Query, parse_with_label};
 use std::sync::Arc;
 
+/// Options that control the behaviour of [`parse_with_options`].
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct ParseOptions {
+    /// Enable multi-error recovery mode.
+    ///
+    /// When `true` the parser re-synchronises after each error and continues
+    /// parsing subsequent statements. All errors are returned in the
+    /// [`Diagnostics`] wrapper.
     pub recover: bool,
+    /// Maximum number of errors to collect before giving up.
+    ///
+    /// Defaults to `16` when `recover` is `true`. Has no effect when
+    /// `recover` is `false`.
     pub max_errors: Option<usize>,
+    /// A source-file label attached to every diagnostic emitted.
+    ///
+    /// Defaults to `"query"` if not set.
     pub source_label: Option<Arc<str>>,
 }
 
+/// Parse a Cypher query string with explicit [`ParseOptions`].
+///
+/// Returns a pair of:
+/// - `Option<Query>` — `Some(query)` if at least one statement was
+///   successfully parsed; `None` otherwise.
+/// - [`Diagnostics`] — all errors collected during parsing (possibly empty).
+///
+/// # Recovery mode
+///
+/// When [`ParseOptions::recover`] is `true`, the function skips to the next
+/// statement boundary after each error and retries, accumulating up to
+/// `max_errors` diagnostics. The first *successfully* parsed statement is
+/// returned.
+///
+/// # Example
+///
+/// ```
+/// use cypher::{ParseOptions, parse_with_options};
+///
+/// let mut opts = ParseOptions::default();
+/// opts.recover = true;
+///
+/// let (query, diags) = parse_with_options("RETURN;", opts);
+/// assert!(query.is_none());
+/// assert!(!diags.is_empty());
+/// ```
 pub fn parse_with_options(input: &str, opts: ParseOptions) -> (Option<Query>, Diagnostics) {
     let label = opts
         .source_label

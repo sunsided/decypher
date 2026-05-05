@@ -47,12 +47,19 @@ pub fn parse(input: &str) -> Parse {
 }
 
 pub(crate) struct Parser<'a> {
+    /// The complete input text, kept for token slicing and diagnostic messages.
     input: &'a str,
+    /// The underlying lexer, advanced one token at a time.
     lexer: lexer::Lexer<'a>,
+    /// The rowan green-tree builder that accumulates CST nodes.
     pub(crate) builder: GreenNodeBuilder<'static>,
+    /// The syntactic kind of the current (lookahead) token.
     current_kind: SyntaxKind,
+    /// The byte length of the current token.
     current_len: usize,
+    /// Errors accumulated during parsing.
     errors: Vec<CypherError>,
+    /// The byte offset of the current token within `input`.
     byte_pos: usize,
 }
 
@@ -75,6 +82,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Parse the root node (`SOURCE_FILE`) of the grammar.
     fn parse(&mut self) {
         self.builder
             .start_node(CypherLang::kind_to_raw(SyntaxKind::SOURCE_FILE));
@@ -145,6 +153,8 @@ impl<'a> Parser<'a> {
         self.builder.finish_node();
     }
 
+    /// Parse a single statement (`STATEMENT` node) including any trailing
+    /// `UNION [ALL] …` branches.
     fn parse_statement(&mut self) {
         self.builder
             .start_node(CypherLang::kind_to_raw(SyntaxKind::STATEMENT));
@@ -167,6 +177,7 @@ impl<'a> Parser<'a> {
         self.builder.finish_node();
     }
 
+    /// Parse the clause sequence that forms one query body.
     fn parse_query_body(&mut self) {
         // Parse clauses: reading clauses followed by updating clauses and/or RETURN
         loop {
@@ -279,6 +290,10 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// Emit an error and insert an empty `ERROR` node for one-of alternatives.
+    ///
+    /// Used when none of a set of expected token alternatives is present but no
+    /// token should be consumed for recovery.
     pub(crate) fn expect_one_of(&mut self, expected: &[Expected]) {
         self.error_here(expected);
         self.start_node(SyntaxKind::ERROR);
@@ -291,6 +306,10 @@ impl<'a> Parser<'a> {
         self.error_here_with_notes(expected, Vec::new());
     }
 
+    /// Emit a diagnostic at the current position with an explicit `help` note.
+    ///
+    /// The diagnostic is also decorated with a [`NoteLevel::Help`] note
+    /// carrying `message`.
     pub(crate) fn error_here_with_help(
         &mut self,
         expected: &[Expected],
@@ -306,6 +325,9 @@ impl<'a> Parser<'a> {
         );
     }
 
+    /// Emit a diagnostic at the current position with an explicit set of notes.
+    ///
+    /// The `expected` tokens are sorted and deduplicated before being stored.
     pub(crate) fn error_here_with_notes(&mut self, expected: &[Expected], notes: Vec<Note>) {
         let start = self.byte_pos;
         let end = start + self.current_len;

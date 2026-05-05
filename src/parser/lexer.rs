@@ -1,21 +1,47 @@
+//! Hand-written lexer for openCypher source text.
+//!
+//! The lexer converts raw source bytes into a flat sequence of [`Token`]s.
+//! It handles whitespace (including Unicode whitespace), single-line (`//`)
+//! and block (`/* … */`) comments, punctuation, operators, string literals
+//! (single- and double-quoted with escape sequences), integer and float
+//! numeric literals, backtick-quoted identifiers, and keywords.
+//!
+//! Lexer errors are signalled by emitting a token of kind
+//! [`SyntaxKind::ERROR`] rather than by returning a `Result`.
+
 use crate::syntax::SyntaxKind;
 use std::borrow::Cow;
 use std::str::Chars;
 
+/// A single lexer output token: a kind tag plus the byte length of the token.
+///
+/// The token does not carry the actual text; callers must slice the original
+/// input string using the cumulative byte offsets of preceding tokens.
 #[derive(Clone, Debug)]
 pub struct Token {
+    /// The syntactic kind of this token.
     pub kind: SyntaxKind,
+    /// The byte length of the token in the source string.
     pub text_len: usize,
 }
 
+/// Incremental hand-written lexer for openCypher.
+///
+/// Call [`Lexer::advance`] repeatedly until it returns `None` to obtain all
+/// tokens in the source. The lexer never emits `None` until the entire input
+/// has been consumed.
 #[derive(Clone, Debug)]
 pub struct Lexer<'a> {
+    /// The original source text.
     input: &'a str,
+    /// The remaining characters to consume.
     chars: Chars<'a>,
+    /// The current byte offset within `input`.
     pos: usize,
 }
 
 impl<'a> Lexer<'a> {
+    /// Create a new lexer for the given `input` string.
     pub fn new(input: &'a str) -> Self {
         Self {
             input,
@@ -24,16 +50,19 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    /// Peek at the next character without consuming it.
     fn peek(&self) -> Option<char> {
         self.chars.clone().next()
     }
 
+    /// Peek at the character after the next without consuming anything.
     fn peek2(&self) -> Option<char> {
         let mut it = self.chars.clone();
         it.next();
         it.next()
     }
 
+    /// Consume and return the next character, advancing `pos`.
     fn bump(&mut self) -> Option<char> {
         let ch = self.chars.next();
         if let Some(c) = ch {
@@ -42,14 +71,17 @@ impl<'a> Lexer<'a> {
         ch
     }
 
+    /// Return the current byte offset (start of the next token).
     fn start_pos(&self) -> usize {
         self.pos
     }
 
+    /// Compute the byte length of a token that started at `start`.
     fn token_len(&self, start: usize) -> usize {
         self.pos - start
     }
 
+    /// Construct a [`Token`] of `kind` spanning from `start` to the current position.
     fn make_token(&self, kind: SyntaxKind, start: usize) -> Token {
         Token {
             kind,
@@ -57,6 +89,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    /// Advance the lexer by one token and return it, or `None` at end of input.
     pub fn advance(&mut self) -> Option<Token> {
         let start = self.start_pos();
         let ch = self.peek()?;
@@ -338,6 +371,11 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    /// Read a numeric literal starting at `start`.
+    ///
+    /// Handles hexadecimal (`0x…`), octal (`0o…`), decimal integers, and
+    /// decimal floats (with optional `e`/`E` exponent). Returns
+    /// [`SyntaxKind::INTEGER`] or [`SyntaxKind::FLOAT`].
     fn read_number(&mut self, start: usize) -> SyntaxKind {
         // Hex integer: 0x...
         if self.input[start..].starts_with("0x") || self.input[start..].starts_with("0X") {
@@ -403,6 +441,11 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    /// Read an identifier or keyword starting at `start`.
+    ///
+    /// Consumes XID-continue characters after the first XID-start/underscore
+    /// character, then looks up the result in the keyword table. Returns the
+    /// matching keyword [`SyntaxKind`] or [`SyntaxKind::IDENT`].
     fn read_ident_or_keyword(&mut self, start: usize) -> SyntaxKind {
         self.bump();
         while let Some(c) = self.peek() {
@@ -418,14 +461,23 @@ impl<'a> Lexer<'a> {
     }
 }
 
+/// Return `true` if `c` is a valid identifier start character.
+///
+/// Accepts Unicode XID-start characters plus underscore `_`.
 fn is_id_start(c: char) -> bool {
     unicode_ident::is_xid_start(c) || c == '_'
 }
 
+/// Return `true` if `c` may appear after the first character of an identifier.
+///
+/// Accepts Unicode XID-continue characters.
 fn is_id_continue(c: char) -> bool {
     unicode_ident::is_xid_continue(c)
 }
 
+/// Return `true` if `c` is considered whitespace by the openCypher spec.
+///
+/// Includes ASCII whitespace and a range of Unicode space separators.
 fn is_whitespace(c: char) -> bool {
     matches!(c, ' ' | '\t' | '\r' | '\n')
         || matches!(
@@ -451,6 +503,10 @@ fn is_whitespace(c: char) -> bool {
         )
 }
 
+/// Map an identifier string to its keyword [`SyntaxKind`], if any.
+///
+/// The lookup is case-insensitive for ASCII identifiers. Non-ASCII
+/// identifiers are compared verbatim (no uppercase mapping).
 fn keyword_kind(s: &str) -> SyntaxKind {
     let upper: Cow<'_, str> = if s.is_ascii() {
         // Fast path for ASCII: use to_ascii_uppercase

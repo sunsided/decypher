@@ -1,10 +1,12 @@
 //! Aggregation rule validation.
 //!
 //! Rules enforced:
-//! - WITH/RETURN may not mix aggregates and non-grouping expressions unless
-//!   every non-aggregate is in the grouping key.
-//! - DISTINCT only allowed in a projection body.
+//! - `WITH`/`RETURN` may not mix aggregates and non-grouping expressions
+//!   unless every non-aggregate is in the grouping key.
+//! - `DISTINCT` is only allowed inside a projection body.
 //! - Literals and parameters are always valid alongside aggregates.
+//!
+//! The entry point is [`check_aggregation`].
 
 use crate::ast::clause::*;
 use crate::ast::expr::*;
@@ -14,10 +16,15 @@ use crate::error::{Diagnostics, Span};
 use crate::sema::error::SemaError;
 use std::collections::HashSet;
 
-/// A diagnostic violation detected during aggregation checking.
+/// A marker type for an aggregation-rule violation.
+///
+/// Currently unused as a concrete value; violations are reported directly
+/// through the [`Diagnostics`] collector.
 pub struct AggregationViolation;
 
-/// Check aggregation rules for a query.
+/// Check aggregation rules for all statements in `query`.
+///
+/// Appends any violations found to `diagnostics`.
 pub fn check_aggregation(query: &Query, diagnostics: &mut Diagnostics) {
     let mut checker = AggregationChecker { diagnostics };
     for stmt in &query.statements {
@@ -37,11 +44,14 @@ pub fn check_aggregation(query: &Query, diagnostics: &mut Diagnostics) {
     }
 }
 
+/// Internal checker that walks the query and emits aggregation diagnostics.
 struct AggregationChecker<'a> {
+    /// The diagnostics collector to which violations are appended.
     diagnostics: &'a mut Diagnostics,
 }
 
 impl AggregationChecker<'_> {
+    /// Dispatch to the appropriate checker for a single or multi-part query.
     fn check_single_query(&mut self, sq: &SingleQuery) {
         match &sq.kind {
             SingleQueryKind::SinglePart(sp) => self.check_single_part(sp),
@@ -49,6 +59,7 @@ impl AggregationChecker<'_> {
         }
     }
 
+    /// Check aggregation rules for a single-part query.
     fn check_single_part(&mut self, sp: &SinglePartQuery) {
         // Collect grouping keys from reading clauses (variables bound by MATCH/UNWIND)
         let grouping_keys = collect_grouping_keys(&sp.reading_clauses);
@@ -66,6 +77,7 @@ impl AggregationChecker<'_> {
         }
     }
 
+    /// Check aggregation rules for a multi-part (WITH-joined) query.
     fn check_multi_part(&mut self, mp: &MultiPartQuery) {
         let mut grouping_keys: HashSet<String> = HashSet::new();
 
@@ -139,6 +151,8 @@ impl AggregationChecker<'_> {
         }
     }
 
+    /// Check that a projection (WITH/RETURN item list) does not mix aggregate
+    /// and non-grouping-key expressions.
     fn check_projection(
         &mut self,
         items: &[ProjectionItem],
@@ -180,6 +194,10 @@ impl AggregationChecker<'_> {
     }
 }
 
+/// Collect all variables bound by the given reading clauses into a set.
+///
+/// These variable names form the valid grouping keys for a subsequent
+/// aggregate projection.
 fn collect_grouping_keys(clauses: &[ReadingClause]) -> HashSet<String> {
     let mut keys = HashSet::new();
     for clause in clauses {
@@ -204,6 +222,7 @@ fn collect_grouping_keys(clauses: &[ReadingClause]) -> HashSet<String> {
     keys
 }
 
+/// Recursively collect all variable bindings introduced by a pattern element.
 fn collect_element_vars(element: &PatternElement, keys: &mut HashSet<String>) {
     match element {
         PatternElement::Path { start, chains } => {
@@ -233,6 +252,10 @@ fn collect_element_vars(element: &PatternElement, keys: &mut HashSet<String>) {
     }
 }
 
+/// Return the output column name for a projection item.
+///
+/// Uses the explicit `AS alias` if present, otherwise infers the name from
+/// a plain variable or the last property key in a lookup chain.
 fn projection_column_name(item: &ProjectionItem) -> Option<String> {
     if let Some(alias) = &item.alias {
         return Some(alias.name.name.clone());
@@ -244,6 +267,7 @@ fn projection_column_name(item: &ProjectionItem) -> Option<String> {
     }
 }
 
+/// Return `true` if `expr` contains or is an aggregate function call.
 fn has_aggregate(expr: &Expression) -> bool {
     match expr {
         Expression::FunctionCall(fc) => {
@@ -289,10 +313,18 @@ fn has_aggregate(expr: &Expression) -> bool {
     }
 }
 
+/// Return `true` if `expr` is a literal value or a query parameter.
+///
+/// These expressions are always acceptable alongside aggregates because
+/// they do not reference row-level variables.
 fn is_literal_or_param(expr: &Expression) -> bool {
     matches!(expr, Expression::Literal(_) | Expression::Parameter(_))
 }
 
+/// Attempt to extract a simple variable name from an expression.
+///
+/// Returns `Some(name)` for plain variable references and the base of a
+/// property-lookup chain; `None` for all other expression forms.
 fn extract_variable_name(expr: &Expression) -> Option<String> {
     match expr {
         Expression::Variable(v) => Some(v.name.name.clone()),

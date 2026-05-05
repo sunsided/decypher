@@ -1,4 +1,9 @@
-//! SemaError wrapper that maps semantic issues to ErrorKind.
+//! Semantic error type mapping analysis issues to [`crate::error::ErrorKind`].
+//!
+//! [`SemaError`] is the internal error type for the semantic analysis passes.
+//! Each variant corresponds to one category of semantic violation. Errors are
+//! converted to [`crate::error::CypherError`] before being returned to the
+//! public API.
 
 use crate::error::{CypherError, ErrorKind, Span};
 

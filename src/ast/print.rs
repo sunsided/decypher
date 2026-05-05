@@ -35,12 +35,32 @@ use crate::ast::query::*;
 use crate::ast::schema::*;
 
 pub trait ToCypher {
+    /// Serialise this AST node to an openCypher string.
+    ///
+    /// Keywords are uppercased. Identifiers that require backtick-quoting
+    /// (reserved words or non-alphanumeric characters) are quoted
+    /// automatically. Comments are not preserved.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use cypher::ast::ToCypher;
+    /// use cypher::parse;
+    ///
+    /// let query = parse("MATCH (n) RETURN n;").unwrap();
+    /// assert!(query.to_cypher().starts_with("MATCH"));
+    /// ```
     fn to_cypher(&self) -> String {
         let mut s = String::new();
         let _ = self.write_cypher(&mut s);
         s
     }
 
+    /// Write the openCypher representation of this node into `w`.
+    ///
+    /// Implementors should write exactly the tokens that form this node's
+    /// Cypher text. The caller is responsible for any surrounding whitespace
+    /// or separators.
     fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result;
 
     /// Returns a wrapper that implements [`fmt::Display`], allowing the AST node

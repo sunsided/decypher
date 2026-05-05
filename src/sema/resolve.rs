@@ -1,4 +1,11 @@
-//! Name-resolution pass over a Query.
+//! Name-resolution pass over a parsed openCypher query.
+//!
+//! This module implements the [`Visit`] trait to walk the AST and verify that
+//! every variable reference can be resolved in the visible scope. Undeclared
+//! variables produce [`SemaError::UnresolvedVariable`] diagnostics; duplicate
+//! declarations produce [`SemaError::RedeclaredVariable`] diagnostics.
+//!
+//! The entry point is [`resolve_names`].
 
 use crate::ast::clause::*;
 use crate::ast::expr::*;
@@ -9,11 +16,16 @@ use crate::error::CypherError;
 use crate::sema::error::SemaError;
 use crate::sema::scope::{ScopeStack, SymbolKind};
 
+/// The result of the name-resolution pass.
 pub struct ResolutionResult {
+    /// Errors collected during resolution.
     pub errors: Vec<CypherError>,
 }
 
-/// Run name resolution over a query, returning any errors found.
+/// Run name resolution over `query`.
+///
+/// Returns `Ok(())` when every variable reference is bound, or
+/// `Err(errors)` with all resolution violations found.
 pub fn resolve_names(query: &Query) -> Result<(), Vec<CypherError>> {
     let mut resolver = NameResolver::new();
     resolver.visit_query(query);
@@ -24,12 +36,16 @@ pub fn resolve_names(query: &Query) -> Result<(), Vec<CypherError>> {
     }
 }
 
+/// Visitor that resolves variable references and tracks scope.
 struct NameResolver {
+    /// Errors accumulated during the walk.
     errors: Vec<CypherError>,
+    /// The current lexical scope stack.
     scopes: ScopeStack,
 }
 
 impl NameResolver {
+    /// Create a fresh resolver with an empty scope stack.
     fn new() -> Self {
         Self {
             errors: Vec::new(),
@@ -37,6 +53,7 @@ impl NameResolver {
         }
     }
 
+    /// Emit a semantic error, converting it to a [`CypherError`] first.
     fn emit(&mut self, sema: SemaError) {
         self.errors.push(CypherError {
             kind: sema.to_error_kind(),

@@ -1,3 +1,13 @@
+//! AST → HIR lowering pass.
+//!
+//! This module is internal to the `hir` subsystem. It walks the parsed
+//! [`crate::ast::query::Query`] AST top-down, resolves variable references
+//! into arena [`BindingId`]s, normalises graph patterns into flat
+//! [`GraphPattern`] lists, and emits a sequence of [`Operation`]s grouped
+//! into [`QueryPart`]s.
+//!
+//! The public entry point is [`lower`].
+
 use std::collections::HashMap;
 
 use crate::ast::clause::{
@@ -43,7 +53,15 @@ use super::pattern::{
 };
 use super::{HirArenas, HirDiagnostic, HirQuery, QueryPart};
 
-/// Lower an AST `Query` to a HIR `HirQuery`.
+/// Lower an AST [`Query`] into a scope-resolved, normalised [`HirQuery`].
+///
+/// Returns `Ok(HirQuery)` when there are no fatal semantic errors; otherwise
+/// returns `Err(Diagnostics)` containing all errors collected during lowering.
+///
+/// # Errors
+///
+/// Returns [`crate::error::Diagnostics`] on scope resolution or pattern
+/// normalisation failures.
 pub fn lower(query: &Query) -> Result<HirQuery, Diagnostics> {
     let mut ctx = LoweringContext::new();
     let mut parts = Vec::new();
@@ -72,6 +90,11 @@ pub fn lower(query: &Query) -> Result<HirQuery, Diagnostics> {
     }
 }
 
+/// Mutable lowering context threaded through the entire lowering pass.
+///
+/// Holds the growing [`HirArenas`], the list of emitted diagnostics, the
+/// scope stack, and the buffer of operations being built for the current
+/// query part.
 struct LoweringContext {
     arenas: HirArenas,
     diagnostics: Vec<HirDiagnostic>,
@@ -79,13 +102,16 @@ struct LoweringContext {
     current_part_ops: Vec<Operation>,
 }
 
-/// Tracks bindings during lowering.
+/// Tracks variable bindings in a stack of scope frames during lowering.
 struct LoweringScopeStack {
+    /// The arena IDs of the currently active scopes, innermost last.
     scopes: Vec<ScopeId>,
+    /// Per-scope name→BindingId maps, parallel to `scopes`.
     bindings_by_name: Vec<HashMap<String, BindingId>>,
 }
 
 impl LoweringScopeStack {
+    /// Create an empty scope stack.
     fn new() -> Self {
         Self {
             scopes: Vec::new(),
@@ -93,6 +119,9 @@ impl LoweringScopeStack {
         }
     }
 
+    /// Allocate a new scope in the arena and push it onto the stack.
+    ///
+    /// Returns the ID of the newly created scope.
     fn push_scope(&mut self, arenas: &mut HirArenas) -> ScopeId {
         let parent = self.scopes.last().copied();
         let scope = Scope {
@@ -105,11 +134,18 @@ impl LoweringScopeStack {
         scope_id
     }
 
+    /// Pop the innermost scope frame without deallocating its arena entry.
     fn pop_scope(&mut self) {
         self.scopes.pop();
         self.bindings_by_name.pop();
     }
 
+    /// Bind `name` in the current innermost scope.
+    ///
+    /// Allocates a new [`Binding`] in the arena, registers it in the scope,
+    /// and returns its [`BindingId`]. If the name already exists in the
+    /// current scope the entry is silently overwritten (duplicate detection
+    /// is handled by the name-resolution pass before lowering).
     fn bind(
         &mut self,
         arenas: &mut HirArenas,
@@ -138,6 +174,9 @@ impl LoweringScopeStack {
         id
     }
 
+    /// Resolve `name` by searching from the innermost to the outermost scope.
+    ///
+    /// Returns `None` if the name is not bound in any visible scope.
     fn resolve(&self, name: &str) -> Option<BindingId> {
         for map in self.bindings_by_name.iter().rev() {
             if let Some(&id) = map.get(name) {
@@ -149,6 +188,7 @@ impl LoweringScopeStack {
 }
 
 impl LoweringContext {
+    /// Create a fresh lowering context with empty arenas and scope stack.
     fn new() -> Self {
         Self {
             arenas: HirArenas::new(),
@@ -158,6 +198,7 @@ impl LoweringContext {
         }
     }
 
+    /// Lower a single [`QueryBody`] statement into zero or more [`QueryPart`]s.
     fn lower_query_body(&mut self, stmt: &QueryBody) -> Vec<QueryPart> {
         let mut parts = Vec::new();
         match stmt {
