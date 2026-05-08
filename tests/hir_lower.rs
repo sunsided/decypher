@@ -88,9 +88,10 @@ fn analyze_from_preparsed_query() {
 
 #[test]
 fn analyze_from_preparsed_query_multi_part() {
-    let query =
-        cypher_rs::parse("MATCH (p:Person) WITH p, count(*) AS cnt WHERE cnt > 3 RETURN p.name, cnt")
-            .unwrap();
+    let query = cypher_rs::parse(
+        "MATCH (p:Person) WITH p, count(*) AS cnt WHERE cnt > 3 RETURN p.name, cnt",
+    )
+    .unwrap();
     let hir = analyze(query).unwrap();
     assert_eq!(hir.parts.len(), 2);
 }

@@ -68,12 +68,14 @@ fn test_optional_match_flag() {
     let query = parse("OPTIONAL MATCH (n) RETURN n;").unwrap();
     match &query.statements[0] {
         QueryBody::SingleQuery(sq) => match &sq.kind {
-            cypher_rs::ast::query::SingleQueryKind::SinglePart(spq) => match &spq.reading_clauses[0] {
-                cypher_rs::ast::query::ReadingClause::Match(m) => {
-                    check!(m.optional);
+            cypher_rs::ast::query::SingleQueryKind::SinglePart(spq) => {
+                match &spq.reading_clauses[0] {
+                    cypher_rs::ast::query::ReadingClause::Match(m) => {
+                        check!(m.optional);
+                    }
+                    _ => panic!("expected Match clause"),
                 }
-                _ => panic!("expected Match clause"),
-            },
+            }
             _ => panic!("expected SinglePart query"),
         },
         _ => panic!("expected SingleQuery"),
@@ -90,12 +92,14 @@ fn test_unwind_has_expression_and_variable() {
     let query = parse("UNWIND [1, 2, 3] AS x RETURN x;").unwrap();
     match &query.statements[0] {
         QueryBody::SingleQuery(sq) => match &sq.kind {
-            cypher_rs::ast::query::SingleQueryKind::SinglePart(spq) => match &spq.reading_clauses[0] {
-                cypher_rs::ast::query::ReadingClause::Unwind(u) => {
-                    check!(u.variable.name.name == "x");
+            cypher_rs::ast::query::SingleQueryKind::SinglePart(spq) => {
+                match &spq.reading_clauses[0] {
+                    cypher_rs::ast::query::ReadingClause::Unwind(u) => {
+                        check!(u.variable.name.name == "x");
+                    }
+                    _ => panic!("expected Unwind clause"),
                 }
-                _ => panic!("expected Unwind clause"),
-            },
+            }
             _ => panic!("expected SinglePart query"),
         },
         _ => panic!("expected SingleQuery"),

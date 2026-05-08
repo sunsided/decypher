@@ -308,7 +308,9 @@ fn can_cast_non_matching_returns_none() {
     check!(BinaryExpr::can_cast(cypher_rs::syntax::SyntaxKind::OR_EXPR) == true);
     check!(BinaryExpr::can_cast(cypher_rs::syntax::SyntaxKind::ADD_SUB_EXPR) == true);
     check!(UnaryExpr::can_cast(cypher_rs::syntax::SyntaxKind::NOT_EXPR) == true);
-    check!(cypher_rs::cst::SourceFile::can_cast(cypher_rs::syntax::SyntaxKind::SOURCE_FILE) == true);
+    check!(
+        cypher_rs::cst::SourceFile::can_cast(cypher_rs::syntax::SyntaxKind::SOURCE_FILE) == true
+    );
 }
 
 /// Verify CST shape for: delete clause with detach.
@@ -565,7 +567,9 @@ fn remove_clause() {
 
 // ── New Phase B wrapper tests ────────────────────────────────────
 
-fn find_foreach_clause(source: &cypher_rs::cst::SourceFile) -> Option<cypher_rs::cst::ForeachClause> {
+fn find_foreach_clause(
+    source: &cypher_rs::cst::SourceFile,
+) -> Option<cypher_rs::cst::ForeachClause> {
     for clause in source.statements().next()?.clauses() {
         if let cypher_rs::cst::Clause::Foreach(f) = clause {
             return Some(f);
@@ -574,7 +578,9 @@ fn find_foreach_clause(source: &cypher_rs::cst::SourceFile) -> Option<cypher_rs:
     None
 }
 
-fn find_standalone_call(source: &cypher_rs::cst::SourceFile) -> Option<cypher_rs::cst::StandaloneCall> {
+fn find_standalone_call(
+    source: &cypher_rs::cst::SourceFile,
+) -> Option<cypher_rs::cst::StandaloneCall> {
     for clause in source.statements().next()?.clauses() {
         if let cypher_rs::cst::Clause::StandaloneCall(c) = clause {
             return Some(c);
@@ -592,7 +598,9 @@ fn find_in_query_call(source: &cypher_rs::cst::SourceFile) -> Option<cypher_rs::
     None
 }
 
-fn find_call_subquery(source: &cypher_rs::cst::SourceFile) -> Option<cypher_rs::cst::CallSubqueryClause> {
+fn find_call_subquery(
+    source: &cypher_rs::cst::SourceFile,
+) -> Option<cypher_rs::cst::CallSubqueryClause> {
     for clause in source.statements().next()?.clauses() {
         if let cypher_rs::cst::Clause::CallSubquery(c) = clause {
             return Some(c);
