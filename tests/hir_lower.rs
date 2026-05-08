@@ -4,6 +4,23 @@
 //! shape of the resulting [`cypher::hir::HirQuery`].
 
 use cypher::analyze;
+use cypher::hir::{
+    RelationshipDirection,
+    ops::{MatchOp, Operation},
+};
+
+fn find_match_operation(operations: &[Operation]) -> &MatchOp {
+    operations
+        .iter()
+        .find_map(|op| {
+            if let Operation::Match(m) = op {
+                Some(m)
+            } else {
+                None
+            }
+        })
+        .expect("expected a Match operation")
+}
 
 /// A basic `MATCH … RETURN` query lowers to exactly one query part.
 ///
@@ -101,6 +118,19 @@ fn try_from_str_for_query_invalid() {
     assert!(result.is_err());
 }
 
+#[test]
+fn analyze_left_directed_relationship_lowers_to_right_to_left() {
+    let hir = analyze("MATCH (a)<-[:T]-(b) RETURN a").unwrap();
+    assert_eq!(hir.parts.len(), 1);
+    let m = find_match_operation(&hir.parts[0].operations);
+
+    assert_eq!(m.pattern.relationships.len(), 1);
+    assert_eq!(
+        m.pattern.relationships[0].direction,
+        RelationshipDirection::RightToLeft
+    );
+}
+
 /// Relationships in a chained path must track the correct left (source) node.
 ///
 /// Unit: `lower_pattern_element`
@@ -108,19 +138,10 @@ fn try_from_str_for_query_invalid() {
 /// Expectation: `rel[0].left=0, rel[0].right=1`; `rel[1].left=1, rel[1].right=2`.
 #[test]
 fn chained_path_relationship_left_indices() {
-    use cypher::hir::ops::Operation;
-
     let hir = analyze("MATCH (a)-[:E]->(b)-[:F]->(c) RETURN a").unwrap();
     let part = &hir.parts[0];
 
-    let m = part.operations.iter().find_map(|op| {
-        if let Operation::Match(m) = op {
-            Some(m)
-        } else {
-            None
-        }
-    });
-    let m = m.expect("expected a Match operation");
+    let m = find_match_operation(&part.operations);
     let rels = &m.pattern.relationships;
     assert_eq!(rels.len(), 2, "expected two relationships");
     assert_eq!(rels[0].left, 0, "rel[0].left should be 0");
