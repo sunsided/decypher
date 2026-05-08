@@ -87,6 +87,6 @@ Contributions of any size are welcome! Please feel free to submit issues or PRs.
 
 ## License
 
-This library code is **EUPL-1.2**, **MIT**, or **Apache-2.0**.
+This library code is triple-licensed under **EUPL-1.2**, **MIT**, or **Apache-2.0**; choose whichever suits your use case best.
 
 Cypher® and Neo4j® are registered trademarks of Neo4j, Inc.
