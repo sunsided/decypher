@@ -2,7 +2,7 @@
 //! common Cypher queries correctly.
 
 use assert2::check;
-use cypher_rs::parse;
+use decypher::parse;
 
 /// All smoke-test queries, verified against the rowan parser.
 #[test]

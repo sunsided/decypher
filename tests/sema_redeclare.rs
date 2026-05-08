@@ -4,8 +4,8 @@
 //! `RedeclaredVariable` errors when the same name is introduced more than
 //! once in the same scope.
 
-use cypher_rs::sema::analyze;
-use cypher_rs::{ErrorKind, parse};
+use decypher::sema::analyze;
+use decypher::{ErrorKind, parse};
 
 /// Two node patterns in the same `MATCH` that bind the same variable produce
 /// a `RedeclaredVariable` error.

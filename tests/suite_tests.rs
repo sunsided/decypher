@@ -1,5 +1,5 @@
 use assert2::check;
-use cypher_rs::parse;
+use decypher::parse;
 
 fn run_suite(name: &str, source: &str) {
     let queries: Vec<String> = format!("\n{source}")

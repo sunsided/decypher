@@ -1,5 +1,5 @@
 [package]
-name = "cypher-rs"
+name = "decypher"
 version = "0.2.0-alpha.4"
 edition = "2024"
 rust-version = "1.94"

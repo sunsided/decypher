@@ -1,10 +1,10 @@
-//! Integration tests for [`cypher_rs::sema::ScopeStack`] scope tracking.
+//! Integration tests for [`decypher::sema::ScopeStack`] scope tracking.
 //!
 //! These tests exercise the push/pop/bind/resolve mechanics of the scope
 //! stack independently of query parsing.
 
-use cypher_rs::error::Span;
-use cypher_rs::sema::{ScopeStack, SymbolKind};
+use decypher::error::Span;
+use decypher::sema::{ScopeStack, SymbolKind};
 
 /// Return a unit-length dummy span (byte offsets 0..1) for tests that do not care about position.
 fn dummy_span() -> Span {

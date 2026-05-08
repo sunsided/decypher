@@ -5,8 +5,8 @@
 //! the parser constructs the correct AST variants for various query shapes.
 
 use assert2::check;
-use cypher_rs::ast::query::{QueryBody, SinglePartBody};
-use cypher_rs::parse;
+use decypher::ast::query::{QueryBody, SinglePartBody};
+use decypher::parse;
 
 /// A `MATCH … RETURN n` query produces a `SinglePartBody::Return` with one
 /// projection item.
@@ -19,7 +19,7 @@ fn test_match_return_has_return_body() {
     let query = parse("MATCH (n) RETURN n;").unwrap();
     match &query.statements[0] {
         QueryBody::SingleQuery(sq) => match &sq.kind {
-            cypher_rs::ast::query::SingleQueryKind::SinglePart(spq) => match &spq.body {
+            decypher::ast::query::SingleQueryKind::SinglePart(spq) => match &spq.body {
                 SinglePartBody::Return(ret) => {
                     check!(ret.items.len() == 1);
                 }
@@ -42,7 +42,7 @@ fn test_match_create_has_updating_body() {
     let query = parse("MATCH (a) CREATE (a)-[:KNOWS]->(b);").unwrap();
     match &query.statements[0] {
         QueryBody::SingleQuery(sq) => match &sq.kind {
-            cypher_rs::ast::query::SingleQueryKind::SinglePart(spq) => match &spq.body {
+            decypher::ast::query::SingleQueryKind::SinglePart(spq) => match &spq.body {
                 SinglePartBody::Updating {
                     updating,
                     return_clause,
@@ -68,9 +68,9 @@ fn test_optional_match_flag() {
     let query = parse("OPTIONAL MATCH (n) RETURN n;").unwrap();
     match &query.statements[0] {
         QueryBody::SingleQuery(sq) => match &sq.kind {
-            cypher_rs::ast::query::SingleQueryKind::SinglePart(spq) => {
+            decypher::ast::query::SingleQueryKind::SinglePart(spq) => {
                 match &spq.reading_clauses[0] {
-                    cypher_rs::ast::query::ReadingClause::Match(m) => {
+                    decypher::ast::query::ReadingClause::Match(m) => {
                         check!(m.optional);
                     }
                     _ => panic!("expected Match clause"),
@@ -92,9 +92,9 @@ fn test_unwind_has_expression_and_variable() {
     let query = parse("UNWIND [1, 2, 3] AS x RETURN x;").unwrap();
     match &query.statements[0] {
         QueryBody::SingleQuery(sq) => match &sq.kind {
-            cypher_rs::ast::query::SingleQueryKind::SinglePart(spq) => {
+            decypher::ast::query::SingleQueryKind::SinglePart(spq) => {
                 match &spq.reading_clauses[0] {
-                    cypher_rs::ast::query::ReadingClause::Unwind(u) => {
+                    decypher::ast::query::ReadingClause::Unwind(u) => {
                         check!(u.variable.name.name == "x");
                     }
                     _ => panic!("expected Unwind clause"),
@@ -118,14 +118,14 @@ fn test_pattern_has_node() {
     match &query.statements[0] {
         QueryBody::SingleQuery(sq) => {
             match &sq.kind {
-                cypher_rs::ast::query::SingleQueryKind::SinglePart(spq) => {
+                decypher::ast::query::SingleQueryKind::SinglePart(spq) => {
                     match &spq.reading_clauses[0] {
-                        cypher_rs::ast::query::ReadingClause::Match(m) => {
+                        decypher::ast::query::ReadingClause::Match(m) => {
                             check!(m.pattern.parts.len() == 1);
                             let part = &m.pattern.parts[0];
                             // The node variable is inside the anonymous pattern part
                             match &part.anonymous.element {
-                                cypher_rs::ast::pattern::PatternElement::Path { start, .. } => {
+                                decypher::ast::pattern::PatternElement::Path { start, .. } => {
                                     check!(start.variable.is_some());
                                     check!(start.variable.as_ref().unwrap().name.name == "n");
                                     check!(start.labels.len() == 1);

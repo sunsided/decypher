@@ -17,7 +17,7 @@ use std::fmt::Write;
 /// # Example
 ///
 /// ```
-/// use cypher_rs::{parse, error::render_diagnostic};
+/// use decypher::{parse, error::render_diagnostic};
 ///
 /// let err = parse("RETURN;").unwrap_err();
 /// let output = render_diagnostic(&err, "RETURN;");

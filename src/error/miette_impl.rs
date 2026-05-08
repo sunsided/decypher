@@ -10,7 +10,7 @@ use miette::{Diagnostic, LabeledSpan, NamedSource, SourceSpan};
 
 impl Diagnostic for CypherError {
     fn code<'a>(&'a self) -> Option<Box<dyn std::fmt::Display + 'a>> {
-        Some(Box::new(format!("cypher_rs::{:?}", self.kind)))
+        Some(Box::new(format!("decypher::{:?}", self.kind)))
     }
 
     fn severity(&self) -> Option<miette::Severity> {

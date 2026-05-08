@@ -40,7 +40,7 @@ use crate::error::Diagnostics;
 /// # Example
 ///
 /// ```
-/// use cypher_rs::{parse, sema};
+/// use decypher::{parse, sema};
 ///
 /// let query = parse("MATCH (n) RETURN n").unwrap();
 /// assert!(sema::analyze(&query).is_ok());
@@ -72,7 +72,7 @@ pub fn analyze(query: &Query) -> Result<(), Diagnostics> {
 /// # Example
 ///
 /// ```
-/// use cypher_rs::{parse, sema};
+/// use decypher::{parse, sema};
 ///
 /// let query = parse("MATCH (n) RETURN n").unwrap();
 /// let diags = sema::analyze_all(&query);

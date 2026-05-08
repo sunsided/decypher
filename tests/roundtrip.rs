@@ -2,12 +2,12 @@
 //! identical ASTs.
 //!
 //! Each test parses a Cypher fragment, serialises it back to a Cypher string
-//! via [`Tocypher_rs::to_cypher`], re-parses the result, and checks that the two
+//! via [`Todecypher::to_cypher`], re-parses the result, and checks that the two
 //! ASTs are equal.
 
 use assert2::check;
-use cypher_rs::ast::ToCypher;
-use cypher_rs::parse;
+use decypher::ast::ToCypher;
+use decypher::parse;
 
 /// Parse `input`, serialise with `to_cypher`, re-parse, and assert AST equality.
 fn roundtrip(input: &str) {
@@ -24,7 +24,7 @@ fn roundtrip(input: &str) {
 
 /// Round-trip `rt match return`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -34,7 +34,7 @@ fn rt_match_return() {
 
 /// Round-trip `rt match where`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -44,7 +44,7 @@ fn rt_match_where() {
 
 /// Round-trip `rt match create`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -54,7 +54,7 @@ fn rt_match_create() {
 
 /// Round-trip `rt match merge`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -64,7 +64,7 @@ fn rt_match_merge() {
 
 /// Round-trip `rt match with return`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -74,7 +74,7 @@ fn rt_match_with_return() {
 
 /// Round-trip `rt unwind`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -84,7 +84,7 @@ fn rt_unwind() {
 
 /// Round-trip `rt set`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -94,7 +94,7 @@ fn rt_set() {
 
 /// Round-trip `rt set add`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -104,7 +104,7 @@ fn rt_set_add() {
 
 /// Round-trip `rt remove`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -114,7 +114,7 @@ fn rt_remove() {
 
 /// Round-trip `rt delete`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -124,7 +124,7 @@ fn rt_delete() {
 
 /// Round-trip `rt detach delete`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -134,7 +134,7 @@ fn rt_detach_delete() {
 
 /// Round-trip `rt union`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -144,7 +144,7 @@ fn rt_union() {
 
 /// Round-trip `rt union all`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -154,7 +154,7 @@ fn rt_union_all() {
 
 /// Round-trip `rt rich label expression`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -164,7 +164,7 @@ fn rt_rich_label_expression() {
 
 /// Round-trip `rt dynamic node label`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -174,7 +174,7 @@ fn rt_dynamic_node_label() {
 
 /// Round-trip `rt quantified path pattern`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -184,7 +184,7 @@ fn rt_quantified_path_pattern() {
 
 /// Round-trip `rt quantified relationship`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -194,7 +194,7 @@ fn rt_quantified_relationship() {
 
 /// Round-trip `rt count subquery`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -204,7 +204,7 @@ fn rt_count_subquery() {
 
 /// Round-trip `rt collect subquery`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -214,7 +214,7 @@ fn rt_collect_subquery() {
 
 /// Round-trip `rt postfix label expression`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -224,7 +224,7 @@ fn rt_postfix_label_expression() {
 
 /// Round-trip `rt parameters`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -234,7 +234,7 @@ fn rt_parameters() {
 
 /// Round-trip `rt comparison chain`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -244,7 +244,7 @@ fn rt_comparison_chain() {
 
 /// Round-trip `rt list literal`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -254,7 +254,7 @@ fn rt_list_literal() {
 
 /// Round-trip `rt map literal`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -264,7 +264,7 @@ fn rt_map_literal() {
 
 /// Round-trip `rt optional match`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -274,7 +274,7 @@ fn rt_optional_match() {
 
 /// Round-trip `rt order skip limit`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -284,7 +284,7 @@ fn rt_order_skip_limit() {
 
 /// Round-trip `rt case expression`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -294,7 +294,7 @@ fn rt_case_expression() {
 
 /// Round-trip `rt count star`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -304,7 +304,7 @@ fn rt_count_star() {
 
 /// Round-trip `rt in expression`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -314,7 +314,7 @@ fn rt_in_expression() {
 
 /// Round-trip `rt is null`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -324,7 +324,7 @@ fn rt_is_null() {
 
 /// Round-trip `rt is not null`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -334,7 +334,7 @@ fn rt_is_not_null() {
 
 /// Round-trip `rt starts with`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -344,7 +344,7 @@ fn rt_starts_with() {
 
 /// Round-trip `rt ends with`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -354,7 +354,7 @@ fn rt_ends_with() {
 
 /// Round-trip `rt contains`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -364,7 +364,7 @@ fn rt_contains() {
 
 /// Round-trip `rt string literal single quotes`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -374,7 +374,7 @@ fn rt_string_literal_single_quotes() {
 
 /// Round-trip `rt distinct`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -384,7 +384,7 @@ fn rt_distinct() {
 
 /// Round-trip `rt with pipeline`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -394,7 +394,7 @@ fn rt_with_pipeline() {
 
 /// Round-trip `rt multi part query`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -404,7 +404,7 @@ fn rt_multi_part_query() {
 
 /// Round-trip `rt function call`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -414,7 +414,7 @@ fn rt_function_call() {
 
 /// Round-trip `rt function call qualified`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -424,7 +424,7 @@ fn rt_function_call_qualified() {
 
 /// Round-trip `rt boolean literals`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -434,7 +434,7 @@ fn rt_boolean_literals() {
 
 /// Round-trip `rt null literal`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -444,7 +444,7 @@ fn rt_null_literal() {
 
 /// Round-trip `rt arithmetic`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -454,7 +454,7 @@ fn rt_arithmetic() {
 
 /// Round-trip `rt property access`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -464,7 +464,7 @@ fn rt_property_access() {
 
 /// Round-trip `rt not operator`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -474,7 +474,7 @@ fn rt_not_operator() {
 
 /// Round-trip `rt arithmetic parens`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -484,7 +484,7 @@ fn rt_arithmetic_parens() {
 
 /// Round-trip `rt string with escape`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -494,7 +494,7 @@ fn rt_string_with_escape() {
 
 /// Round-trip `rt variable length path`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -504,7 +504,7 @@ fn rt_variable_length_path() {
 
 /// Round-trip `rt unbounded variable length`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -514,7 +514,7 @@ fn rt_unbounded_variable_length() {
 
 /// Round-trip `rt node with labels and props`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -524,7 +524,7 @@ fn rt_node_with_labels_and_props() {
 
 /// Round-trip `rt relationship with props`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -534,7 +534,7 @@ fn rt_relationship_with_props() {
 
 /// Round-trip `rt return order by desc`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -544,7 +544,7 @@ fn rt_return_order_by_desc() {
 
 /// Round-trip `rt return order by default`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -554,7 +554,7 @@ fn rt_return_order_by_default() {
 
 /// Round-trip `rt list index`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -564,7 +564,7 @@ fn rt_list_index() {
 
 /// Round-trip `rt list slice`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -574,7 +574,7 @@ fn rt_list_slice() {
 
 /// Round-trip `rt list slice open start`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -584,7 +584,7 @@ fn rt_list_slice_open_start() {
 
 /// Round-trip `rt list slice open end`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -594,7 +594,7 @@ fn rt_list_slice_open_end() {
 
 /// Round-trip `rt merge on match set`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -604,7 +604,7 @@ fn rt_merge_on_match_set() {
 
 /// Round-trip `rt merge on create set`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -614,7 +614,7 @@ fn rt_merge_on_create_set() {
 
 /// Round-trip `rt float literal`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -624,7 +624,7 @@ fn rt_float_literal() {
 
 /// Round-trip `rt integer literal`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -634,7 +634,7 @@ fn rt_integer_literal() {
 
 /// Round-trip `rt xor operator`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -644,7 +644,7 @@ fn rt_xor_operator() {
 
 /// Round-trip `rt comparison ne`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -654,7 +654,7 @@ fn rt_comparison_ne() {
 
 /// Round-trip `rt comparison le`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
@@ -664,7 +664,7 @@ fn rt_comparison_le() {
 
 /// Round-trip `rt comparison ge`: parse → serialise → re-parse must yield equal ASTs.
 ///
-/// Unit: `Tocypher_rs::to_cypher` / `parse`
+/// Unit: `Todecypher::to_cypher` / `parse`
 /// Precondition: Input Cypher is syntactically valid.
 /// Expectation: Re-parsed AST equals the original parsed AST.
 #[test]
