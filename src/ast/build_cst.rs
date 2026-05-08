@@ -801,7 +801,7 @@ fn build_pattern_element_chain(pec: PatternElementChain) -> Result<ast_c::Patter
         .ok_or_else(|| internal("missing relationship pattern in chain", sp))?;
     let has_left = rel.syntax().children_with_tokens().any(|t| {
         t.as_token()
-            .is_some_and(|t| t.kind() == SyntaxKind::ARROW_LEFT)
+            .is_some_and(|t| t.kind() == SyntaxKind::ARROW_LEFT || t.kind() == SyntaxKind::LT)
     });
     let has_right = rel.syntax().children_with_tokens().any(|t| {
         t.as_token()

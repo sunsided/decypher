@@ -4,6 +4,7 @@
 //! shape of the resulting [`cypher::hir::HirQuery`].
 
 use cypher::analyze;
+use cypher::hir::{RelationshipDirection, ops::Operation};
 
 /// A basic `MATCH … RETURN` query lowers to exactly one query part.
 ///
@@ -99,4 +100,18 @@ fn try_from_str_for_query_invalid() {
     use std::convert::TryFrom;
     let result = cypher::Query::try_from("INVALID !!!");
     assert!(result.is_err());
+}
+
+#[test]
+fn analyze_left_directed_relationship_lowers_to_right_to_left() {
+    let hir = analyze("MATCH (a)<-[:T]-(b) RETURN a").unwrap();
+    let Some(Operation::Match(m)) = hir.parts[0].operations.first() else {
+        panic!("expected first operation to be Match");
+    };
+
+    assert_eq!(m.pattern.relationships.len(), 1);
+    assert_eq!(
+        m.pattern.relationships[0].direction,
+        RelationshipDirection::RightToLeft
+    );
 }
