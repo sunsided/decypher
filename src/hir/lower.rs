@@ -1439,6 +1439,7 @@ impl LoweringContext {
                 let start_idx = nodes.len();
                 let start_node = self.lower_node_pattern(start);
                 nodes.push(start_node);
+                let mut current = start_idx;
 
                 for chain in chains {
                     let end_node = self.lower_node_pattern(&chain.node);
@@ -1446,8 +1447,9 @@ impl LoweringContext {
                     nodes.push(end_node);
 
                     let rel =
-                        self.lower_relationship_pattern(&chain.relationship, start_idx, end_idx);
+                        self.lower_relationship_pattern(&chain.relationship, current, end_idx);
                     relationships.push(rel);
+                    current = end_idx;
                 }
             }
             PatternElement::Parenthesized(inner) => {
