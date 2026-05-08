@@ -106,14 +106,47 @@ fn try_from_str_for_query_invalid() {
 fn analyze_left_directed_relationship_lowers_to_right_to_left() {
     let hir = analyze("MATCH (a)<-[:T]-(b) RETURN a").unwrap();
     assert_eq!(hir.parts.len(), 1);
-    assert_eq!(hir.parts[0].operations.len(), 1);
-    let Some(Operation::Match(m)) = hir.parts[0].operations.first() else {
-        panic!("expected first operation to be Match");
-    };
+    let m = hir.parts[0]
+        .operations
+        .iter()
+        .find_map(|op| {
+            if let Operation::Match(m) = op {
+                Some(m)
+            } else {
+                None
+            }
+        })
+        .expect("expected a Match operation");
 
     assert_eq!(m.pattern.relationships.len(), 1);
     assert_eq!(
         m.pattern.relationships[0].direction,
         RelationshipDirection::RightToLeft
     );
+}
+
+/// Relationships in a chained path must track the correct left (source) node.
+///
+/// Unit: `lower_pattern_element`
+/// Precondition: Two-hop path `(a)-[:E]->(b)-[:F]->(c)`.
+/// Expectation: `rel[0].left=0, rel[0].right=1`; `rel[1].left=1, rel[1].right=2`.
+#[test]
+fn chained_path_relationship_left_indices() {
+    let hir = analyze("MATCH (a)-[:E]->(b)-[:F]->(c) RETURN a").unwrap();
+    let part = &hir.parts[0];
+
+    let m = part.operations.iter().find_map(|op| {
+        if let Operation::Match(m) = op {
+            Some(m)
+        } else {
+            None
+        }
+    });
+    let m = m.expect("expected a Match operation");
+    let rels = &m.pattern.relationships;
+    assert_eq!(rels.len(), 2, "expected two relationships");
+    assert_eq!(rels[0].left, 0, "rel[0].left should be 0");
+    assert_eq!(rels[0].right, 1, "rel[0].right should be 1");
+    assert_eq!(rels[1].left, 1, "rel[1].left should be 1, not 0");
+    assert_eq!(rels[1].right, 2, "rel[1].right should be 2");
 }
