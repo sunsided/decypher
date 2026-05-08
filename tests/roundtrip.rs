@@ -671,3 +671,40 @@ fn rt_comparison_le() {
 fn rt_comparison_ge() {
     roundtrip("MATCH (n) WHERE n.age >= 18 RETURN n;");
 }
+
+// ── Query-time variable substitution ─────────────────────────────────────────
+
+/// Round-trip `SET n[$key] = $value`: dynamic property key survives re-serialisation.
+///
+/// Unit: `ToCypher::to_cypher` / `parse`
+/// Precondition: SET clause uses a parameter as a dynamic property key.
+/// Expectation: Re-parsed AST equals the original parsed AST.
+#[test]
+fn rt_set_dynamic_property_key() {
+    roundtrip("MATCH (n) SET n[$key] = $value RETURN n;");
+}
+
+/// Round-trip `CREATE (p:Person {name: $name})`: parameter value survives re-serialisation.
+///
+/// Unit: `ToCypher::to_cypher` / `parse`
+/// Precondition: CREATE uses a parameter as a map property value.
+/// Expectation: Re-parsed AST equals the original parsed AST.
+#[test]
+fn rt_create_with_parameter_value() {
+    roundtrip("CREATE (p:Person {name: $name}) RETURN p;");
+}
+
+/// Round-trip MERGE with ON CREATE / ON MATCH parameter values.
+///
+/// Unit: `ToCypher::to_cypher` / `parse`
+/// Precondition: MERGE with ON CREATE and ON MATCH SET actions using parameters.
+/// Expectation: Re-parsed AST equals the original parsed AST.
+#[test]
+fn rt_merge_with_parameter_values() {
+    roundtrip(
+        "MERGE (p:Person {externalId: $externalId}) \
+         ON CREATE SET p.name = $name \
+         ON MATCH SET p.lastSeenAt = datetime() \
+         RETURN p;",
+    );
+}

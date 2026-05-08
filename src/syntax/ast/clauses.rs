@@ -468,6 +468,27 @@ impl SetItem {
     pub fn node_labels(&self) -> Option<super::patterns::NodeLabels> {
         child(&self.0)
     }
+
+    /// Returns the dynamic key expression for `variable[$key]` SET targets.
+    ///
+    /// When `n[$key] = $value` is parsed, the `DYNAMIC_PROPERTY` node wraps
+    /// the key expression. This method returns that key expression.
+    pub fn dynamic_key_expr(&self) -> Option<Expression> {
+        for child in self.0.children_with_tokens() {
+            if let Some(tok) = child.as_token() {
+                if matches!(tok.kind(), SyntaxKind::EQ | SyntaxKind::PLUSEQ) {
+                    break;
+                }
+                continue;
+            }
+            if let Some(node) = child.as_node()
+                && node.kind() == SyntaxKind::DYNAMIC_PROPERTY
+            {
+                return node.children().find_map(Expression::cast);
+            }
+        }
+        None
+    }
 }
 
 #[derive(Clone, Debug)]
