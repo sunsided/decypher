@@ -4,8 +4,8 @@
 //! boundaries introduced by `WITH` clauses: only variables explicitly
 //! projected by `WITH` remain visible in subsequent clauses.
 
-use cypher::sema::analyze;
-use cypher::{ErrorKind, parse};
+use cypher_rs::sema::analyze;
+use cypher_rs::{ErrorKind, parse};
 
 /// Variables not projected by a `WITH` clause are no longer visible after it.
 ///

@@ -1,10 +1,10 @@
 //! Integration tests for the generic `parse` / `parse_with_label` signatures.
 //!
-//! These tests verify that both functions accept a pre-built [`cypher::Parse`]
+//! These tests verify that both functions accept a pre-built [`cypher_rs::Parse`]
 //! CST in addition to a raw `&str`, mirroring the generic pattern introduced
-//! for [`cypher::analyze`] in PR #15.
+//! for [`cypher_rs::analyze`] in PR #15.
 
-use cypher::{ErrorKind, parse, parse_cst, parse_with_label};
+use cypher_rs::{ErrorKind, parse, parse_cst, parse_with_label};
 
 /// `parse` accepts a pre-built CST and produces the same `Query` as parsing
 /// from a string.
@@ -125,7 +125,7 @@ fn parse_with_label_from_empty_cst() {
     // Parse has no EmptyInput error.  The empty SOURCE_FILE has no statements,
     // and build_source_file rejects that with an internal "empty source file"
     // error — so we expect Err here.
-    let cst = cypher::parse_cst("");
+    let cst = cypher_rs::parse_cst("");
     let result = parse_with_label(cst, "lbl");
     assert!(result.is_err());
     let err = result.unwrap_err();

@@ -1,6 +1,6 @@
 [package]
-name = "cypher"
-version = "0.2.0-alpha.3"
+name = "cypher-rs"
+version = "0.2.0-alpha.4"
 edition = "2024"
 rust-version = "1.94"
 authors = ["Markus Mayer <widemeadows@gmail.com>", "Austin Poor <code@austinpoor.com>"]

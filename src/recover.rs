@@ -50,7 +50,7 @@ pub struct ParseOptions {
 /// # Example
 ///
 /// ```
-/// use cypher::{ParseOptions, parse_with_options};
+/// use cypher_rs::{ParseOptions, parse_with_options};
 ///
 /// let mut opts = ParseOptions::default();
 /// opts.recover = true;

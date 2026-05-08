@@ -44,8 +44,8 @@ pub trait ToCypher {
     /// # Example
     ///
     /// ```
-    /// use cypher::ast::ToCypher;
-    /// use cypher::parse;
+    /// use cypher_rs::ast::ToCypher;
+    /// use cypher_rs::parse;
     ///
     /// let query = parse("MATCH (n) RETURN n;").unwrap();
     /// assert!(query.to_cypher().starts_with("MATCH"));
@@ -69,8 +69,8 @@ pub trait ToCypher {
     /// # Example
     ///
     /// ```
-    /// use cypher::ast::ToCypher;
-    /// use cypher::parse;
+    /// use cypher_rs::ast::ToCypher;
+    /// use cypher_rs::parse;
     ///
     /// let query = parse("MATCH (n) RETURN n;").unwrap();
     /// println!("{}", query.display());
@@ -85,7 +85,7 @@ pub trait ToCypher {
 
 /// A wrapper around a [`ToCypher`] implementor that provides a [`fmt::Display`] impl.
 ///
-/// Created via [`ToCypher::display`].
+/// Created via [`Tocypher_rs::display`].
 pub struct DisplayCypher<'a, T: ?Sized>(&'a T);
 
 impl<T: ToCypher + ?Sized> fmt::Display for DisplayCypher<'_, T> {

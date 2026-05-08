@@ -6,7 +6,7 @@
 //!
 //! # Example: matching on error kinds
 //! ```ignore
-//! use cypher::{parse, ErrorKind, CypherError};
+//! use cypher_rs::{parse, ErrorKind, CypherError};
 //!
 //! match parse("RETURN;") {
 //!     Err(CypherError { kind, .. }) => {
@@ -354,7 +354,7 @@ impl CypherError {
     /// # Example
     ///
     /// ```
-    /// use cypher::parse;
+    /// use cypher_rs::parse;
     ///
     /// let err = parse("RETURN;").unwrap_err();
     /// let rendered = err.render("RETURN;");

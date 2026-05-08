@@ -5,9 +5,9 @@
 //! various categories of invalid input.
 
 use assert2::check;
-use cypher::CypherError;
-use cypher::ErrorKind;
-use cypher::parse;
+use cypher_rs::CypherError;
+use cypher_rs::ErrorKind;
+use cypher_rs::parse;
 
 /// An empty string produces an `EmptyInput` error.
 ///
@@ -194,7 +194,7 @@ fn test_render_produces_output() {
 /// Expectation: `query.is_none()`, `diags` is non-empty with exactly one error.
 #[test]
 fn test_diagnostics_wrapper() {
-    use cypher::parse_all;
+    use cypher_rs::parse_all;
     let (query, diags) = parse_all("RETURN;");
     check!(query.is_none());
     check!(!diags.is_empty());
@@ -209,7 +209,7 @@ fn test_diagnostics_wrapper() {
 ///   `source_label() == Some("test.cypher")`.
 #[test]
 fn test_parse_with_label() {
-    use cypher::parse_with_label;
+    use cypher_rs::parse_with_label;
     let result = parse_with_label("RETURN 1", "test.cypher");
     check!(result.is_ok());
 
@@ -280,7 +280,7 @@ fn test_empty_subquery_body_has_help() {
 ///   is non-empty.
 #[test]
 fn test_recovery_with_rich_syntax_errors() {
-    use cypher::{ParseOptions, parse_with_options};
+    use cypher_rs::{ParseOptions, parse_with_options};
     let input = "MATCH (n:(Person|)) RETURN n; RETURN 1;";
     let mut opts = ParseOptions::default();
     opts.recover = true;

@@ -1,10 +1,10 @@
-use cypher::hir::arena::{BindingId, ExprId, HirArenas};
-use cypher::hir::expr::{
+use cypher_rs::hir::arena::{BindingId, ExprId, HirArenas};
+use cypher_rs::hir::expr::{
     BinaryOp, ComparisonOperator as HirComparisonOperator, ExprKind, Literal as HirLiteral,
 };
-use cypher::hir::ops::MatchOp;
-use cypher::hir::pattern::RelationshipDirection;
-use cypher::hir::{HirQuery, Operation};
+use cypher_rs::hir::ops::MatchOp;
+use cypher_rs::hir::pattern::RelationshipDirection;
+use cypher_rs::hir::{HirQuery, Operation};
 use std::collections::HashMap;
 
 type NodeId = usize;
@@ -592,7 +592,7 @@ fn print_table(headers: &[String], rows: &[Vec<Value>]) {
 
 fn run_query(graph: &InMemoryGraph, query_str: &str) {
     println!("\n--- Query: {} ---", query_str);
-    match cypher::analyze(query_str) {
+    match cypher_rs::analyze(query_str) {
         Ok(hir) => {
             let results = interpret(graph, &hir);
             let headers = extract_headers(&hir);

@@ -1,12 +1,15 @@
-# cypher
+# cypher-rs
 
-Parse Neo4j 5 and [openCypher](https://opencypher.org/) queries using Rust.
+Parse Neo4j® 5 Cypher® and [openCypher](https://opencypher.org/) queries using Rust.
+
+This project is independent and is not affiliated with, endorsed by, or sponsored by Neo4j, Inc.
+Cypher® and Neo4j® are registered trademarks of Neo4j, Inc.
 
 <div align="center">
   <img src="https://raw.githubusercontent.com/sunsided/cypher/refs/heads/main/.readme/banner.png" alt="Cypher crate hero picture" />
 </div>
 
-`cypher` provides a typed AST for openCypher queries, built on a hand-written error-resilient rowan parser derived from the openCypher EBNF specification.
+`cypher-rs` provides a typed AST for Cypher® and openCypher queries, built on a hand-written error-resilient rowan parser derived from the openCypher EBNF specification.
 
 > **Note**: This project is a fork and complete re-implementation of the [original pest-based parser](https://github.com/a-poor/open-cypher) by [Austin Poor](https://github.com/a-poor). The parser has been rewritten from the ground up using [rowan](https://github.com/rust-analyzer/rowan) instead of pest.
 
@@ -20,7 +23,7 @@ cypher = "0.2"
 ```
 
 ```rust
-use cypher::parse;
+use cypher_rs::parse;
 
 let query = parse("MATCH (n:Person) WHERE n.age > 18 RETURN n.name;").unwrap();
 println!("{:#?}", query);
@@ -33,12 +36,12 @@ println!("{:#?}", query);
 - **Ergonomic errors** — `CypherError` with syntax, AST build, and unsupported-production variants via `thiserror`.
 - **Cypher emission** — The `ToCypher` trait renders any AST node back into valid openCypher text, enabling round-trips (`parse → ast → to_cypher → parse`).
 - **`serde` support** — Optional `serde` feature for `Serialize`/`Deserialize` derives on all AST nodes.
-- **Typed CST (unstable)** — A rust-analyzer-style typed wrapper layer over a lossless rowan CST, available under `cypher::cst`. Each CST node (`SourceFile`, `MatchClause`, `Expression`, …) exposes typed accessor methods instead of raw `SyntaxKind` matches. This is what the public `parse()` function uses internally.
+- **Typed CST (unstable)** — A rust-analyzer-style typed wrapper layer over a lossless rowan CST, available under `cypher_rs::cst`. Each CST node (`SourceFile`, `MatchClause`, `Expression`, …) exposes typed accessor methods instead of raw `SyntaxKind` matches. This is what the public `parse()` function uses internally.
 
 ### Typed CST example
 
 ```rust
-use cypher::cst::{parse, AstNode, BinOp, Expression};
+use cypher_rs::cst::{parse, AstNode, BinOp, Expression};
 
 let result = parse("MATCH (n:Person) WHERE n.age > 18 RETURN n.name");
 let source = result.tree();
@@ -55,8 +58,8 @@ for stmt in source.statements() {
 The `ToCypher` trait converts AST nodes back into openCypher text. This is useful for query rewriting, formatting, and round-trip testing.
 
 ```rust
-use cypher::ast::ToCypher;
-use cypher::parse;
+use cypher_rs::ast::ToCypher;
+use cypher_rs::parse;
 
 let query = parse("MATCH (n:Person) WHERE n.age > 18 RETURN n.name;").unwrap();
 let cypher = query.to_cypher();
@@ -84,5 +87,6 @@ Contributions of any size are welcome! Please feel free to submit issues or PRs.
 
 ## License
 
-**EUPL-1.2**, **MIT**, or **Apache-2.0**
+This library code is **EUPL-1.2**, **MIT**, or **Apache-2.0**.
 
+Cypher® and Neo4j® are registered trademarks of Neo4j, Inc.

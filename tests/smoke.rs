@@ -4,7 +4,7 @@
 //! to ensure that the parser accepts it and produces an `Ok` result.
 
 use assert2::check;
-use cypher::parse;
+use cypher_rs::parse;
 
 /// Parse `exists()` used as a function with a pattern argument.
 ///
