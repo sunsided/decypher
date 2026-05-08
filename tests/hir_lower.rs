@@ -100,3 +100,31 @@ fn try_from_str_for_query_invalid() {
     let result = cypher::Query::try_from("INVALID !!!");
     assert!(result.is_err());
 }
+
+/// Relationships in a chained path must track the correct left (source) node.
+///
+/// Unit: `lower_pattern_element`
+/// Precondition: Two-hop path `(a)-[:E]->(b)-[:F]->(c)`.
+/// Expectation: `rel[0].left=0, rel[0].right=1`; `rel[1].left=1, rel[1].right=2`.
+#[test]
+fn chained_path_relationship_left_indices() {
+    use cypher::hir::ops::Operation;
+
+    let hir = analyze("MATCH (a)-[:E]->(b)-[:F]->(c) RETURN a").unwrap();
+    let part = &hir.parts[0];
+
+    let m = part.operations.iter().find_map(|op| {
+        if let Operation::Match(m) = op {
+            Some(m)
+        } else {
+            None
+        }
+    });
+    let m = m.expect("expected a Match operation");
+    let rels = &m.pattern.relationships;
+    assert_eq!(rels.len(), 2, "expected two relationships");
+    assert_eq!(rels[0].left, 0, "rel[0].left should be 0");
+    assert_eq!(rels[0].right, 1, "rel[0].right should be 1");
+    assert_eq!(rels[1].left, 1, "rel[1].left should be 1, not 0");
+    assert_eq!(rels[1].right, 2, "rel[1].right should be 2");
+}
