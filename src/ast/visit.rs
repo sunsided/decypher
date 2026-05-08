@@ -1117,6 +1117,17 @@ pub fn walk_set<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Set) {
 
 pub fn walk_set_item<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast SetItem) {
     match node {
+        SetItem::DynamicProperty {
+            property,
+            key,
+            value,
+            operator,
+        } => {
+            v.visit_expression(property);
+            v.visit_expression(key);
+            v.visit_expression(value);
+            v.visit_set_operator(operator);
+        }
         SetItem::Property {
             property,
             value,
@@ -1719,6 +1730,16 @@ pub fn walk_set_mut<V: VisitMut>(v: &mut V, node: &mut Set) {
 
 pub fn walk_set_item_mut<V: VisitMut>(v: &mut V, node: &mut SetItem) {
     match node {
+        SetItem::DynamicProperty {
+            property,
+            key,
+            value,
+            ..
+        } => {
+            v.visit_expression(property);
+            v.visit_expression(key);
+            v.visit_expression(value);
+        }
         SetItem::Property {
             property, value, ..
         } => {

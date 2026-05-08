@@ -149,3 +149,86 @@ fn chained_path_relationship_left_indices() {
     assert_eq!(rels[1].left, 1, "rel[1].left should be 1, not 0");
     assert_eq!(rels[1].right, 2, "rel[1].right should be 2");
 }
+
+// ── Query-time variable substitution ─────────────────────────────────────────
+
+/// `CREATE (p:Person {name: $name}) RETURN p` lowers successfully.
+///
+/// Unit: `analyze()`
+/// Precondition: CREATE uses a parameter as a map property value.
+/// Expectation: `analyze` returns `Ok` with one query part.
+#[test]
+fn analyze_create_with_parameter_value() {
+    let hir = analyze("CREATE (p:Person {name: $name}) RETURN p").unwrap();
+    assert_eq!(hir.parts.len(), 1);
+}
+
+/// `MATCH (n) SET n.name = $name RETURN n` lowers successfully.
+///
+/// Unit: `analyze()`
+/// Precondition: SET clause assigns a query parameter to a static property.
+/// Expectation: `analyze` returns `Ok` with one query part containing a Set operation.
+#[test]
+fn analyze_set_property_parameter_value() {
+    use cypher::hir::ops::Operation;
+    let hir = analyze("MATCH (n) SET n.name = $name RETURN n").unwrap();
+    assert_eq!(hir.parts.len(), 1);
+    let has_set = hir.parts[0]
+        .operations
+        .iter()
+        .any(|op| matches!(op, Operation::Set(_)));
+    assert!(has_set, "expected a Set operation");
+}
+
+/// `MATCH (n) SET n[$key] = $value RETURN n` lowers to a SetDynamicProperty item.
+///
+/// Unit: `analyze()`
+/// Precondition: SET clause uses a parameter as a dynamic property key.
+/// Expectation: `analyze` returns `Ok` and the Set operation contains a
+///              `SetDynamicProperty` item.
+#[test]
+fn analyze_set_dynamic_property_key() {
+    use cypher::hir::ops::{Operation, SetItem};
+    let hir = analyze("MATCH (n) SET n[$key] = $value RETURN n").unwrap();
+    assert_eq!(hir.parts.len(), 1);
+    let set_op = hir.parts[0]
+        .operations
+        .iter()
+        .find_map(|op| {
+            if let Operation::Set(s) = op {
+                Some(s)
+            } else {
+                None
+            }
+        })
+        .expect("expected a Set operation");
+    assert_eq!(set_op.items.len(), 1);
+    assert!(
+        matches!(set_op.items[0], SetItem::SetDynamicProperty { .. }),
+        "expected SetDynamicProperty item, got {:?}",
+        set_op.items[0]
+    );
+}
+
+/// `MERGE … ON CREATE SET p.name = $name ON MATCH SET p.lastSeenAt = datetime()` lowers successfully.
+///
+/// Unit: `analyze()`
+/// Precondition: MERGE with ON CREATE and ON MATCH SET actions using parameters.
+/// Expectation: `analyze` returns `Ok` with one query part containing a Merge operation.
+#[test]
+fn analyze_merge_with_parameter_values() {
+    use cypher::hir::ops::Operation;
+    let hir = analyze(
+        "MERGE (p:Person {externalId: $externalId}) \
+         ON CREATE SET p.name = $name \
+         ON MATCH SET p.lastSeenAt = datetime() \
+         RETURN p",
+    )
+    .unwrap();
+    assert_eq!(hir.parts.len(), 1);
+    let has_merge = hir.parts[0]
+        .operations
+        .iter()
+        .any(|op| matches!(op, Operation::Merge(_)));
+    assert!(has_merge, "expected a Merge operation");
+}

@@ -504,6 +504,21 @@ impl LoweringContext {
 
     fn lower_set_item(&mut self, si: &SetItem) -> HirSetItem {
         match si {
+            SetItem::DynamicProperty {
+                property,
+                key,
+                value,
+                ..
+            } => {
+                let entity = self.lower_expr(property);
+                let key_id = self.lower_expr(key);
+                let val = self.lower_expr(value);
+                HirSetItem::SetDynamicProperty {
+                    entity,
+                    key: key_id,
+                    value: val,
+                }
+            }
             SetItem::Property {
                 property,
                 value,

@@ -1616,6 +1616,17 @@ fn parse_set_item(p: &mut Parser) {
             p.builder.finish_node();
             p.skip_trivia();
         }
+        // Dynamic property key: `n[$key] = $value`
+        if p.at(SyntaxKind::L_BRACKET) {
+            p.start_node(SyntaxKind::DYNAMIC_PROPERTY);
+            p.bump(); // [
+            p.skip_trivia();
+            expr_bp(p, Prec::MIN);
+            p.skip_trivia();
+            p.expect(SyntaxKind::R_BRACKET);
+            p.builder.finish_node();
+            p.skip_trivia();
+        }
     }
     p.skip_trivia();
     if p.at(SyntaxKind::PLUSEQ) || p.at(SyntaxKind::EQ) {

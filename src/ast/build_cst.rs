@@ -435,6 +435,18 @@ fn build_set_item(item: SetItem) -> Result<ast_c::SetItem> {
         ast_c::SetOperator::Assign
     };
 
+    // Dynamic property key: `n[$key] = $value`
+    if let Some(dyn_key) = item.dynamic_key_expr() {
+        let base_ast = build_expression(property)?;
+        let key_ast = build_expression(dyn_key)?;
+        return Ok(ast_c::SetItem::DynamicProperty {
+            property: base_ast,
+            key: key_ast,
+            value: value_ast,
+            operator,
+        });
+    }
+
     let prop_ast = build_expression(property)?;
     match &prop_ast {
         ast_c::Expression::Variable(v) => Ok(ast_c::SetItem::Variable {

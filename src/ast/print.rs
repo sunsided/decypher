@@ -386,6 +386,20 @@ impl ToCypher for SetItem {
                 write!(w, " ")?;
                 value.write_cypher(w)
             }
+            SetItem::DynamicProperty {
+                property,
+                key,
+                value,
+                operator,
+            } => {
+                property.write_cypher(w)?;
+                write!(w, "[")?;
+                key.write_cypher(w)?;
+                write!(w, "] ")?;
+                operator.write_cypher(w)?;
+                write!(w, " ")?;
+                value.write_cypher(w)
+            }
             SetItem::Variable {
                 variable,
                 value,

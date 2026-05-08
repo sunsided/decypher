@@ -495,3 +495,65 @@ fn test_postfix_label_expression() {
     let result = parse("MATCH (n) WHERE n:Person|Company RETURN n;");
     check!(result.is_ok(), "{:?}", result.err());
 }
+
+// ── Query-time variable substitution ──────────────────────────────────────────
+
+/// Parse a `SET n[$key] = $value` statement with a dynamic property key.
+///
+/// Unit: `parse()`
+/// Precondition: SET clause uses a parameter as a dynamic property key.
+/// Expectation: parser returns `Ok`.
+#[test]
+fn test_set_dynamic_property_key() {
+    let result = parse("MATCH (n) SET n[$key] = $value RETURN n");
+    check!(result.is_ok(), "{:?}", result.err());
+}
+
+/// Parse a `SET n.foo[$key] = $value` — dot lookup followed by dynamic key.
+///
+/// Unit: `parse()`
+/// Precondition: SET clause chains a static property lookup with a dynamic key.
+/// Expectation: parser returns `Ok`.
+#[test]
+fn test_set_dynamic_property_key_after_lookup() {
+    let result = parse("MATCH (n) SET n.props[$key] = $value RETURN n");
+    check!(result.is_ok(), "{:?}", result.err());
+}
+
+/// Parse a `CREATE (p:Person {name: $name})` statement with a parameter value.
+///
+/// Unit: `parse()`
+/// Precondition: CREATE clause uses a parameter as a map literal value.
+/// Expectation: parser returns `Ok`.
+#[test]
+fn test_create_with_parameter_value() {
+    let result = parse("CREATE (p:Person {name: $name}) RETURN p");
+    check!(result.is_ok(), "{:?}", result.err());
+}
+
+/// Parse a `MERGE … ON CREATE SET … ON MATCH SET …` with parameter values.
+///
+/// Unit: `parse()`
+/// Precondition: MERGE with ON CREATE/ON MATCH SET actions using parameters.
+/// Expectation: parser returns `Ok`.
+#[test]
+fn test_merge_with_parameter_values() {
+    let result = parse(
+        "MERGE (p:Person {externalId: $externalId}) \
+         ON CREATE SET p.name = $name \
+         ON MATCH SET p.lastSeenAt = datetime() \
+         RETURN p",
+    );
+    check!(result.is_ok(), "{:?}", result.err());
+}
+
+/// Parse a `SET n.name = $name` statement using a parameter as the RHS value.
+///
+/// Unit: `parse()`
+/// Precondition: SET clause assigns a parameter reference to a property.
+/// Expectation: parser returns `Ok`.
+#[test]
+fn test_set_property_parameter_value() {
+    let result = parse("MATCH (n) SET n.name = $name RETURN n");
+    check!(result.is_ok(), "{:?}", result.err());
+}

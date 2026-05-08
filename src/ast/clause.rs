@@ -93,6 +93,21 @@ pub enum SetItem {
         /// The assignment operator (`=` or `+=`).
         operator: SetOperator,
     },
+    /// `variable[$key] = value` — set a property identified by a runtime key.
+    ///
+    /// Used for queries like `SET n[$key] = $value` where the property name is
+    /// supplied as a query parameter (or any expression) at query time.
+    DynamicProperty {
+        /// The base expression (typically a variable or property-lookup chain)
+        /// whose property is being set.
+        property: Expression,
+        /// The key expression that evaluates to a property name at runtime.
+        key: Expression,
+        /// The value to assign.
+        value: Expression,
+        /// The assignment operator (`=` or `+=`).
+        operator: SetOperator,
+    },
     /// `variable:Label1:Label2 …` — add labels to a node.
     Labels {
         /// The node variable to relabel.

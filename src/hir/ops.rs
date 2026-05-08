@@ -223,6 +223,18 @@ pub enum SetItem {
         /// The labels to add.
         labels: Vec<super::arena::LabelId>,
     },
+    /// `entity[$key] = value` — set a property by a runtime-computed key.
+    ///
+    /// Used for queries like `SET n[$key] = $value` where the property name is
+    /// supplied as a query parameter at runtime.
+    SetDynamicProperty {
+        /// The entity binding whose property is being set.
+        entity: ExprId,
+        /// The expression that evaluates to the property key name at runtime.
+        key: ExprId,
+        /// The new value.
+        value: ExprId,
+    },
     /// `variable = map` (replace all properties with `=`)
     ReplaceProperties {
         /// The entity binding.
