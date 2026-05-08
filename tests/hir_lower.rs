@@ -105,6 +105,8 @@ fn try_from_str_for_query_invalid() {
 #[test]
 fn analyze_left_directed_relationship_lowers_to_right_to_left() {
     let hir = analyze("MATCH (a)<-[:T]-(b) RETURN a").unwrap();
+    assert_eq!(hir.parts.len(), 1);
+    assert_eq!(hir.parts[0].operations.len(), 1);
     let Some(Operation::Match(m)) = hir.parts[0].operations.first() else {
         panic!("expected first operation to be Match");
     };
