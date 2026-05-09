@@ -14,11 +14,11 @@ keywords = ["sql", "cypher", "graph", "parser", "opencypher"]
 categories = ["parser-implementations"]
 
 [dependencies]
-thiserror = "1"
+thiserror = "2"
 serde = { version = "1", optional = true, features = ["derive"] }
 ryu = "1"
 miette = { version = "7", optional = true }
-rowan = "0.15"
+rowan = "0.16"
 unicode-ident = "1"
 
 [features]
@@ -40,5 +40,5 @@ name = "indiana_jones"
 required-features = ["hir"]
 
 [dev-dependencies]
-assert2 = "0.3"
+assert2 = "0.4"
 proptest = "1"
