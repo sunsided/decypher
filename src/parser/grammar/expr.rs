@@ -573,7 +573,10 @@ fn parse_atom(p: &mut Parser) {
         | SyntaxKind::ESCAPED_IDENT
         | SyntaxKind::KW_COUNT
         | SyntaxKind::KW_TYPE
-        | SyntaxKind::KW_KEY => {
+        | SyntaxKind::KW_KEY
+        // `range` is also the CREATE RANGE INDEX keyword; like the keywords
+        // above, accept it here as a function name / call.
+        | SyntaxKind::KW_RANGE => {
             // Detect qualified function calls: `ns1.ns2.name(args)`. We can't
             // rewrite from a VARIABLE + PROPERTY_LOOKUP chain after the fact,
             // so look ahead before committing and build a FUNCTION_INVOCATION

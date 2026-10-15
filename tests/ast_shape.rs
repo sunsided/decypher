@@ -167,3 +167,78 @@ fn test_span_is_nonzero() {
     let query = parse("MATCH (n) RETURN n;").unwrap();
     check!(query.span.start < query.span.end);
 }
+
+/// `range(start, end)` in expression position parses as an ordinary function
+/// invocation — not an error, and not a bare variable followed by a stray
+/// parenthesis. `range` is a contextual keyword (reserved only in the schema
+/// `CREATE RANGE INDEX …` position), so as an expression it is the standard
+/// openCypher list function.
+///
+/// Unit: `parse()` / AST `Expression::FunctionCall`
+/// Precondition: `RETURN range(0, 3) AS r;`.
+/// Expectation: the projection expression is a `FunctionCall` named `range`
+/// with two arguments.
+#[test]
+fn test_range_is_a_function_invocation() {
+    use decypher::ast::expr::Expression;
+
+    let query = parse("RETURN range(0, 3) AS r;").unwrap();
+    let QueryBody::SingleQuery(sq) = &query.statements[0] else {
+        panic!("expected SingleQuery");
+    };
+    let decypher::ast::query::SingleQueryKind::SinglePart(spq) = &sq.kind else {
+        panic!("expected SinglePart query");
+    };
+    let SinglePartBody::Return(ret) = &spq.body else {
+        panic!("expected Return body");
+    };
+    match &ret.items[0].expression {
+        Expression::FunctionCall(fi) => {
+            check!(fi.name.len() == 1);
+            check!(fi.name[0].name == "range");
+            check!(fi.arguments.len() == 2);
+        }
+        other => panic!("expected a FunctionCall, got {other:?}"),
+    }
+}
+
+/// A three-argument `range(start, end, step)` also parses (the optional step is
+/// just another ordinary argument).
+///
+/// Unit: `parse()` / AST `Expression::FunctionCall`
+/// Precondition: `RETURN range(0, 10, 2) AS r;`.
+/// Expectation: a `FunctionCall` named `range` with three arguments.
+#[test]
+fn test_range_with_step_has_three_arguments() {
+    use decypher::ast::expr::Expression;
+
+    let query = parse("RETURN range(0, 10, 2) AS r;").unwrap();
+    let QueryBody::SingleQuery(sq) = &query.statements[0] else {
+        panic!("expected SingleQuery");
+    };
+    let decypher::ast::query::SingleQueryKind::SinglePart(spq) = &sq.kind else {
+        panic!("expected SinglePart query");
+    };
+    let SinglePartBody::Return(ret) = &spq.body else {
+        panic!("expected Return body");
+    };
+    match &ret.items[0].expression {
+        Expression::FunctionCall(fi) => {
+            check!(fi.arguments.len() == 3);
+        }
+        other => panic!("expected a FunctionCall, got {other:?}"),
+    }
+}
+
+/// `range` remains usable as an ordinary variable name (it is only a contextual
+/// keyword). Adding it to the expression function-call arm must not regress
+/// this.
+///
+/// Unit: `parse()`
+/// Precondition: `WITH 1 AS range RETURN range;`.
+/// Expectation: parser returns `Ok`.
+#[test]
+fn test_range_is_still_a_valid_variable_name() {
+    let result = parse("WITH 1 AS range RETURN range;");
+    check!(result.is_ok(), "{:?}", result.err());
+}

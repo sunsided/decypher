@@ -579,3 +579,37 @@ fn test_set_dynamic_property_literal_key() {
     let result = parse("MATCH (n) SET n[\"propName\"] = $v RETURN n");
     check!(result.is_ok(), "{:?}", result.err());
 }
+
+/// Parse `range(start, end)` as a function in a `RETURN`.
+///
+/// Unit: `parse()`
+/// Precondition: Cypher source calls `range(0, 10)` in expression position.
+/// Expectation: parser returns `Ok`.
+#[test]
+fn test_range_function_in_return() {
+    let result = parse("RETURN range(0, 10) AS r");
+    check!(result.is_ok(), "{:?}", result.err());
+}
+
+/// Parse the idiomatic `UNWIND range(1, 5) AS x`.
+///
+/// Unit: `parse()`
+/// Precondition: `UNWIND range(1, 5) AS x RETURN x`.
+/// Expectation: parser returns `Ok`.
+#[test]
+fn test_range_function_in_unwind() {
+    let result = parse("UNWIND range(1, 5) AS x RETURN x");
+    check!(result.is_ok(), "{:?}", result.err());
+}
+
+/// `CREATE RANGE INDEX …` still parses — `range` stays reserved in the schema
+/// index-type position.
+///
+/// Unit: `parse()`
+/// Precondition: `CREATE RANGE INDEX FOR (n:Person) ON (n.name)`.
+/// Expectation: parser returns `Ok`.
+#[test]
+fn test_create_range_index_still_parses() {
+    let result = parse("CREATE RANGE INDEX FOR (n:Person) ON (n.name)");
+    check!(result.is_ok(), "{:?}", result.err());
+}
