@@ -2024,7 +2024,7 @@ mod tests {
         assert!(
             matches!(&ops[1], Operation::Project(_)),
             "expected ProjectOp but got: {:?}",
-            &ops[1]
+            ops[1]
         );
     }
 
@@ -2042,7 +2042,7 @@ mod tests {
         assert!(
             matches!(&ops[1], Operation::Aggregate(_)),
             "expected AggregateOp but got: {:?}",
-            &ops[1]
+            ops[1]
         );
     }
 
