@@ -65,21 +65,60 @@ fn duplicate_return(r: &ReturnClause) -> CypherError {
     }
 }
 
+/// The error for a query part that ends without `RETURN` or an updating
+/// clause (e.g. `MATCH (n)`), pointing at the clause the `RETURN` should follow.
+fn missing_return(last: Option<&Clause>) -> CypherError {
+    let (after, span) = match last {
+        Some(c) => (clause_keyword(c), span_of(c.syntax())),
+        None => ("query", Span::new(0, 0)),
+    };
+    CypherError {
+        kind: ErrorKind::MissingClause {
+            clause: "RETURN",
+            after,
+        },
+        span,
+        source_label: None,
+        notes: Vec::new(),
+        source: None,
+    }
+}
+
+fn clause_keyword(c: &Clause) -> &'static str {
+    match c {
+        Clause::Match(_) => "MATCH",
+        Clause::Return(_) => "RETURN",
+        Clause::With(_) => "WITH",
+        Clause::Unwind(_) => "UNWIND",
+        Clause::Create(_) => "CREATE",
+        Clause::Merge(_) => "MERGE",
+        Clause::Set(_) => "SET",
+        Clause::Delete(_) => "DELETE",
+        Clause::Remove(_) => "REMOVE",
+        Clause::Where(_) => "WHERE",
+        Clause::Foreach(_) => "FOREACH",
+        Clause::StandaloneCall(_) | Clause::InQueryCall(_) | Clause::CallSubquery(_) => "CALL",
+        Clause::Show(_) => "SHOW",
+        Clause::Use(_) => "USE",
+        Clause::LoadCsv(_) => "LOAD CSV",
+        Clause::Finish(_) => "FINISH",
+    }
+}
+
 /// Builds the body of a single-part query (or the final part of a
 /// multi-part query) from its updating clauses and optional `RETURN`.
+/// Returns `None` when there is neither.
 fn single_part_body(
     updating: Vec<ast_c::UpdatingClause>,
     ret: Option<ast_c::Return>,
-) -> Result<ast_c::SinglePartBody> {
+) -> Option<ast_c::SinglePartBody> {
     if !updating.is_empty() {
-        Ok(ast_c::SinglePartBody::Updating {
+        Some(ast_c::SinglePartBody::Updating {
             updating,
             return_clause: ret,
         })
     } else {
-        Ok(ast_c::SinglePartBody::Return(ret.ok_or_else(|| {
-            internal("single-part query must end with RETURN", Span::new(0, 0))
-        })?))
+        ret.map(ast_c::SinglePartBody::Return)
     }
 }
 
@@ -186,6 +225,7 @@ fn build_regular_query(clauses: &[Clause], unions: &[Union]) -> Result<ast_c::Re
 }
 
 fn build_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_c::SingleQuery> {
+    let missing = missing_return(clauses.last());
     let with_indices: Vec<_> = clauses
         .iter()
         .enumerate()
@@ -242,7 +282,7 @@ fn build_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_c::Single
             }
         }
 
-        let body = single_part_body(updating, ret)?;
+        let body = single_part_body(updating, ret).ok_or(missing)?;
 
         Ok(ast_c::SingleQuery {
             kind: ast_c::SingleQueryKind::SinglePart(ast_c::SinglePartQuery {
@@ -292,7 +332,8 @@ fn build_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_c::Single
                     let ret = build_return(r)?;
                     final_part = Some(ast_c::SinglePartQuery {
                         reading_clauses: std::mem::take(&mut reading),
-                        body: single_part_body(std::mem::take(&mut updating), Some(ret))?,
+                        body: single_part_body(std::mem::take(&mut updating), Some(ret))
+                            .ok_or_else(|| missing.clone())?,
                     });
                 }
                 Clause::Finish(f) => {
@@ -326,11 +367,11 @@ fn build_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_c::Single
         if final_part.is_none() && !updating.is_empty() {
             final_part = Some(ast_c::SinglePartQuery {
                 reading_clauses: std::mem::take(&mut reading),
-                body: single_part_body(std::mem::take(&mut updating), None)?,
+                body: single_part_body(std::mem::take(&mut updating), None)
+                    .ok_or_else(|| missing.clone())?,
             });
         }
-        let final_part = final_part
-            .ok_or_else(|| internal("multi-part query missing final part", Span::new(0, 0)))?;
+        let final_part = final_part.ok_or(missing)?;
 
         Ok(ast_c::SingleQuery {
             kind: ast_c::SingleQueryKind::MultiPart(ast_c::MultiPartQuery { parts, final_part }),
@@ -1920,6 +1961,7 @@ fn build_regular_query_from_syntax(
 }
 
 fn build_subquery_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_c::SingleQuery> {
+    let missing = missing_return(clauses.last());
     let with_indices: Vec<_> = clauses
         .iter()
         .enumerate()
@@ -2038,7 +2080,8 @@ fn build_subquery_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_
                     let ret = build_return(r)?;
                     final_part = Some(ast_c::SinglePartQuery {
                         reading_clauses: std::mem::take(&mut reading),
-                        body: single_part_body(std::mem::take(&mut updating), Some(ret))?,
+                        body: single_part_body(std::mem::take(&mut updating), Some(ret))
+                            .ok_or_else(|| missing.clone())?,
                     });
                 }
                 Clause::Finish(f) => {

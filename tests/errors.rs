@@ -310,3 +310,30 @@ fn test_duplicate_return_is_rejected() {
         );
     }
 }
+
+/// A query part without `RETURN` or an updating clause reports which clause
+/// the `RETURN` should follow, with that clause's span.
+///
+/// Unit: `parse()`
+/// Precondition: Single-part and multi-part queries ending in `MATCH`.
+/// Expectation: Returns `MissingClause { clause: "RETURN", after: "MATCH" }`
+///              spanning the final `MATCH`.
+#[test]
+fn test_missing_return_points_at_last_clause() {
+    for (input, start) in [("MATCH (n)", 0), ("MATCH (n) WITH n MATCH (m)", 17)] {
+        let err = parse(input).unwrap_err();
+        check!(
+            matches!(
+                err.kind,
+                ErrorKind::MissingClause {
+                    clause: "RETURN",
+                    after: "MATCH"
+                }
+            ),
+            "input: {input}, got: {:?}",
+            err.kind
+        );
+        check!(err.span.start == start);
+        check!(err.span.end == input.len());
+    }
+}
