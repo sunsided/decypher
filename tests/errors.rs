@@ -288,3 +288,77 @@ fn test_recovery_with_rich_syntax_errors() {
     check!(query.is_some());
     check!(!diags.is_empty());
 }
+
+/// A second `RETURN` in the same query part is rejected instead of silently
+/// replacing the first one (#46).
+///
+/// Unit: `parse()`
+/// Precondition: Single-part, multi-part and subquery bodies with two RETURNs.
+/// Expectation: Returns `ErrorKind::DuplicateClause { clause: "RETURN" }`.
+#[test]
+fn test_duplicate_return_is_rejected() {
+    for input in [
+        "MATCH (p:Person) RETURN p.name AS name ORDER BY zzz DESC RETURN *",
+        "MATCH (n) WITH n RETURN n RETURN n",
+        "CALL { MATCH (n) RETURN n RETURN n } RETURN 1",
+    ] {
+        let err = parse(input).unwrap_err();
+        check!(
+            matches!(err.kind, ErrorKind::DuplicateClause { clause: "RETURN" }),
+            "input: {input}, got: {:?}",
+            err.kind
+        );
+    }
+}
+
+/// A query part without `RETURN` or an updating clause reports which clause
+/// the `RETURN` should follow, with that clause's span.
+///
+/// Unit: `parse()`
+/// Precondition: Single-part and multi-part queries ending in `MATCH`.
+/// Expectation: Returns `MissingClause { clause: "RETURN", after: "MATCH" }`
+///              spanning the final `MATCH`.
+#[test]
+fn test_missing_return_points_at_last_clause() {
+    for (input, start) in [("MATCH (n)", 0), ("MATCH (n) WITH n MATCH (m)", 17)] {
+        let err = parse(input).unwrap_err();
+        check!(
+            matches!(
+                err.kind,
+                ErrorKind::MissingClause {
+                    clause: "RETURN",
+                    after: "MATCH"
+                }
+            ),
+            "input: {input}, got: {:?}",
+            err.kind
+        );
+        check!(err.span.start == start);
+        check!(err.span.end == input.len());
+    }
+}
+
+/// `EXISTS { … }` and `COUNT { … }` bodies may end without `RETURN`, while a
+/// `CALL { … }` body may not.
+///
+/// Unit: `parse()`
+/// Precondition: Subquery bodies ending in `MATCH`.
+/// Expectation: `EXISTS`/`COUNT` parse; `CALL` reports `MissingClause`.
+#[test]
+fn test_subquery_expression_bodies_need_no_return() {
+    for input in [
+        "MATCH (n) WHERE EXISTS { MATCH (n)-->(m) } RETURN n",
+        "MATCH (n) WHERE EXISTS { MATCH (n)-->(m) WITH m MATCH (m)-->(o) } RETURN n",
+        "MATCH (n) RETURN COUNT { MATCH (n)-->(m) } AS c",
+    ] {
+        check!(parse(input).is_ok(), "input: {input}");
+    }
+    let err = parse("CALL { MATCH (n) } RETURN 1").unwrap_err();
+    check!(matches!(
+        err.kind,
+        ErrorKind::MissingClause {
+            clause: "RETURN",
+            ..
+        }
+    ));
+}

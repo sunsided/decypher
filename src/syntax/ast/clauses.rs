@@ -660,11 +660,15 @@ impl ForeachClause {
     }
 
     pub fn list(&self) -> Option<Expression> {
+        // The list expression sits between `IN` and `|`. As with other flat
+        // binary chains, the last expression node is the composed one.
         self.0
-            .children()
-            .filter(|n| n.kind() != SyntaxKind::VARIABLE && n.kind() != SyntaxKind::SYMBOLIC_NAME)
-            .take_while(|n| n.kind() != SyntaxKind::PIPE)
-            .find_map(Expression::cast)
+            .children_with_tokens()
+            .skip_while(|c| c.kind() != SyntaxKind::KW_IN)
+            .take_while(|c| c.kind() != SyntaxKind::PIPE)
+            .filter_map(|c| c.into_node())
+            .filter_map(Expression::cast)
+            .last()
     }
 
     pub fn clauses(&self) -> AstChildren<Clause> {

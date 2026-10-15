@@ -891,6 +891,7 @@ impl ToCypher for Expression {
                 fe.write_cypher(w)?;
                 write!(w, ")")
             }
+            Expression::Reduce(r) => r.write_cypher(w),
             Expression::Parenthesized(inner) => {
                 write!(w, "(")?;
                 inner.write_cypher(w)?;
@@ -1079,7 +1080,9 @@ impl ToCypher for ListComprehension {
         write!(w, "[")?;
         self.variable.write_cypher(w)?;
         write!(w, " IN ")?;
+        self.collection.write_cypher(w)?;
         if let Some(filter) = &self.filter {
+            write!(w, " WHERE ")?;
             filter.write_cypher(w)?;
         }
         if let Some(map) = &self.map {
@@ -1106,6 +1109,22 @@ impl ToCypher for PatternComprehension {
         write!(w, " | ")?;
         self.map.write_cypher(w)?;
         write!(w, "]")
+    }
+}
+
+impl ToCypher for ReduceExpression {
+    fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        write!(w, "reduce(")?;
+        self.accumulator.write_cypher(w)?;
+        write!(w, " = ")?;
+        self.init.write_cypher(w)?;
+        write!(w, ", ")?;
+        self.variable.write_cypher(w)?;
+        write!(w, " IN ")?;
+        self.list.write_cypher(w)?;
+        write!(w, " | ")?;
+        self.expression.write_cypher(w)?;
+        write!(w, ")")
     }
 }
 

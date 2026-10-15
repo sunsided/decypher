@@ -242,3 +242,117 @@ fn test_range_is_still_a_valid_variable_name() {
     let result = parse("WITH 1 AS range RETURN range;");
     check!(result.is_ok(), "{:?}", result.err());
 }
+
+/// Asserts that `input` parses and prints back as `expected`.
+fn check_roundtrip(input: &str, expected: &str) {
+    use decypher::ast::ToCypher;
+    let query = parse(input).unwrap_or_else(|e| panic!("failed to parse {input:?}: {e}"));
+    check!(query.to_cypher() == expected, "input: {input}");
+}
+
+/// Variable references are kept as function arguments (#44, #42, #43).
+///
+/// Unit: `parse()` / AST `FunctionInvocation`
+/// Precondition: Function calls whose arguments are bare variables, mixed
+///               with binary expressions, nested calls, and a trailing index.
+/// Expectation: Every argument survives the round trip.
+#[test]
+fn test_variable_function_arguments_are_kept() {
+    check_roundtrip(
+        "WITH 42 AS s1 RETURN abs(s1)",
+        "WITH 42 AS s1 RETURN abs(s1);",
+    );
+    check_roundtrip(
+        "WITH 1 AS a, 2 AS b RETURN coalesce(a, b + 1, a * b) AS r",
+        "WITH 1 AS a, 2 AS b RETURN coalesce(a, b + 1, a * b) AS r;",
+    );
+    check_roundtrip(
+        "MATCH (n:Person) RETURN labels(n)[0] AS first_label LIMIT 1",
+        "MATCH (n:Person) RETURN labels(n)[0] AS first_label LIMIT 1;",
+    );
+    check_roundtrip(
+        "MATCH (x) RETURN head(labels(x)) AS h, x",
+        "MATCH (x) RETURN head(labels(x)) AS h, x;",
+    );
+}
+
+/// List comprehensions keep their collection and `WHERE` filter, including
+/// an `IN` inside the filter (#41).
+///
+/// Unit: `parse()` / AST `ListComprehension`
+/// Precondition: Comprehensions over variables and binary expressions.
+/// Expectation: Collection, filter and map all survive the round trip.
+#[test]
+fn test_list_comprehension_keeps_collection_and_filter() {
+    check_roundtrip(
+        "WITH [1, 2] AS s1, [2] AS s2 RETURN [x IN s1 WHERE x IN s2] AS i",
+        "WITH [1, 2] AS s1, [2] AS s2 RETURN [x IN s1 WHERE x IN s2] AS i;",
+    );
+    check_roundtrip(
+        "WITH [1] AS a RETURN [x IN a + [2] WHERE x > 0 | x * 2] AS r",
+        "WITH [1] AS a RETURN [x IN a + [2] WHERE x > 0 | x * 2] AS r;",
+    );
+    check_roundtrip("RETURN [x IN [1, 2]] AS r", "RETURN [x IN [1, 2]] AS r;");
+}
+
+/// `all`/`any`/`none`/`single` calls build quantifier expressions (#41).
+///
+/// Unit: `parse()` / AST `Expression::{All, Any, None, Single}`
+/// Precondition: Quantifier calls with and without `WHERE`.
+/// Expectation: Variable, collection and predicate survive the round trip.
+#[test]
+fn test_quantifiers_keep_variable_and_collection() {
+    check_roundtrip(
+        "WITH [1] AS s RETURN any(y IN s WHERE y = 1) AS r",
+        "WITH [1] AS s RETURN ANY(y IN s WHERE y = 1) AS r;",
+    );
+    check_roundtrip(
+        "RETURN all(y IN [1] WHERE y > 0), none(y IN [1] WHERE y < 0), single(y IN [1])",
+        "RETURN ALL(y IN [1] WHERE y > 0), NONE(y IN [1] WHERE y < 0), SINGLE(y IN [1]);",
+    );
+}
+
+/// `reduce` keeps its accumulator, list and expression (#45).
+///
+/// Unit: `parse()` / AST `Expression::Reduce`
+/// Precondition: `reduce` with a binary list and a binary expression.
+/// Expectation: All parts survive the round trip.
+#[test]
+fn test_reduce_round_trip() {
+    check_roundtrip(
+        "WITH [1] AS l RETURN reduce(acc = 0, x IN l + [2] | acc + x * 2) AS t",
+        "WITH [1] AS l RETURN reduce(acc = 0, x IN l + [2] | acc + x * 2) AS t;",
+    );
+}
+
+/// Updating clauses after the last `WITH` are kept, with or without a
+/// trailing `RETURN` (#44).
+///
+/// Unit: `parse()` / AST multi-part final part
+/// Precondition: `WITH` followed by `FOREACH` over a variable, and by
+///               `CREATE … RETURN`.
+/// Expectation: The updating clauses survive the round trip.
+#[test]
+fn test_multi_part_final_updating_clauses_are_kept() {
+    check_roundtrip(
+        "MATCH (n) WITH collect(n) AS ns FOREACH (m IN ns | DETACH DELETE m)",
+        "MATCH (n) WITH collect(n) AS ns FOREACH (m IN ns | DETACH DELETE m);",
+    );
+    check_roundtrip(
+        "MATCH (n) WITH n CREATE (m:M) RETURN m",
+        "MATCH (n) WITH n CREATE (m:M) RETURN m;",
+    );
+}
+
+/// Slice bounds made of binary expressions keep the composed expression.
+///
+/// Unit: `parse()` / AST `Expression::ListSlice`
+/// Precondition: `l[a + 1..b * 2]`.
+/// Expectation: Both bounds survive the round trip.
+#[test]
+fn test_list_slice_binary_bounds() {
+    check_roundtrip(
+        "WITH [1] AS l, 0 AS a, 1 AS b RETURN l[a + 1..b * 2] AS r",
+        "WITH [1] AS l, 0 AS a, 1 AS b RETURN l[a + 1..b * 2] AS r;",
+    );
+}

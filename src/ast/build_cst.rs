@@ -55,6 +55,73 @@ fn symbolic_name_text(sym: &SymbolicName) -> String {
     }
 }
 
+fn duplicate_return(r: &ReturnClause) -> CypherError {
+    CypherError {
+        kind: ErrorKind::DuplicateClause { clause: "RETURN" },
+        span: span_of(r.syntax()),
+        source_label: None,
+        notes: Vec::new(),
+        source: None,
+    }
+}
+
+/// The error for a query part that ends without `RETURN` or an updating
+/// clause (e.g. `MATCH (n)`), pointing at the clause the `RETURN` should follow.
+fn missing_return(last: Option<&Clause>) -> CypherError {
+    let (after, span) = match last {
+        Some(c) => (clause_keyword(c), span_of(c.syntax())),
+        None => ("query", Span::new(0, 0)),
+    };
+    CypherError {
+        kind: ErrorKind::MissingClause {
+            clause: "RETURN",
+            after,
+        },
+        span,
+        source_label: None,
+        notes: Vec::new(),
+        source: None,
+    }
+}
+
+fn clause_keyword(c: &Clause) -> &'static str {
+    match c {
+        Clause::Match(_) => "MATCH",
+        Clause::Return(_) => "RETURN",
+        Clause::With(_) => "WITH",
+        Clause::Unwind(_) => "UNWIND",
+        Clause::Create(_) => "CREATE",
+        Clause::Merge(_) => "MERGE",
+        Clause::Set(_) => "SET",
+        Clause::Delete(_) => "DELETE",
+        Clause::Remove(_) => "REMOVE",
+        Clause::Where(_) => "WHERE",
+        Clause::Foreach(_) => "FOREACH",
+        Clause::StandaloneCall(_) | Clause::InQueryCall(_) | Clause::CallSubquery(_) => "CALL",
+        Clause::Show(_) => "SHOW",
+        Clause::Use(_) => "USE",
+        Clause::LoadCsv(_) => "LOAD CSV",
+        Clause::Finish(_) => "FINISH",
+    }
+}
+
+/// Builds the body of a single-part query (or the final part of a
+/// multi-part query) from its updating clauses and optional `RETURN`.
+/// Returns `None` when there is neither.
+fn single_part_body(
+    updating: Vec<ast_c::UpdatingClause>,
+    ret: Option<ast_c::Return>,
+) -> Option<ast_c::SinglePartBody> {
+    if !updating.is_empty() {
+        Some(ast_c::SinglePartBody::Updating {
+            updating,
+            return_clause: ret,
+        })
+    } else {
+        ret.map(ast_c::SinglePartBody::Return)
+    }
+}
+
 fn internal(msg: &str, sp: Span) -> CypherError {
     CypherError {
         kind: ErrorKind::Internal {
@@ -158,6 +225,7 @@ fn build_regular_query(clauses: &[Clause], unions: &[Union]) -> Result<ast_c::Re
 }
 
 fn build_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_c::SingleQuery> {
+    let missing = missing_return(clauses.last());
     let with_indices: Vec<_> = clauses
         .iter()
         .enumerate()
@@ -194,7 +262,12 @@ fn build_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_c::Single
                 Clause::Foreach(f) => {
                     updating.push(ast_c::UpdatingClause::Foreach(build_foreach(f)?))
                 }
-                Clause::Return(r) => ret = Some(build_return(r)?),
+                Clause::Return(r) => {
+                    if ret.is_some() {
+                        return Err(duplicate_return(&r));
+                    }
+                    ret = Some(build_return(r)?);
+                }
                 Clause::Finish(f) => {
                     return Ok(ast_c::SingleQuery {
                         kind: ast_c::SingleQueryKind::SinglePart(ast_c::SinglePartQuery {
@@ -209,16 +282,7 @@ fn build_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_c::Single
             }
         }
 
-        let body = if !updating.is_empty() {
-            ast_c::SinglePartBody::Updating {
-                updating,
-                return_clause: ret,
-            }
-        } else {
-            ast_c::SinglePartBody::Return(ret.ok_or_else(|| {
-                internal("single-part query must end with RETURN", Span::new(0, 0))
-            })?)
-        };
+        let body = single_part_body(updating, ret).ok_or(missing)?;
 
         Ok(ast_c::SingleQuery {
             kind: ast_c::SingleQueryKind::SinglePart(ast_c::SinglePartQuery {
@@ -262,10 +326,14 @@ fn build_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_c::Single
                     updating.push(ast_c::UpdatingClause::Foreach(build_foreach(f)?))
                 }
                 Clause::Return(r) => {
+                    if final_part.is_some() {
+                        return Err(duplicate_return(&r));
+                    }
                     let ret = build_return(r)?;
                     final_part = Some(ast_c::SinglePartQuery {
                         reading_clauses: std::mem::take(&mut reading),
-                        body: ast_c::SinglePartBody::Return(ret),
+                        body: single_part_body(std::mem::take(&mut updating), Some(ret))
+                            .ok_or_else(|| missing.clone())?,
                     });
                 }
                 Clause::Finish(f) => {
@@ -294,8 +362,16 @@ fn build_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_c::Single
             }
         }
 
-        let final_part = final_part
-            .ok_or_else(|| internal("multi-part query missing final part", Span::new(0, 0)))?;
+        // A final part made only of updating clauses (e.g. `WITH … FOREACH …`)
+        // has no RETURN to close it.
+        if final_part.is_none() && !updating.is_empty() {
+            final_part = Some(ast_c::SinglePartQuery {
+                reading_clauses: std::mem::take(&mut reading),
+                body: single_part_body(std::mem::take(&mut updating), None)
+                    .ok_or_else(|| missing.clone())?,
+            });
+        }
+        let final_part = final_part.ok_or(missing)?;
 
         Ok(ast_c::SingleQuery {
             kind: ast_c::SingleQueryKind::MultiPart(ast_c::MultiPartQuery { parts, final_part }),
@@ -1026,6 +1102,15 @@ fn build_range_literal(rl: RangeLiteral) -> Result<ast_c::RangeLiteral> {
     let mut end: Option<i64> = None;
     let mut seen_dot_dot = false;
     let mut seen_star = false;
+    // Each side of `..` holds at most one bound; refuse to silently replace
+    // one that was already recorded.
+    let mut record = |val: i64, after_dot_dot: bool| -> Result<()> {
+        let slot = if after_dot_dot { &mut end } else { &mut start };
+        if slot.replace(val).is_some() {
+            return Err(internal("duplicate bound in range literal", sp));
+        }
+        Ok(())
+    };
     for child in rl.syntax().children_with_tokens() {
         if let Some(tok) = child.as_token() {
             match tok.kind() {
@@ -1033,11 +1118,7 @@ fn build_range_literal(rl: RangeLiteral) -> Result<ast_c::RangeLiteral> {
                 SyntaxKind::DOT_DOT => seen_dot_dot = true,
                 SyntaxKind::INTEGER => {
                     if let Some(val) = parse_integer(tok.text()) {
-                        if !seen_dot_dot {
-                            start = Some(val);
-                        } else {
-                            end = Some(val);
-                        }
+                        record(val, seen_dot_dot)?;
                     }
                 }
                 _ => {}
@@ -1049,11 +1130,7 @@ fn build_range_literal(rl: RangeLiteral) -> Result<ast_c::RangeLiteral> {
                     && tok.kind() == SyntaxKind::INTEGER
                     && let Some(val) = parse_integer(tok.text())
                 {
-                    if !seen_dot_dot {
-                        start = Some(val);
-                    } else {
-                        end = Some(val);
-                    }
+                    record(val, seen_dot_dot)?;
                 }
             }
         }
@@ -1305,6 +1382,11 @@ fn build_binary_expr(b: BinaryExpr) -> Result<ast_c::Expression> {
                             if let Some(node) = child.as_node()
                                 && let Some(e) = Expression::cast(node.clone())
                             {
+                                // The flat CST exposes a binary bound such as
+                                // `a + 1` as sibling nodes (`a`, `+ 1`); the
+                                // last node on each side is the composed
+                                // expression, so later nodes replace earlier
+                                // ones on purpose.
                                 let built = build_expression(e)?;
                                 if !seen_dot_dot {
                                     start_expr = Some(built);
@@ -1518,6 +1600,24 @@ fn build_function_invocation(f: FunctionInvocation) -> Result<ast_c::Expression>
         .collect();
     let distinct = f.distinct_token().is_some();
     let star = f.star_token().is_some();
+
+    if let (Some(acc), [name]) = (f.reduce_accumulator(), name_parts.as_slice())
+        && name.name.eq_ignore_ascii_case("reduce")
+    {
+        return build_reduce(&f, acc, sp);
+    }
+
+    if let (Some(fe), [name]) = (f.filter_expression(), name_parts.as_slice()) {
+        let parts = Box::new(build_filter_parts(&fe, sp)?);
+        match name.name.to_lowercase().as_str() {
+            "all" => return Ok(ast_c::Expression::All(parts)),
+            "any" => return Ok(ast_c::Expression::Any(parts)),
+            "none" => return Ok(ast_c::Expression::None(parts)),
+            "single" => return Ok(ast_c::Expression::Single(parts)),
+            _ => {}
+        }
+    }
+
     let args: Result<Vec<_>> = f.arguments().map(build_expression).collect();
     let args = args?;
 
@@ -1623,26 +1723,13 @@ fn build_map_literal(ml: MapLiteral) -> Result<ast_c::Expression> {
 fn build_list_comprehension(lc: ListComprehension) -> Result<ast_c::Expression> {
     let sp = span_of(lc.syntax());
     if let Some(filter) = lc.filter() {
-        let var = filter
-            .id_in_coll()
-            .and_then(|id| id.variable())
-            .map(build_variable)
-            .ok_or_else(|| internal("missing variable in list comp", sp))?;
-        let _coll = filter
-            .id_in_coll()
-            .and_then(|id| id.collection())
-            .map(build_expression)
-            .ok_or_else(|| internal("missing collection in list comp", sp))?;
-        let pred = filter
-            .where_clause()
-            .and_then(|w| w.expr())
-            .map(build_expression)
-            .transpose()?;
+        let parts = build_filter_parts(&filter, sp)?;
         let map = lc.body().map(build_expression).transpose()?;
         Ok(ast_c::Expression::ListComprehension(Box::new(
             ast_c::ListComprehension {
-                variable: var,
-                filter: pred.map(Box::new),
+                variable: parts.variable,
+                collection: parts.collection,
+                filter: parts.predicate,
                 map,
                 span: sp,
             },
@@ -1689,6 +1776,57 @@ fn build_pattern_comprehension(pc: PatternComprehension) -> Result<ast_c::Expres
 
 fn build_filter_expression(fe: FilterExpression) -> Result<ast_c::Expression> {
     let sp = span_of(fe.syntax());
+    Ok(ast_c::Expression::Any(Box::new(build_filter_parts(
+        &fe, sp,
+    )?)))
+}
+
+fn build_reduce(
+    f: &FunctionInvocation,
+    acc: ReduceAccumulator,
+    sp: Span,
+) -> Result<ast_c::Expression> {
+    let accumulator = acc
+        .variable()
+        .map(build_variable)
+        .ok_or_else(|| internal("missing accumulator in reduce", sp))?;
+    let init = acc
+        .init()
+        .map(build_expression)
+        .transpose()?
+        .ok_or_else(|| internal("missing initial value in reduce", sp))?;
+    let id = f
+        .id_in_coll()
+        .ok_or_else(|| internal("missing `variable IN list` in reduce", sp))?;
+    let variable = id
+        .variable()
+        .map(build_variable)
+        .ok_or_else(|| internal("missing variable in reduce", sp))?;
+    let list = id
+        .collection()
+        .map(build_expression)
+        .transpose()?
+        .ok_or_else(|| internal("missing list in reduce", sp))?;
+    let expression = f
+        .reduce_expression()
+        .map(build_expression)
+        .transpose()?
+        .ok_or_else(|| internal("missing expression in reduce", sp))?;
+    Ok(ast_c::Expression::Reduce(Box::new(
+        ast_c::ReduceExpression {
+            accumulator,
+            init: Box::new(init),
+            variable,
+            list: Box::new(list),
+            expression: Box::new(expression),
+            span: sp,
+        },
+    )))
+}
+
+/// Builds the `variable IN collection [WHERE predicate]` parts shared by list
+/// comprehensions and the `ALL`/`ANY`/`NONE`/`SINGLE` quantifiers.
+fn build_filter_parts(fe: &FilterExpression, sp: Span) -> Result<ast_c::FilterExpression> {
     let id = fe
         .id_in_coll()
         .ok_or_else(|| internal("missing IdInColl", sp))?;
@@ -1706,12 +1844,12 @@ fn build_filter_expression(fe: FilterExpression) -> Result<ast_c::Expression> {
         .and_then(|w| w.expr())
         .map(build_expression)
         .transpose()?;
-    Ok(ast_c::Expression::Any(Box::new(ast_c::FilterExpression {
+    Ok(ast_c::FilterExpression {
         variable: var,
         collection: Box::new(coll),
         predicate: pred.map(Box::new),
         span: sp,
-    })))
+    })
 }
 
 fn build_exists_subquery(es: ExistsSubquery) -> Result<ast_c::Expression> {
@@ -1822,6 +1960,26 @@ fn build_regular_query_from_syntax(
     }
 }
 
+/// Builds the body of a subquery-expression part. Unlike top-level queries
+/// and `CALL { … }`, `EXISTS { … }` and `COUNT { … }` bodies may end without
+/// `RETURN` (`EXISTS { MATCH (n)-->(m) }`), so a part with neither `RETURN`
+/// nor updating clauses is an empty `Updating` body rather than an error.
+fn subquery_body(
+    updating: Vec<ast_c::UpdatingClause>,
+    ret: Option<ast_c::Return>,
+) -> ast_c::SinglePartBody {
+    if updating.is_empty()
+        && let Some(ret) = ret
+    {
+        ast_c::SinglePartBody::Return(ret)
+    } else {
+        ast_c::SinglePartBody::Updating {
+            updating,
+            return_clause: ret,
+        }
+    }
+}
+
 fn build_subquery_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_c::SingleQuery> {
     let with_indices: Vec<_> = clauses
         .iter()
@@ -1859,7 +2017,12 @@ fn build_subquery_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_
                 Clause::Foreach(f) => {
                     updating.push(ast_c::UpdatingClause::Foreach(build_foreach(f)?))
                 }
-                Clause::Return(r) => ret = Some(build_return(r)?),
+                Clause::Return(r) => {
+                    if ret.is_some() {
+                        return Err(duplicate_return(&r));
+                    }
+                    ret = Some(build_return(r)?);
+                }
                 Clause::Finish(f) => {
                     return Ok(ast_c::SingleQuery {
                         kind: ast_c::SingleQueryKind::SinglePart(ast_c::SinglePartQuery {
@@ -1876,14 +2039,7 @@ fn build_subquery_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_
             }
         }
 
-        let body = if let Some(ret) = ret {
-            ast_c::SinglePartBody::Return(ret)
-        } else {
-            ast_c::SinglePartBody::Updating {
-                updating,
-                return_clause: None,
-            }
-        };
+        let body = subquery_body(updating, ret);
 
         Ok(ast_c::SingleQuery {
             kind: ast_c::SingleQueryKind::SinglePart(ast_c::SinglePartQuery {
@@ -1927,9 +2083,13 @@ fn build_subquery_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_
                     updating.push(ast_c::UpdatingClause::Foreach(build_foreach(f)?))
                 }
                 Clause::Return(r) => {
+                    if final_part.is_some() {
+                        return Err(duplicate_return(&r));
+                    }
+                    let ret = build_return(r)?;
                     final_part = Some(ast_c::SinglePartQuery {
                         reading_clauses: std::mem::take(&mut reading),
-                        body: ast_c::SinglePartBody::Return(build_return(r)?),
+                        body: subquery_body(std::mem::take(&mut updating), Some(ret)),
                     });
                 }
                 Clause::Finish(f) => {
@@ -1958,12 +2118,9 @@ fn build_subquery_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_
             }
         }
 
-        let final_part = final_part.unwrap_or(ast_c::SinglePartQuery {
+        let final_part = final_part.unwrap_or_else(|| ast_c::SinglePartQuery {
             reading_clauses: std::mem::take(&mut reading),
-            body: ast_c::SinglePartBody::Updating {
-                updating,
-                return_clause: None,
-            },
+            body: subquery_body(updating, None),
         });
 
         Ok(ast_c::SingleQuery {
