@@ -1020,9 +1020,29 @@ impl AstNode for ListLiteral {
     }
 }
 
+/// The expressions of a comma-separated list such as list literal elements or
+/// `DELETE` targets.
+///
+/// The flat CST exposes a composed expression like `a.b[0]` or `x + 1` as
+/// sibling nodes (`a`, `.b`, `[0]`), and the last node of each segment carries
+/// the whole composition, so only that one is kept.
+pub(crate) fn comma_separated_exprs(parent: &SyntaxNode) -> Vec<Expression> {
+    let mut exprs = Vec::new();
+    let mut current = None;
+    for child in parent.children_with_tokens() {
+        if child.kind() == SyntaxKind::COMMA {
+            exprs.extend(current.take());
+        } else if let Some(expr) = child.into_node().and_then(Expression::cast) {
+            current = Some(expr);
+        }
+    }
+    exprs.extend(current);
+    exprs
+}
+
 impl ListLiteral {
     pub fn elements(&self) -> impl Iterator<Item = Expression> {
-        self.0.children().filter_map(Expression::cast)
+        comma_separated_exprs(&self.0).into_iter()
     }
 }
 
@@ -1084,12 +1104,14 @@ impl MapEntry {
     }
 
     pub fn value(&self) -> Option<Expression> {
+        // The value follows `:`; for a flat chain such as `1 + 2` the last
+        // expression node is the composed one.
         self.0
-            .children()
-            .filter(|n| {
-                n.kind() != SyntaxKind::PROPERTY_KEY_NAME && n.kind() != SyntaxKind::SYMBOLIC_NAME
-            })
-            .find_map(Expression::cast)
+            .children_with_tokens()
+            .skip_while(|c| c.kind() != SyntaxKind::COLON)
+            .filter_map(|c| c.into_node())
+            .filter_map(Expression::cast)
+            .last()
     }
 }
 
@@ -1511,12 +1533,14 @@ impl MapProjectionItem {
     }
 
     pub fn expression(&self) -> Option<Expression> {
+        // The value follows `:`; for a flat chain such as `n.x + 1` the last
+        // expression node is the composed one.
         self.0
-            .children()
-            .filter(|n| {
-                n.kind() != SyntaxKind::PROPERTY_KEY_NAME && n.kind() != SyntaxKind::SYMBOLIC_NAME
-            })
-            .find_map(Expression::cast)
+            .children_with_tokens()
+            .skip_while(|c| c.kind() != SyntaxKind::COLON)
+            .filter_map(|c| c.into_node())
+            .filter_map(Expression::cast)
+            .last()
     }
 }
 

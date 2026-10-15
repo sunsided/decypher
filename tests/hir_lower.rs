@@ -727,3 +727,16 @@ fn analyze_comprehension_collection_uses_enclosing_scope() {
 
     analyze("WITH [1, 2] AS x RETURN any(x IN x WHERE x > 1) AS r").unwrap();
 }
+
+/// A variable bound by `UNWIND` after `WITH` is visible to later clauses
+/// (#59).
+///
+/// Unit: `analyze()`
+/// Precondition: `WITH collect(...) AS things UNWIND things AS arr WITH arr[0] …`.
+/// Expectation: `analyze` succeeds.
+#[test]
+fn analyze_unwind_after_with_binds_alias() {
+    analyze("UNWIND [[1]] AS l WITH l UNWIND l AS x RETURN x").unwrap();
+    analyze("WITH collect([0, 1]) AS things UNWIND things AS arr WITH arr[0] AS e RETURN e")
+        .unwrap();
+}

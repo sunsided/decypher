@@ -356,3 +356,31 @@ fn test_list_slice_binary_bounds() {
         "WITH [1] AS l, 0 AS a, 1 AS b RETURN l[a + 1..b * 2] AS r;",
     );
 }
+
+/// Composed expressions in comma-separated lists and single-expression slots
+/// keep their full composition instead of only the first node of the flat CST
+/// chain (#56, #58, #59).
+///
+/// Unit: `parse()` / CST accessors over flat binary chains
+/// Precondition: Binary, comparison, property and index chains in map values,
+///               list elements, `DELETE`, `UNWIND`, `SKIP`/`LIMIT`,
+///               `LOAD CSV`, map projections and dynamic property keys.
+/// Expectation: Every expression survives the round trip unchanged.
+#[test]
+fn test_flat_chains_are_kept_whole() {
+    for q in [
+        "RETURN {a: 1 + 2, b: 1 < 2, c: true AND false} AS m",
+        "MATCH (n {flag: 1 = $x}) RETURN n",
+        "MATCH (a) RETURN [a.l[1], a.l[0]] AS x",
+        "MATCH (a) WITH a ORDER BY [a.l[1]] + a.l RETURN a",
+        "MATCH (u) WITH {key: collect(u)} AS m DETACH DELETE m.key[0], u",
+        "UNWIND [[1]] AS l WITH l UNWIND l AS x RETURN x",
+        "UNWIND a.b[0] AS x RETURN x",
+        "MATCH (n) RETURN n SKIP $s + 1 LIMIT $l * 2",
+        "LOAD CSV FROM $base + 'x.csv' AS line RETURN line",
+        "MATCH (n) RETURN n{.a, b: n.x + 1} AS m",
+        "MATCH (n) SET n[$k + 'x'] = 1 RETURN n",
+    ] {
+        check_roundtrip(q, &format!("{q};"));
+    }
+}

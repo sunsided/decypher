@@ -247,12 +247,24 @@ impl AstNode for UnwindClause {
 }
 
 impl UnwindClause {
+    /// The list expression before `AS`. For a flat chain such as `a.b[0]`
+    /// the last expression node is the composed one.
     pub fn expr(&self) -> Option<Expression> {
-        child(&self.0)
+        self.0
+            .children_with_tokens()
+            .take_while(|c| c.kind() != SyntaxKind::KW_AS)
+            .filter_map(|c| c.into_node())
+            .filter_map(Expression::cast)
+            .last()
     }
 
+    /// The variable introduced after `AS`.
     pub fn as_name(&self) -> Option<super::expressions::Variable> {
-        child(&self.0)
+        self.0
+            .children_with_tokens()
+            .skip_while(|c| c.kind() != SyntaxKind::KW_AS)
+            .filter_map(|c| c.into_node())
+            .find_map(super::expressions::Variable::cast)
     }
 }
 
@@ -484,7 +496,8 @@ impl SetItem {
             if let Some(node) = child.as_node()
                 && node.kind() == SyntaxKind::DYNAMIC_PROPERTY
             {
-                return node.children().find_map(Expression::cast);
+                // Flat chain: the last expression node is the composed one.
+                return node.children().filter_map(Expression::cast).last();
             }
         }
         None
@@ -518,7 +531,7 @@ impl DeleteClause {
     }
 
     pub fn exprs(&self) -> impl Iterator<Item = Expression> {
-        self.0.children().filter_map(Expression::cast)
+        super::expressions::comma_separated_exprs(&self.0).into_iter()
     }
 }
 
@@ -1109,12 +1122,25 @@ impl LoadCsvClause {
             .any(|t| t.kind() == SyntaxKind::KW_WITH)
     }
 
+    /// The source expression between `FROM` and `AS`. For a flat chain such
+    /// as `$base + 'x.csv'` the last expression node is the composed one.
     pub fn source(&self) -> Option<Expression> {
-        self.0.children().filter_map(Expression::cast).next()
+        self.0
+            .children_with_tokens()
+            .skip_while(|c| c.kind() != SyntaxKind::KW_FROM)
+            .take_while(|c| c.kind() != SyntaxKind::KW_AS)
+            .filter_map(|c| c.into_node())
+            .filter_map(Expression::cast)
+            .last()
     }
 
+    /// The row variable introduced after `AS`.
     pub fn variable(&self) -> Option<super::expressions::Variable> {
-        child(&self.0)
+        self.0
+            .children_with_tokens()
+            .skip_while(|c| c.kind() != SyntaxKind::KW_AS)
+            .filter_map(|c| c.into_node())
+            .find_map(super::expressions::Variable::cast)
     }
 }
 
