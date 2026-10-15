@@ -85,7 +85,7 @@ pub trait ToCypher {
 
 /// A wrapper around a [`ToCypher`] implementor that provides a [`fmt::Display`] impl.
 ///
-/// Created via [`Todecypher::display`].
+/// Created via [`ToCypher::display`].
 pub struct DisplayCypher<'a, T: ?Sized>(&'a T);
 
 impl<T: ToCypher + ?Sized> fmt::Display for DisplayCypher<'_, T> {
