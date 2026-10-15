@@ -776,6 +776,13 @@ fn parse_atom(p: &mut Parser) {
         | SyntaxKind::KW_FILTER
         | SyntaxKind::KW_EXTRACT => {
             if p.peek_next_non_trivia() == Some(SyntaxKind::L_PAREN) {
+                let is_quantifier = matches!(
+                    p.current_kind(),
+                    SyntaxKind::KW_ALL
+                        | SyntaxKind::KW_ANY
+                        | SyntaxKind::KW_NONE
+                        | SyntaxKind::KW_SINGLE
+                );
                 p.start_node(SyntaxKind::FUNCTION_INVOCATION);
                 p.start_node(SyntaxKind::FUNCTION_NAME);
                 p.start_node(SyntaxKind::SYMBOLIC_NAME);
@@ -785,7 +792,12 @@ fn parse_atom(p: &mut Parser) {
                 p.skip_trivia();
                 p.bump();
                 p.skip_trivia();
-                parse_filter_like_expr(p);
+                if is_quantifier {
+                    // ALL/ANY/NONE/SINGLE(variable IN list [WHERE predicate])
+                    parse_filter_expression(p);
+                } else {
+                    parse_filter_like_expr(p);
+                }
                 p.skip_trivia();
                 p.expect(SyntaxKind::R_PAREN);
                 p.builder.finish_node();
@@ -1283,8 +1295,7 @@ fn parse_filter_expression(p: &mut Parser) {
     p.skip_trivia();
     // Expression (collection)
     expr_bp(p, Prec::MIN);
-    p.builder.finish_node();
-    p.builder.finish_node();
+    p.builder.finish_node(); // ID_IN_COLL
     p.skip_trivia();
     // Optional WHERE
     if p.at(SyntaxKind::KW_WHERE) {
@@ -1296,6 +1307,7 @@ fn parse_filter_expression(p: &mut Parser) {
         p.builder.finish_node();
         p.skip_trivia();
     }
+    p.builder.finish_node(); // FILTER_EXPRESSION
 }
 
 fn parse_filter_like_expr(p: &mut Parser) {
@@ -1334,16 +1346,47 @@ fn parse_filter_like_expr(p: &mut Parser) {
 
 fn parse_reduce_expr(p: &mut Parser) {
     // reduce(accumulator = initial, variable IN list | expression)
+    //
+    // Produces, inside the FUNCTION_INVOCATION:
+    //   REDUCE_ACCUMULATOR { VARIABLE, EQ, <initial> }
+    //   COMMA
+    //   ID_IN_COLL { VARIABLE, KW_IN, <list> }
+    //   PIPE
+    //   <expression>
+    p.start_node(SyntaxKind::REDUCE_ACCUMULATOR);
+    parse_bound_variable(p);
+    p.skip_trivia();
+    p.expect(SyntaxKind::EQ);
+    p.skip_trivia();
     expr_bp(p, Prec::MIN);
+    p.builder.finish_node();
     p.skip_trivia();
     p.expect(SyntaxKind::COMMA);
     p.skip_trivia();
+    p.start_node(SyntaxKind::ID_IN_COLL);
+    parse_bound_variable(p);
+    p.skip_trivia();
+    p.expect(SyntaxKind::KW_IN);
+    p.skip_trivia();
     expr_bp(p, Prec::MIN);
+    p.builder.finish_node();
     p.skip_trivia();
     p.expect(SyntaxKind::PIPE);
     p.skip_trivia();
     expr_bp(p, Prec::MIN);
     p.skip_trivia();
+}
+
+/// Parses the name introduced by a local binding (`acc` in `acc = 0`, `x` in
+/// `x IN list`) as a VARIABLE node.
+fn parse_bound_variable(p: &mut Parser) {
+    p.start_node(SyntaxKind::VARIABLE);
+    p.start_node(SyntaxKind::SYMBOLIC_NAME);
+    if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) || is_keyword_as_name(p) {
+        p.bump();
+    }
+    p.builder.finish_node();
+    p.builder.finish_node();
 }
 
 fn is_clause_start_for_exists(p: &Parser) -> bool {

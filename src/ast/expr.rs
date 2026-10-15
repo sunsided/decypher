@@ -198,6 +198,8 @@ pub enum Expression {
     None(Box<FilterExpression>),
     /// `SINGLE(variable IN collection [WHERE predicate])`
     Single(Box<FilterExpression>),
+    /// `reduce(accumulator = init, variable IN list | expression)`
+    Reduce(Box<ReduceExpression>),
     /// A parenthesized expression `(expr)`.
     Parenthesized(Box<Expression>),
     /// A relationships pattern used as an expression (e.g. inside `EXISTS`).
@@ -318,6 +320,8 @@ pub struct CaseAlternative {
 pub struct ListComprehension {
     /// The element variable bound to each item in the source list.
     pub variable: Variable,
+    /// The source list expression.
+    pub collection: Box<Expression>,
     /// Optional `WHERE` filter on elements.
     pub filter: Option<Box<Expression>>,
     /// The `| map` expression, or `None` for identity (`[x IN list]`).
@@ -353,6 +357,26 @@ pub struct FilterExpression {
     /// Optional `WHERE` predicate tested for each element.
     pub predicate: Option<Box<Expression>>,
     /// Byte-offset span of the filter expression.
+    pub span: Span,
+}
+
+/// `reduce(accumulator = init, variable IN list | expression)`.
+///
+/// Folds `list` into a single value: `accumulator` starts at `init` and is
+/// replaced by `expression` for every element bound to `variable`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ReduceExpression {
+    /// The accumulator variable.
+    pub accumulator: Variable,
+    /// The initial accumulator value.
+    pub init: Box<Expression>,
+    /// The element variable bound to each item in the list.
+    pub variable: Variable,
+    /// The list being folded.
+    pub list: Box<Expression>,
+    /// The expression computing the next accumulator value.
+    pub expression: Box<Expression>,
+    /// Byte-offset span of the `reduce(…)` call.
     pub span: Span,
 }
 

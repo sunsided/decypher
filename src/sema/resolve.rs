@@ -339,6 +339,8 @@ impl<'ast> Visit<'ast> for NameResolver {
     }
 
     fn visit_list_comprehension(&mut self, node: &'ast ListComprehension) {
+        // The collection is evaluated in the enclosing scope.
+        self.visit_expression(&node.collection);
         self.scopes.push_scope();
         if let Err(first_span) = self.scopes.bind(
             &node.variable.name.name,
@@ -387,6 +389,8 @@ impl<'ast> Visit<'ast> for NameResolver {
     }
 
     fn visit_filter_expression(&mut self, node: &'ast FilterExpression) {
+        // The collection is evaluated in the enclosing scope.
+        self.visit_expression(&node.collection);
         self.scopes.push_scope();
         if let Err(first_span) = self.scopes.bind(
             &node.variable.name.name,
@@ -399,10 +403,32 @@ impl<'ast> Visit<'ast> for NameResolver {
                 redecl_span: node.variable.name.span,
             });
         }
-        self.visit_expression(&node.collection);
         if let Some(pred) = &node.predicate {
             self.visit_expression(pred);
         }
+        self.scopes.pop_scope();
+    }
+
+    fn visit_reduce_expression(&mut self, node: &'ast ReduceExpression) {
+        // The initial value and the list are evaluated in the enclosing scope;
+        // the accumulator and element variable are visible only in the
+        // reduction expression.
+        self.visit_expression(&node.init);
+        self.visit_expression(&node.list);
+        self.scopes.push_scope();
+        for var in [&node.accumulator, &node.variable] {
+            if let Err(first_span) =
+                self.scopes
+                    .bind(&var.name.name, SymbolKind::ComprehensionVar, var.name.span)
+            {
+                self.emit(SemaError::RedeclaredVariable {
+                    name: var.name.name.clone(),
+                    first_span,
+                    redecl_span: var.name.span,
+                });
+            }
+        }
+        self.visit_expression(&node.expression);
         self.scopes.pop_scope();
     }
 

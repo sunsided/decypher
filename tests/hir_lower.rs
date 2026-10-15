@@ -667,3 +667,63 @@ fn analyze_set_dynamic_property_literal_key() {
         set_op.items[0]
     );
 }
+
+/// `reduce` lowers to `ExprKind::Reduce` with the accumulator and element
+/// variable bound for the reduction expression (#45).
+///
+/// Unit: `analyze()`
+/// Precondition: `RETURN reduce(acc = 0, x IN [1, 2, 3] | acc + x) AS total`.
+/// Expectation: The projection is `ExprKind::Reduce` and lowering succeeds.
+#[test]
+fn analyze_reduce_binds_accumulator_and_variable() {
+    let hir = analyze("RETURN reduce(acc = 0, x IN [1, 2, 3] | acc + x) AS total").unwrap();
+    let expr = find_first_project_expression(&hir);
+    let ExprKind::Reduce {
+        accumulator,
+        variable,
+        init,
+        ..
+    } = expr
+    else {
+        panic!("expected Reduce, got {expr:?}");
+    };
+    check!(accumulator != variable);
+    assert_integer_literal(&hir, *init, 0);
+}
+
+/// The `reduce` accumulator and element variable are not visible outside the
+/// call (#45).
+///
+/// Unit: `analyze()`
+/// Precondition: A projection references `x` next to a `reduce` binding `x`.
+/// Expectation: `analyze` fails with an unresolved variable.
+#[test]
+fn analyze_reduce_variables_do_not_leak() {
+    let err = analyze("RETURN reduce(s = 0, x IN [1] | s + x) AS t, x").unwrap_err();
+    check!(err.to_string().contains("unresolved variable `x`"));
+}
+
+/// Collections of comprehensions and quantifiers are resolved in the
+/// enclosing scope, so `x IN x` refers to the outer `x` (#41).
+///
+/// Unit: `analyze()`
+/// Precondition: Comprehension and `any` whose variable shadows the
+///               collection's variable name.
+/// Expectation: `analyze` succeeds and the list comprehension's collection
+///              is the outer binding, not the element variable.
+#[test]
+fn analyze_comprehension_collection_uses_enclosing_scope() {
+    let hir = analyze("WITH [1, 2] AS x RETURN [x IN x WHERE x > 1] AS r").unwrap();
+    let project = find_project_operation(&hir.parts.last().unwrap().operations);
+    let expr = &hir.arenas.expressions.get(project.items[0].expression).kind;
+    let ExprKind::ListComprehension(lc) = expr else {
+        panic!("expected ListComprehension, got {expr:?}");
+    };
+    let collection = &hir.arenas.expressions.get(lc.collection).kind;
+    check!(
+        !matches!(collection, ExprKind::Binding(b) if *b == lc.variable),
+        "collection must not be the element variable: {collection:?}"
+    );
+
+    analyze("WITH [1, 2] AS x RETURN any(x IN x WHERE x > 1) AS r").unwrap();
+}

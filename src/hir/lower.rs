@@ -1173,6 +1173,8 @@ impl<'cfg> LoweringContext<'cfg> {
                 })
             }
             Expression::ListComprehension(lc) => {
+                // The collection is evaluated in the enclosing scope.
+                let collection = self.lower_expr(&lc.collection);
                 let _scope = self.scope_stack.push_scope(&mut self.arenas);
                 let var = self.scope_stack.bind(
                     &mut self.arenas,
@@ -1180,7 +1182,6 @@ impl<'cfg> LoweringContext<'cfg> {
                     BindingKind::ComprehensionVar,
                     lc.variable.name.span,
                 );
-                let collection = self.lower_expr(&Expression::Variable(lc.variable.clone()));
                 let filter = lc.filter.as_ref().map(|f| self.lower_expr(f));
                 let map = lc.map.as_ref().map(|m| self.lower_expr(m));
                 self.scope_stack.pop_scope();
@@ -1221,6 +1222,8 @@ impl<'cfg> LoweringContext<'cfg> {
                     Expression::Single(_) => CollectionQuantifier::Single,
                     _ => unreachable!(),
                 };
+                // The collection is evaluated in the enclosing scope.
+                let collection = self.lower_expr(&fe.collection);
                 let _scope = self.scope_stack.push_scope(&mut self.arenas);
                 let var = self.scope_stack.bind(
                     &mut self.arenas,
@@ -1228,7 +1231,6 @@ impl<'cfg> LoweringContext<'cfg> {
                     BindingKind::ComprehensionVar,
                     fe.variable.name.span,
                 );
-                let collection = self.lower_expr(&fe.collection);
                 let predicate = fe.predicate.as_ref().map(|p| self.lower_expr(p));
                 self.scope_stack.pop_scope();
                 ExprKind::CollectionFilter {
@@ -1236,6 +1238,34 @@ impl<'cfg> LoweringContext<'cfg> {
                     variable: var,
                     collection,
                     predicate,
+                }
+            }
+            Expression::Reduce(r) => {
+                // The initial value and the list are evaluated in the
+                // enclosing scope.
+                let init = self.lower_expr(&r.init);
+                let list = self.lower_expr(&r.list);
+                let _scope = self.scope_stack.push_scope(&mut self.arenas);
+                let accumulator = self.scope_stack.bind(
+                    &mut self.arenas,
+                    &r.accumulator.name.name,
+                    BindingKind::ComprehensionVar,
+                    r.accumulator.name.span,
+                );
+                let variable = self.scope_stack.bind(
+                    &mut self.arenas,
+                    &r.variable.name.name,
+                    BindingKind::ComprehensionVar,
+                    r.variable.name.span,
+                );
+                let expression = self.lower_expr(&r.expression);
+                self.scope_stack.pop_scope();
+                ExprKind::Reduce {
+                    accumulator,
+                    init,
+                    variable,
+                    list,
+                    expression,
                 }
             }
             Expression::Parenthesized(inner) => {
@@ -1817,6 +1847,7 @@ fn expr_span(expr: &Expression) -> Span {
         | Expression::Any(fe)
         | Expression::None(fe)
         | Expression::Single(fe) => fe.span,
+        Expression::Reduce(r) => r.span,
         Expression::Parenthesized(_) => Span::new(0, 0),
         Expression::Pattern(rp) => rp.span,
         Expression::Exists(ex) => ex.span,

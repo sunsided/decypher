@@ -681,9 +681,11 @@ impl FunctionInvocation {
             }
 
             if let Some(node) = child.as_node() {
+                // The function name always lives in a FUNCTION_NAME (or
+                // NAMESPACE) child; VARIABLE children are real arguments.
                 if matches!(
                     node.kind(),
-                    SyntaxKind::FUNCTION_NAME | SyntaxKind::NAMESPACE | SyntaxKind::VARIABLE
+                    SyntaxKind::FUNCTION_NAME | SyntaxKind::NAMESPACE
                 ) {
                     continue;
                 }
@@ -702,6 +704,32 @@ impl FunctionInvocation {
         }
 
         args.into_iter()
+    }
+
+    /// The `variable IN list [WHERE predicate]` body of a quantifier call
+    /// such as `any(x IN list WHERE x > 0)`.
+    pub fn filter_expression(&self) -> Option<FilterExpression> {
+        child(&self.0)
+    }
+
+    /// The `acc = initial` part of `reduce(acc = initial, x IN list | expr)`.
+    pub fn reduce_accumulator(&self) -> Option<ReduceAccumulator> {
+        child(&self.0)
+    }
+
+    /// The `x IN list` part of `reduce(acc = initial, x IN list | expr)`.
+    pub fn id_in_coll(&self) -> Option<IdInColl> {
+        child(&self.0)
+    }
+
+    /// The expression after `|` in `reduce(acc = initial, x IN list | expr)`.
+    pub fn reduce_expression(&self) -> Option<Expression> {
+        self.0
+            .children_with_tokens()
+            .skip_while(|c| c.kind() != SyntaxKind::PIPE)
+            .filter_map(|c| c.into_node())
+            .filter_map(Expression::cast)
+            .last()
     }
 
     pub fn distinct_token(&self) -> Option<SyntaxToken> {
@@ -1122,8 +1150,14 @@ impl ListComprehension {
         child(&self.0)
     }
 
+    /// The `| map` expression, if present.
     pub fn body(&self) -> Option<Expression> {
-        self.0.children().filter_map(Expression::cast).last()
+        self.0
+            .children_with_tokens()
+            .skip_while(|c| c.kind() != SyntaxKind::PIPE)
+            .filter_map(|c| c.into_node())
+            .filter_map(Expression::cast)
+            .last()
     }
 }
 
@@ -1253,10 +1287,57 @@ impl IdInColl {
     }
 
     pub fn collection(&self) -> Option<Expression> {
+        // Everything after `IN` is the collection. The flat CST exposes binary
+        // chains as sibling nodes (`a`, then `+ b`), so the last expression
+        // node is the fully composed one.
         self.0
-            .children()
-            .filter(|n| n.kind() != SyntaxKind::VARIABLE && n.kind() != SyntaxKind::SYMBOLIC_NAME)
-            .find_map(Expression::cast)
+            .children_with_tokens()
+            .skip_while(|c| c.kind() != SyntaxKind::KW_IN)
+            .filter_map(|c| c.into_node())
+            .filter_map(Expression::cast)
+            .last()
+    }
+}
+
+// ============================================================
+// ReduceAccumulator
+// ============================================================
+
+#[derive(Clone, Debug)]
+pub struct ReduceAccumulator(SyntaxNode);
+
+impl AstNode for ReduceAccumulator {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::REDUCE_ACCUMULATOR
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(ReduceAccumulator(syntax))
+        } else {
+            None
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.0
+    }
+}
+
+impl ReduceAccumulator {
+    pub fn variable(&self) -> Option<Variable> {
+        child(&self.0)
+    }
+
+    /// The initial value after `=`. As with other flat binary chains, the
+    /// last expression node is the composed one.
+    pub fn init(&self) -> Option<Expression> {
+        self.0
+            .children_with_tokens()
+            .skip_while(|c| c.kind() != SyntaxKind::EQ)
+            .filter_map(|c| c.into_node())
+            .filter_map(Expression::cast)
+            .last()
     }
 }
 

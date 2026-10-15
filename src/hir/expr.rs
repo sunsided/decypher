@@ -99,6 +99,20 @@ pub enum ExprKind {
         predicate: Option<ExprId>,
     },
 
+    /// `reduce(accumulator = init, variable IN list | expression)`.
+    Reduce {
+        /// The accumulator variable.
+        accumulator: BindingId,
+        /// The initial accumulator value.
+        init: ExprId,
+        /// The element variable.
+        variable: BindingId,
+        /// The list being folded.
+        list: ExprId,
+        /// The expression computing the next accumulator value.
+        expression: ExprId,
+    },
+
     /// Node labels check/assignment: `base:Label`.
     NodeLabels {
         /// The base expression (typically a node variable).

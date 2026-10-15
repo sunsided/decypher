@@ -332,6 +332,12 @@ pub trait Visit<'ast> {
     {
         walk_filter_expression(self, node)
     }
+    fn visit_reduce_expression(&mut self, node: &'ast ReduceExpression)
+    where
+        Self: Sized,
+    {
+        walk_reduce_expression(self, node)
+    }
     fn visit_exists_expression(&mut self, node: &'ast ExistsExpression)
     where
         Self: Sized,
@@ -797,6 +803,12 @@ pub trait VisitMut {
         Self: Sized,
     {
         walk_filter_expression_mut(self, node)
+    }
+    fn visit_reduce_expression(&mut self, node: &mut ReduceExpression)
+    where
+        Self: Sized,
+    {
+        walk_reduce_expression_mut(self, node)
     }
     fn visit_exists_expression(&mut self, node: &mut ExistsExpression)
     where
@@ -1445,6 +1457,7 @@ pub fn walk_expression<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Expression) 
         | Expression::Any(fe)
         | Expression::None(fe)
         | Expression::Single(fe) => v.visit_filter_expression(fe),
+        Expression::Reduce(r) => v.visit_reduce_expression(r),
         Expression::Parenthesized(inner) => v.visit_expression(inner),
         Expression::Pattern(rp) => v.visit_relationships_pattern(rp),
         Expression::Exists(exists) => v.visit_exists_expression(exists),
@@ -1519,6 +1532,7 @@ pub fn walk_case_alternative<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast CaseAl
 
 pub fn walk_list_comprehension<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast ListComprehension) {
     v.visit_variable(&node.variable);
+    v.visit_expression(&node.collection);
     if let Some(f) = &node.filter {
         v.visit_expression(f);
     }
@@ -1547,6 +1561,14 @@ pub fn walk_filter_expression<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Filte
     if let Some(p) = &node.predicate {
         v.visit_expression(p);
     }
+}
+
+pub fn walk_reduce_expression<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast ReduceExpression) {
+    v.visit_variable(&node.accumulator);
+    v.visit_expression(&node.init);
+    v.visit_variable(&node.variable);
+    v.visit_expression(&node.list);
+    v.visit_expression(&node.expression);
 }
 
 pub fn walk_exists_expression<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast ExistsExpression) {
@@ -2035,6 +2057,7 @@ pub fn walk_expression_mut<V: VisitMut>(v: &mut V, node: &mut Expression) {
         | Expression::Any(fe)
         | Expression::None(fe)
         | Expression::Single(fe) => v.visit_filter_expression(fe),
+        Expression::Reduce(r) => v.visit_reduce_expression(r),
         Expression::Parenthesized(inner) => v.visit_expression(inner),
         Expression::Pattern(rp) => v.visit_relationships_pattern(rp),
         Expression::Exists(exists) => v.visit_exists_expression(exists),
@@ -2104,6 +2127,7 @@ pub fn walk_case_alternative_mut<V: VisitMut>(v: &mut V, node: &mut CaseAlternat
 
 pub fn walk_list_comprehension_mut<V: VisitMut>(v: &mut V, node: &mut ListComprehension) {
     v.visit_variable(&mut node.variable);
+    v.visit_expression(&mut node.collection);
     if let Some(f) = &mut node.filter {
         v.visit_expression(f);
     }
@@ -2129,6 +2153,14 @@ pub fn walk_filter_expression_mut<V: VisitMut>(v: &mut V, node: &mut FilterExpre
     if let Some(p) = &mut node.predicate {
         v.visit_expression(p);
     }
+}
+
+pub fn walk_reduce_expression_mut<V: VisitMut>(v: &mut V, node: &mut ReduceExpression) {
+    v.visit_variable(&mut node.accumulator);
+    v.visit_expression(&mut node.init);
+    v.visit_variable(&mut node.variable);
+    v.visit_expression(&mut node.list);
+    v.visit_expression(&mut node.expression);
 }
 
 pub fn walk_exists_expression_mut<V: VisitMut>(v: &mut V, node: &mut ExistsExpression) {

@@ -288,3 +288,25 @@ fn test_recovery_with_rich_syntax_errors() {
     check!(query.is_some());
     check!(!diags.is_empty());
 }
+
+/// A second `RETURN` in the same query part is rejected instead of silently
+/// replacing the first one (#46).
+///
+/// Unit: `parse()`
+/// Precondition: Single-part, multi-part and subquery bodies with two RETURNs.
+/// Expectation: Returns `ErrorKind::DuplicateClause { clause: "RETURN" }`.
+#[test]
+fn test_duplicate_return_is_rejected() {
+    for input in [
+        "MATCH (p:Person) RETURN p.name AS name ORDER BY zzz DESC RETURN *",
+        "MATCH (n) WITH n RETURN n RETURN n",
+        "CALL { MATCH (n) RETURN n RETURN n } RETURN 1",
+    ] {
+        let err = parse(input).unwrap_err();
+        check!(
+            matches!(err.kind, ErrorKind::DuplicateClause { clause: "RETURN" }),
+            "input: {input}, got: {:?}",
+            err.kind
+        );
+    }
+}
