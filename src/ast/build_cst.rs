@@ -6,7 +6,7 @@
 mod shared;
 
 use self::shared::{decode_string_content, parse_double, parse_integer};
-use crate::error::{CypherError, ErrorKind, Result, Span};
+use crate::error::{CypherError, ErrorKind, Expected, Result, Span};
 use crate::syntax::SyntaxKind;
 use crate::syntax::ast::AstNode;
 
@@ -52,6 +52,16 @@ fn symbolic_name_text(sym: &SymbolicName) -> String {
             .children_with_tokens()
             .find_map(|el| el.as_token().map(|t| t.text().to_string()))
             .unwrap_or_default()
+    }
+}
+
+fn unexpected(expected: Vec<Expected>, found: String, span: Span) -> CypherError {
+    CypherError {
+        kind: ErrorKind::UnexpectedToken { expected, found },
+        span,
+        source_label: None,
+        notes: Vec::new(),
+        source: None,
     }
 }
 
@@ -278,7 +288,10 @@ fn build_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_c::Single
                 }
                 Clause::With(_) => {}
                 Clause::Where(_) => {}
-                Clause::Show(_) | Clause::Use(_) | Clause::StandaloneCall(_) => {}
+                Clause::StandaloneCall(c) => reading.push(ast_c::ReadingClause::InQueryCall(
+                    build_in_query_call_from_standalone(c)?,
+                )),
+                Clause::Show(_) | Clause::Use(_) => {}
             }
         }
 
@@ -358,7 +371,10 @@ fn build_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_c::Single
                     });
                 }
                 Clause::Where(_) => {}
-                Clause::Show(_) | Clause::Use(_) | Clause::StandaloneCall(_) => {}
+                Clause::StandaloneCall(c) => reading.push(ast_c::ReadingClause::InQueryCall(
+                    build_in_query_call_from_standalone(c)?,
+                )),
+                Clause::Show(_) | Clause::Use(_) => {}
             }
         }
 
@@ -1477,7 +1493,7 @@ fn build_atom(a: Atom) -> Result<ast_c::Expression> {
         Atom::CollectSubquery(cs) => build_collect_subquery(cs),
         Atom::MapProjection(mp) => build_map_projection(mp),
         Atom::ImplicitProcedureInvocation(ipi) => {
-            let proc = build_implicit_procedure_invocation(ipi)?;
+            let proc = build_procedure_invocation(ipi)?;
             Ok(ast_c::Expression::FunctionCall(proc.name))
         }
         Atom::PropertyLookup(pl) => {
@@ -2031,11 +2047,10 @@ fn build_subquery_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_
                         }),
                     });
                 }
-                Clause::With(_)
-                | Clause::Where(_)
-                | Clause::Show(_)
-                | Clause::Use(_)
-                | Clause::StandaloneCall(_) => {}
+                Clause::StandaloneCall(c) => reading.push(ast_c::ReadingClause::InQueryCall(
+                    build_in_query_call_from_standalone(c)?,
+                )),
+                Clause::With(_) | Clause::Where(_) | Clause::Show(_) | Clause::Use(_) => {}
             }
         }
 
@@ -2113,8 +2128,10 @@ fn build_subquery_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_
                         }),
                     });
                 }
-                Clause::Where(_) | Clause::Show(_) | Clause::Use(_) | Clause::StandaloneCall(_) => {
-                }
+                Clause::StandaloneCall(c) => reading.push(ast_c::ReadingClause::InQueryCall(
+                    build_in_query_call_from_standalone(c)?,
+                )),
+                Clause::Where(_) | Clause::Show(_) | Clause::Use(_) => {}
             }
         }
 
@@ -2181,13 +2198,11 @@ fn build_map_projection_item(mi: MapProjectionItem) -> Result<ast_c::MapProjecti
 
 fn build_standalone_call(c: StandaloneCall) -> Result<ast_c::StandaloneCall> {
     let sp = span_of(c.syntax());
-    let call = if let Some(exp) = c.explicit_invocation() {
-        build_explicit_procedure_invocation(exp)?
-    } else if let Some(imp) = c.implicit_invocation() {
-        build_implicit_procedure_invocation(imp)?
-    } else {
-        return Err(internal("missing proc invocation", sp));
-    };
+    let call = c
+        .implicit_invocation()
+        .map(build_procedure_invocation)
+        .transpose()?
+        .ok_or_else(|| internal("missing proc invocation", sp))?;
     let yield_items = c
         .yield_items()
         .map(|y| -> Result<ast_c::YieldSpec> {
@@ -2196,12 +2211,7 @@ fn build_standalone_call(c: StandaloneCall) -> Result<ast_c::StandaloneCall> {
                     span: span_of(y.syntax()),
                 })
             } else {
-                let items: Result<Vec<_>> = y.items().map(build_yield_item).collect();
-                let wc = y.where_expr().map(build_expression).transpose()?;
-                Ok(ast_c::YieldSpec::Items(ast_c::YieldItems {
-                    items: items?,
-                    where_clause: wc,
-                }))
+                Ok(ast_c::YieldSpec::Items(build_yield_items(&y)?))
             }
         })
         .transpose()?;
@@ -2212,29 +2222,85 @@ fn build_standalone_call(c: StandaloneCall) -> Result<ast_c::StandaloneCall> {
     })
 }
 
-fn build_explicit_procedure_invocation(
-    e: ExplicitProcedureInvocation,
-) -> Result<ast_c::ProcedureInvocation> {
-    let sp = span_of(e.syntax());
-    let name = if let Some(pn) = e.procedure_name() {
-        build_procedure_name(pn)?
-    } else {
-        return Err(internal("missing proc name", sp));
-    };
-    let _args: Result<Vec<_>> = e.arguments().map(build_expression).collect();
-    Ok(ast_c::ProcedureInvocation { name, span: sp })
+/// Builds a procedure call that is followed or preceded by other clauses.
+///
+/// The grammar parses every `CALL proc…` as a standalone call; inside a
+/// larger query it is an in-query call, which openCypher restricts to an
+/// explicit argument list and named `YIELD` items.
+fn build_in_query_call_from_standalone(c: StandaloneCall) -> Result<ast_c::InQueryCall> {
+    let sp = span_of(c.syntax());
+    let imp = c
+        .implicit_invocation()
+        .ok_or_else(|| internal("missing proc invocation", sp))?;
+    let call = build_procedure_invocation(imp.clone())?;
+    if call.implicit_arguments {
+        // Point at whatever follows the procedure name.
+        let next = imp
+            .syntax()
+            .siblings_with_tokens(rowan::Direction::Next)
+            .skip(1)
+            .find(|el| !matches!(el.kind(), SyntaxKind::WHITESPACE | SyntaxKind::COMMENT));
+        let (found, span) = match next {
+            Some(el) => {
+                let r = el.text_range();
+                let text = match &el {
+                    rowan::NodeOrToken::Node(n) => n.text().to_string(),
+                    rowan::NodeOrToken::Token(t) => t.text().to_string(),
+                };
+                (text, Span::new(r.start().into(), r.end().into()))
+            }
+            None => (String::new(), Span::new(sp.end, sp.end)),
+        };
+        return Err(unexpected(vec![Expected::Symbol("(".into())], found, span));
+    }
+    let yield_items = c
+        .yield_items()
+        .map(|y| -> Result<ast_c::YieldItems> {
+            if let Some(star) = y.star_token() {
+                let r = star.text_range();
+                return Err(unexpected(
+                    vec![Expected::Category("yield item".into())],
+                    "*".into(),
+                    Span::new(r.start().into(), r.end().into()),
+                ));
+            }
+            build_yield_items(&y)
+        })
+        .transpose()?;
+    Ok(ast_c::InQueryCall {
+        call,
+        yield_items,
+        span: sp,
+    })
 }
 
-fn build_implicit_procedure_invocation(
+fn build_yield_items(y: &YieldItems) -> Result<ast_c::YieldItems> {
+    let items: Result<Vec<_>> = y.items().map(build_yield_item).collect();
+    let where_clause = y.where_expr().map(build_expression).transpose()?;
+    Ok(ast_c::YieldItems {
+        items: items?,
+        where_clause,
+    })
+}
+
+fn build_procedure_invocation(
     i: ImplicitProcedureInvocation,
 ) -> Result<ast_c::ProcedureInvocation> {
     let sp = span_of(i.syntax());
-    let name = if let Some(pn) = i.procedure_name() {
-        build_procedure_name(pn)?
-    } else {
-        return Err(internal("missing proc name", sp));
-    };
-    Ok(ast_c::ProcedureInvocation { name, span: sp })
+    let mut name = i
+        .procedure_name()
+        .map(build_procedure_name)
+        .transpose()?
+        .ok_or_else(|| internal("missing proc name", sp))?;
+    let explicit = i.explicit_invocation();
+    if let Some(e) = &explicit {
+        name.arguments = e.arguments().map(build_expression).collect::<Result<_>>()?;
+    }
+    Ok(ast_c::ProcedureInvocation {
+        name,
+        implicit_arguments: explicit.is_none(),
+        span: sp,
+    })
 }
 
 fn build_procedure_name(pn: ProcedureName) -> Result<ast_c::FunctionInvocation> {
@@ -2288,6 +2354,7 @@ fn build_in_query_call(c: InQueryCall) -> Result<ast_c::InQueryCall> {
                 arguments: Vec::new(),
                 span: sp,
             },
+            implicit_arguments: false,
             span: sp,
         },
         yield_items,

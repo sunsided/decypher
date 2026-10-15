@@ -806,11 +806,13 @@ impl YieldItems {
     }
 
     pub fn where_expr(&self) -> Option<Expression> {
+        // Flat chain after WHERE: the last expression node is the composed one.
         self.0
             .children_with_tokens()
             .skip_while(|el| !matches!(el.as_token().map(|t| t.kind()), Some(SyntaxKind::KW_WHERE)))
             .filter_map(|el| el.into_node())
-            .find_map(Expression::cast)
+            .filter_map(Expression::cast)
+            .last()
     }
 }
 
@@ -1051,11 +1053,13 @@ impl ShowReturn {
     }
 
     pub fn where_expr(&self) -> Option<Expression> {
+        // Flat chain after WHERE: the last expression node is the composed one.
         self.0
             .children_with_tokens()
             .skip_while(|el| !matches!(el.as_token().map(|t| t.kind()), Some(SyntaxKind::KW_WHERE)))
             .filter_map(|el| el.into_node())
-            .find_map(Expression::cast)
+            .filter_map(Expression::cast)
+            .last()
     }
 }
 

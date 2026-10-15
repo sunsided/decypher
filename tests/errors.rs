@@ -362,3 +362,24 @@ fn test_subquery_expression_bodies_need_no_return() {
         }
     ));
 }
+
+/// An in-query procedure call needs an explicit argument list and named
+/// `YIELD` items; implicit arguments and `YIELD *` are standalone-only (#57).
+///
+/// Unit: `parse()`
+/// Precondition: In-query calls without parentheses and with `YIELD *`.
+/// Expectation: Both are rejected with `UnexpectedToken`.
+#[test]
+fn test_in_query_call_restrictions() {
+    for (input, found) in [
+        ("CALL test.my.proc YIELD out RETURN out", "YIELD"),
+        ("CALL test.my.proc('Stefan', 1) YIELD * RETURN city", "*"),
+    ] {
+        let err = parse(input).unwrap_err();
+        check!(
+            matches!(&err.kind, ErrorKind::UnexpectedToken { found: f, .. } if f == found),
+            "input: {input}, got: {:?}",
+            err.kind
+        );
+    }
+}

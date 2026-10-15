@@ -413,3 +413,25 @@ fn test_parenthesis_vs_relationship_pattern() {
         "MATCH (a {x: (1)})-[]->(b) RETURN a;",
     );
 }
+
+/// Procedure calls keep their arguments, the `CALL` keyword and their
+/// `YIELD` items, and an in-query call is kept as a reading clause (#57).
+///
+/// Unit: `parse()` / procedure calls
+/// Precondition: Standalone calls with explicit and implicit arguments, and
+///               in-query calls with `YIELD … WHERE`, aliases and more clauses.
+/// Expectation: Each query round-trips unchanged.
+#[test]
+fn test_procedure_calls_round_trip() {
+    check_roundtrip("CALL foo(1, 2)", "CALL foo(1, 2);");
+    check_roundtrip("CALL foo", "CALL foo;");
+    check_roundtrip("CALL test.my.proc YIELD *", "CALL test.my.proc YIELD *;");
+    for q in [
+        "CALL db.labels() YIELD label",
+        "CALL foo() YIELD x RETURN x",
+        "MATCH (n) CALL foo(n, 1 + 2) YIELD x WHERE x > 1 RETURN x",
+        "CALL test.my.proc(NULL) YIELD a AS c, b RETURN c, b",
+    ] {
+        check_roundtrip(q, &format!("{q};"));
+    }
+}

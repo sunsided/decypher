@@ -43,6 +43,9 @@ pub struct InQueryCall {
 pub struct ProcedureInvocation {
     /// The qualified procedure name and arguments.
     pub name: FunctionInvocation,
+    /// `true` for `CALL proc` without parentheses, whose arguments are taken
+    /// implicitly from query parameters; `false` for `CALL proc(…)`.
+    pub implicit_arguments: bool,
     /// Byte-offset span of the invocation.
     pub span: Span,
 }

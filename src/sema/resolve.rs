@@ -257,15 +257,16 @@ impl<'ast> Visit<'ast> for NameResolver {
         if let Some(yield_items) = &node.yield_items {
             for item in &yield_items.items {
                 self.visit_symbolic_name(&item.procedure_field);
-                if let Some(alias) = &item.alias
-                    && let Err(first_span) =
-                        self.scopes
-                            .bind(&alias.name.name, SymbolKind::YieldAlias, alias.name.span)
-                {
+                // `YIELD field` binds `field`; `YIELD field AS alias` binds `alias`.
+                let (name, span) = match &item.alias {
+                    Some(alias) => (&alias.name.name, alias.name.span),
+                    None => (&item.procedure_field.name, item.procedure_field.span),
+                };
+                if let Err(first_span) = self.scopes.bind(name, SymbolKind::YieldAlias, span) {
                     self.emit(SemaError::RedeclaredVariable {
-                        name: alias.name.name.clone(),
+                        name: name.clone(),
                         first_span,
-                        redecl_span: alias.name.span,
+                        redecl_span: span,
                     });
                 }
             }
@@ -283,17 +284,17 @@ impl<'ast> Visit<'ast> for NameResolver {
                 crate::ast::procedure::YieldSpec::Items(yi) => {
                     for item in &yi.items {
                         self.visit_symbolic_name(&item.procedure_field);
-                        if let Some(alias) = &item.alias
-                            && let Err(first_span) = self.scopes.bind(
-                                &alias.name.name,
-                                SymbolKind::YieldAlias,
-                                alias.name.span,
-                            )
+                        let (name, span) = match &item.alias {
+                            Some(alias) => (&alias.name.name, alias.name.span),
+                            None => (&item.procedure_field.name, item.procedure_field.span),
+                        };
+                        if let Err(first_span) =
+                            self.scopes.bind(name, SymbolKind::YieldAlias, span)
                         {
                             self.emit(SemaError::RedeclaredVariable {
-                                name: alias.name.name.clone(),
+                                name: name.clone(),
                                 first_span,
-                                redecl_span: alias.name.span,
+                                redecl_span: span,
                             });
                         }
                     }

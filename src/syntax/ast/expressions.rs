@@ -1685,6 +1685,12 @@ impl ImplicitProcedureInvocation {
     pub fn procedure_name(&self) -> Option<ProcedureName> {
         child(&self.0)
     }
+
+    /// The parenthesised argument list, absent for `CALL proc` (implicit
+    /// arguments taken from query parameters).
+    pub fn explicit_invocation(&self) -> Option<ExplicitProcedureInvocation> {
+        child(&self.0)
+    }
 }
 
 // ============================================================
@@ -1718,10 +1724,7 @@ impl ExplicitProcedureInvocation {
     }
 
     pub fn arguments(&self) -> impl Iterator<Item = Expression> {
-        self.0
-            .children()
-            .filter(|n| n.kind() != SyntaxKind::PROCEDURE_NAME && n.kind() != SyntaxKind::NAMESPACE)
-            .filter_map(Expression::cast)
+        comma_separated_exprs(&self.0).into_iter()
     }
 }
 
