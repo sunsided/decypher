@@ -384,3 +384,32 @@ fn test_flat_chains_are_kept_whole() {
         check_roundtrip(q, &format!("{q};"));
     }
 }
+
+/// A parenthesis is only read as a relationship pattern when a relationship
+/// actually follows it, so parenthesised arguments and operands survive (#60).
+///
+/// Unit: `parse()` / pattern-vs-parenthesis lookahead
+/// Precondition: Parenthesised operands followed by arithmetic or comparison
+///               operators that share prefixes with ASCII arrows, and
+///               `exists(...)` around real patterns.
+/// Expectation: Each query round-trips with its original meaning.
+#[test]
+fn test_parenthesis_vs_relationship_pattern() {
+    for q in [
+        "RETURN a - f((b)) - c",
+        "RETURN (1) - 2 AS b",
+        "WITH 1 AS a RETURN (a) - 1 AS b",
+        "WITH 1 AS a RETURN (a) - -1 AS b",
+        "WITH 1 AS a RETURN (a) < -1 AS b",
+    ] {
+        check_roundtrip(q, &format!("{q};"));
+    }
+    check_roundtrip(
+        "MATCH (n) WHERE exists((n)<--()) RETURN n",
+        "MATCH (n) WHERE EXISTS { (n)<-[]-() } RETURN n;",
+    );
+    check_roundtrip(
+        "MATCH (a {x: (1)})-->(b) RETURN a",
+        "MATCH (a {x: (1)})-[]->(b) RETURN a;",
+    );
+}
