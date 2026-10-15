@@ -1960,8 +1960,27 @@ fn build_regular_query_from_syntax(
     }
 }
 
+/// Builds the body of a subquery-expression part. Unlike top-level queries
+/// and `CALL { … }`, `EXISTS { … }` and `COUNT { … }` bodies may end without
+/// `RETURN` (`EXISTS { MATCH (n)-->(m) }`), so a part with neither `RETURN`
+/// nor updating clauses is an empty `Updating` body rather than an error.
+fn subquery_body(
+    updating: Vec<ast_c::UpdatingClause>,
+    ret: Option<ast_c::Return>,
+) -> ast_c::SinglePartBody {
+    if updating.is_empty()
+        && let Some(ret) = ret
+    {
+        ast_c::SinglePartBody::Return(ret)
+    } else {
+        ast_c::SinglePartBody::Updating {
+            updating,
+            return_clause: ret,
+        }
+    }
+}
+
 fn build_subquery_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_c::SingleQuery> {
-    let missing = missing_return(clauses.last());
     let with_indices: Vec<_> = clauses
         .iter()
         .enumerate()
@@ -2020,17 +2039,7 @@ fn build_subquery_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_
             }
         }
 
-        // Unit subqueries (updating clauses only) have no RETURN.
-        let body = if updating.is_empty()
-            && let Some(ret) = ret
-        {
-            ast_c::SinglePartBody::Return(ret)
-        } else {
-            ast_c::SinglePartBody::Updating {
-                updating,
-                return_clause: ret,
-            }
-        };
+        let body = subquery_body(updating, ret);
 
         Ok(ast_c::SingleQuery {
             kind: ast_c::SingleQueryKind::SinglePart(ast_c::SinglePartQuery {
@@ -2080,8 +2089,7 @@ fn build_subquery_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_
                     let ret = build_return(r)?;
                     final_part = Some(ast_c::SinglePartQuery {
                         reading_clauses: std::mem::take(&mut reading),
-                        body: single_part_body(std::mem::take(&mut updating), Some(ret))
-                            .ok_or_else(|| missing.clone())?,
+                        body: subquery_body(std::mem::take(&mut updating), Some(ret)),
                     });
                 }
                 Clause::Finish(f) => {
@@ -2110,12 +2118,9 @@ fn build_subquery_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_
             }
         }
 
-        let final_part = final_part.unwrap_or(ast_c::SinglePartQuery {
+        let final_part = final_part.unwrap_or_else(|| ast_c::SinglePartQuery {
             reading_clauses: std::mem::take(&mut reading),
-            body: ast_c::SinglePartBody::Updating {
-                updating,
-                return_clause: None,
-            },
+            body: subquery_body(updating, None),
         });
 
         Ok(ast_c::SingleQuery {

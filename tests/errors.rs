@@ -337,3 +337,28 @@ fn test_missing_return_points_at_last_clause() {
         check!(err.span.end == input.len());
     }
 }
+
+/// `EXISTS { … }` and `COUNT { … }` bodies may end without `RETURN`, while a
+/// `CALL { … }` body may not.
+///
+/// Unit: `parse()`
+/// Precondition: Subquery bodies ending in `MATCH`.
+/// Expectation: `EXISTS`/`COUNT` parse; `CALL` reports `MissingClause`.
+#[test]
+fn test_subquery_expression_bodies_need_no_return() {
+    for input in [
+        "MATCH (n) WHERE EXISTS { MATCH (n)-->(m) } RETURN n",
+        "MATCH (n) WHERE EXISTS { MATCH (n)-->(m) WITH m MATCH (m)-->(o) } RETURN n",
+        "MATCH (n) RETURN COUNT { MATCH (n)-->(m) } AS c",
+    ] {
+        check!(parse(input).is_ok(), "input: {input}");
+    }
+    let err = parse("CALL { MATCH (n) } RETURN 1").unwrap_err();
+    check!(matches!(
+        err.kind,
+        ErrorKind::MissingClause {
+            clause: "RETURN",
+            ..
+        }
+    ));
+}
