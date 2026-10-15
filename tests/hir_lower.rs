@@ -727,3 +727,45 @@ fn analyze_comprehension_collection_uses_enclosing_scope() {
 
     analyze("WITH [1, 2] AS x RETURN any(x IN x WHERE x > 1) AS r").unwrap();
 }
+
+/// A variable bound by `UNWIND` after `WITH` is visible to later clauses
+/// (#59).
+///
+/// Unit: `analyze()`
+/// Precondition: `WITH collect(...) AS things UNWIND things AS arr WITH arr[0] …`.
+/// Expectation: `analyze` succeeds.
+#[test]
+fn analyze_unwind_after_with_binds_alias() {
+    analyze("UNWIND [[1]] AS l WITH l UNWIND l AS x RETURN x").unwrap();
+    analyze("WITH collect([0, 1]) AS things UNWIND things AS arr WITH arr[0] AS e RETURN e")
+        .unwrap();
+}
+
+/// `YIELD` items of an in-query call are bound for later clauses, and
+/// `YIELD … WHERE` becomes a filter (#57).
+///
+/// Unit: `analyze()`
+/// Precondition: In-query calls with plain and aliased yield items.
+/// Expectation: Lowering succeeds, the call records its yields, and a
+///              `Filter` follows the call when `WHERE` is present.
+#[test]
+fn analyze_in_query_call_binds_yields() {
+    use decypher::hir::ops::{Operation, ProcedureYield};
+    let hir = analyze("MATCH (n) CALL foo(n) YIELD x, y AS z WHERE x > 1 RETURN x, z").unwrap();
+    let ops = &hir.parts[0].operations;
+    let call = ops
+        .iter()
+        .find_map(|op| match op {
+            Operation::CallProcedure(c) => Some(c),
+            _ => None,
+        })
+        .expect("expected a CallProcedure operation");
+    check!(call.args.len() == 1);
+    let fields: Vec<_> = call
+        .yields
+        .iter()
+        .map(|y: &ProcedureYield| y.field.as_str())
+        .collect();
+    check!(fields == ["x", "y"]);
+    check!(ops.iter().any(|op| matches!(op, Operation::Filter(_))));
+}

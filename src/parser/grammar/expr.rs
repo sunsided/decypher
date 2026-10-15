@@ -878,7 +878,7 @@ fn parse_atom(p: &mut Parser) {
                 p.builder.finish_node();
             } else if p.peek_next_non_trivia() == Some(SyntaxKind::L_PAREN) {
                 // EXISTS(...) - could be EXISTS(pattern) or exists(property)
-                if looks_like_relationships_pattern(p) {
+                if exists_call_wraps_pattern(p) {
                     // Parse as EXISTS_SUBQUERY with a pattern
                     p.start_node(SyntaxKind::EXISTS_SUBQUERY);
                     p.bump(); // EXISTS
@@ -1032,63 +1032,65 @@ fn parse_map_projection_item(p: &mut Parser) {
 /// Determine if we're looking at a RelationshipsPattern starting from `(`.
 /// Heuristic: after (, we expect optional var, optional :Label, optional {props}, )
 /// and then - or < for a chain. If there's no chain after ), it's just a parenthesized expr.
+/// Whether the `(` at the current position starts a relationship pattern such
+/// as `(a)-->(b)` rather than a parenthesised expression.
 fn looks_like_relationships_pattern(p: &Parser) -> bool {
-    // Clone lexer to peek ahead
+    // `p` is at `(`; the cloned lexer yields the tokens after it.
+    relationship_pattern_follows(p.lexer.clone())
+}
+
+/// Whether `exists` at the current position is followed by `(` and a
+/// relationship pattern, as in `exists((n)-->())`.
+fn exists_call_wraps_pattern(p: &Parser) -> bool {
     let mut lx = p.lexer.clone();
-    // Skip past L_PAREN
-    loop {
-        match lx.advance() {
-            Some(tok) if tok.kind == SyntaxKind::WHITESPACE => continue,
-            _ => break,
-        }
-    }
-    // Now we should be at optional IDENT, or : or )
-    // Skip optional identifier
-    if let Some(tok) = lx.advance()
-        && tok.kind == SyntaxKind::WHITESPACE
-    {
-        loop {
+    for expected in [SyntaxKind::L_PAREN, SyntaxKind::L_PAREN] {
+        let kind = loop {
             match lx.advance() {
-                Some(t) if t.kind == SyntaxKind::WHITESPACE => continue,
-                Some(t) => {
-                    if t.kind == SyntaxKind::IDENT || t.kind == SyntaxKind::ESCAPED_IDENT {
-                        // Skip whitespace after ident
-                        loop {
-                            match lx.advance() {
-                                Some(t2) if t2.kind == SyntaxKind::WHITESPACE => continue,
-                                _ => break,
-                            }
-                        }
-                    }
-                    break;
-                }
-                None => break,
+                Some(tok) if matches!(tok.kind, SyntaxKind::WHITESPACE | SyntaxKind::COMMENT) => {}
+                other => break other.map(|t| t.kind),
             }
+        };
+        if kind != Some(expected) {
+            return false;
         }
     }
-    // Simplified heuristic: scan for ) followed by - or <
-    loop {
+    relationship_pattern_follows(lx)
+}
+
+/// Given a lexer positioned just after the `(` of a node pattern, finds the
+/// matching `)` (node patterns may contain nested parentheses, e.g. in a
+/// property map) and decides whether a relationship follows it.
+fn relationship_pattern_follows(mut lx: crate::parser::lexer::Lexer<'_>) -> bool {
+    use SyntaxKind::{ARROW_LEFT, ARROW_RIGHT, DASH, GT, L_BRACKET, L_PAREN, LT, MINUS};
+    let mut depth = 1usize;
+    while depth > 0 {
         match lx.advance() {
-            Some(tok) if tok.kind == SyntaxKind::WHITESPACE => continue,
-            Some(tok) if tok.kind == SyntaxKind::R_PAREN => break,
-            Some(_) => continue,
+            Some(tok) if tok.kind == L_PAREN => depth += 1,
+            Some(tok) if tok.kind == SyntaxKind::R_PAREN => depth -= 1,
+            Some(_) => {}
             None => return false,
         }
     }
-    // After ), check if - or < follows
-    loop {
-        match lx.advance() {
-            Some(tok) if tok.kind == SyntaxKind::WHITESPACE => continue,
-            Some(tok)
-                if tok.kind == SyntaxKind::MINUS
-                    || tok.kind == SyntaxKind::DASH
-                    || tok.kind == SyntaxKind::LT
-                    || tok.kind == SyntaxKind::ARROW_LEFT =>
-            {
-                return true;
+    let mut ahead = [None; 3];
+    for slot in &mut ahead {
+        *slot = loop {
+            match lx.advance() {
+                Some(tok) if matches!(tok.kind, SyntaxKind::WHITESPACE | SyntaxKind::COMMENT) => {}
+                other => break other.map(|t| t.kind),
             }
-            _ => return false,
-        }
+        };
+    }
+    // ASCII arrows are lexed as separate `<`, `-`, `>` tokens, so `(a) - 1`
+    // and `(a) < -1` share prefixes with `(a)-->(b)` and `(a)<-[r]-(b)`. A
+    // relationship continues with `[`, a second dash, or an arrowhead.
+    let dash = |k: Option<SyntaxKind>| matches!(k, Some(MINUS | DASH));
+    match ahead {
+        [Some(ARROW_LEFT), ..] => true,
+        [Some(LT), d, Some(L_BRACKET)] if dash(d) => true,
+        [Some(LT), d1, d2] if dash(d1) && dash(d2) => true,
+        [d, Some(L_BRACKET | GT | ARROW_RIGHT), _] if dash(d) => true,
+        [d1, d2, Some(L_PAREN | GT | ARROW_RIGHT)] if dash(d1) && dash(d2) => true,
+        _ => false,
     }
 }
 

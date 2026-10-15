@@ -43,7 +43,7 @@ use super::expr::{
 use super::ops::{
     AggregateItem, AggregateOp, CallProcedureOp, CallSubqueryOp, CreateOp, DeleteOp, FilterOp,
     ForeachOp, InTransactions as HirInTransactions, LimitOp, LoadCsvOp, MatchOp, MergeOp,
-    OnErrorBehavior as HirOnErrorBehavior, Operation, ProjectOp, ProjectionItem,
+    OnErrorBehavior as HirOnErrorBehavior, Operation, ProcedureYield, ProjectOp, ProjectionItem,
     RemoveItem as HirRemoveItem, RemoveOp, ReturnOp, SetItem as HirSetItem, SetOp, SkipOp,
     SortDirection, SortItem, SortOp, UnwindOp,
 };
@@ -408,9 +408,34 @@ impl<'cfg> LoweringContext<'cfg> {
     }
 
     fn lower_in_query_call(&mut self, i: &InQueryCall) {
-        let proc_op = self.lower_procedure_invocation(&i.call);
+        let mut proc_op = self.lower_procedure_invocation(&i.call);
+        let mut predicate = None;
+        if let Some(yield_items) = &i.yield_items {
+            for item in &yield_items.items {
+                // `YIELD field` binds `field`; `YIELD field AS alias` binds `alias`.
+                let (name, span) = match &item.alias {
+                    Some(alias) => (&alias.name.name, alias.name.span),
+                    None => (&item.procedure_field.name, item.procedure_field.span),
+                };
+                let alias =
+                    self.scope_stack
+                        .bind(&mut self.arenas, name, BindingKind::YieldAlias, span);
+                proc_op.yields.push(ProcedureYield {
+                    field: item.procedure_field.name.clone(),
+                    alias,
+                });
+            }
+            predicate = yield_items
+                .where_clause
+                .as_ref()
+                .map(|w| self.lower_expr(w));
+        }
         self.current_part_ops
             .push(Operation::CallProcedure(proc_op));
+        if let Some(predicate) = predicate {
+            self.current_part_ops
+                .push(Operation::Filter(FilterOp { predicate }));
+        }
     }
 
     fn lower_call_subquery(&mut self, c: &CallSubquery) {
