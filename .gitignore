@@ -1,5 +1,4 @@
 /target
 Cargo.lock
-.gitnexus
 tests/property.proptest-regressions
 
