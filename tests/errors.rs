@@ -383,3 +383,27 @@ fn test_in_query_call_restrictions() {
         );
     }
 }
+
+/// Out-of-range and malformed number literals report `InvalidNumber` with a
+/// reason instead of an internal error (#63).
+///
+/// Unit: `parse()`
+/// Precondition: Integer and float overflow, and a hex prefix without digits.
+/// Expectation: `ErrorKind::InvalidNumber` with the matching `NumberReason`.
+#[test]
+fn test_invalid_number_literals() {
+    use decypher::error::NumberReason;
+    for (input, expected) in [
+        ("RETURN 9223372036854775808", NumberReason::Overflow),
+        ("RETURN -9223372036854775809", NumberReason::Overflow),
+        ("RETURN 1.34E999", NumberReason::Overflow),
+        ("RETURN 0x", NumberReason::Empty),
+    ] {
+        let err = parse(input).unwrap_err();
+        check!(
+            matches!(&err.kind, ErrorKind::InvalidNumber { reason, .. } if *reason == expected),
+            "input: {input}, got: {:?}",
+            err.kind
+        );
+    }
+}

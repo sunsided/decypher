@@ -564,3 +564,29 @@ fn test_bracket_list_vs_pattern_comprehension() {
         "MATCH (a) RETURN [p = (a)-[]->(b) | p] AS x;",
     );
 }
+
+/// Number literals: octal, leading-dot floats and `i64::MIN` parse (#63).
+///
+/// Unit: `parse()` / number literals
+/// Precondition: `0o` and legacy octal, floats without a leading zero, and
+///               the minimum 64-bit integer in decimal and hex.
+/// Expectation: Each parses to the expected value.
+#[test]
+fn test_number_literals() {
+    for (input, printed) in [
+        ("RETURN 0o17, -0o17, 017", "RETURN 15, -15, 15;"),
+        ("RETURN .5, -.5e-3", "RETURN 0.5, -0.0005;"),
+        ("RETURN [-.1e-5]", "RETURN [-1e-6];"),
+        (
+            "RETURN -9223372036854775808",
+            "RETURN -9223372036854775808;",
+        ),
+        ("RETURN -0x8000000000000000", "RETURN -9223372036854775808;"),
+        (
+            "WITH [1, 2, 3] AS l RETURN l[1..2]",
+            "WITH [1, 2, 3] AS l RETURN l[1..2];",
+        ),
+    ] {
+        check_roundtrip(input, printed);
+    }
+}

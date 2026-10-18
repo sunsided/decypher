@@ -274,6 +274,11 @@ impl<'a> Lexer<'a> {
                 self.bump();
                 Some(self.make_token(SyntaxKind::AMPERSAND, start))
             }
+            // `.5`, `.1e-5`: a float without a leading zero (`..` is handled above).
+            '.' if matches!(self.peek2(), Some(c) if c.is_ascii_digit()) => {
+                let kind = self.read_number(start);
+                Some(self.make_token(kind, start))
+            }
             '.' => {
                 self.bump();
                 Some(self.make_token(SyntaxKind::DOT, start))
