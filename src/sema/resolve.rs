@@ -100,6 +100,7 @@ impl NameResolver {
         visit: impl FnOnce(&mut Self),
     ) {
         let columns = self.scopes.clone();
+        let outer_projected = std::mem::take(&mut self.projected);
         if narrow {
             self.projected = items
                 .iter()
@@ -115,7 +116,7 @@ impl NameResolver {
             self.scopes = both;
         }
         visit(self);
-        self.projected.clear();
+        self.projected = outer_projected;
         self.scopes = columns;
     }
 
@@ -453,6 +454,9 @@ impl<'ast> Visit<'ast> for NameResolver {
     }
 
     fn visit_regular_query(&mut self, node: &'ast RegularQuery) {
+        // A subquery body does not refer to the columns of an enclosing
+        // projection by repeating its expressions.
+        let outer_projected = std::mem::take(&mut self.projected);
         // Every UNION branch starts from the scope the query was entered with.
         let entry = self.scopes.clone();
         self.visit_single_query(&node.single_query);
@@ -460,6 +464,7 @@ impl<'ast> Visit<'ast> for NameResolver {
             self.scopes = entry.clone();
             self.visit_single_query(&union.single_query);
         }
+        self.projected = outer_projected;
     }
 
     fn visit_exists_inner(&mut self, node: &'ast ExistsInner) {

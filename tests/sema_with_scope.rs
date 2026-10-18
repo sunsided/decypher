@@ -263,3 +263,32 @@ fn projection_columns_and_alias_visibility() {
         assert_eq!(errs.len(), 1, "query: {q}, got: {errs:?}");
     }
 }
+
+/// A projection nested in the `WHERE` or `ORDER BY` of a narrowing projection
+/// (through a subquery) leaves the outer projection's columns intact, and
+/// does not see them itself (#112 review).
+///
+/// Unit: `sema::analyze()`
+/// Precondition: An `EXISTS` subquery with its own `WITH … WHERE` between two
+///   `ORDER BY` items of an aggregating `RETURN`; a subquery repeating an
+///   outer item expression over an unbound variable.
+/// Expectation: The first passes; the second reports the unbound variable.
+#[test]
+fn nested_projections_keep_outer_columns() {
+    let query = "MATCH (n) RETURN n.k, count(*) AS c \
+                 ORDER BY EXISTS { MATCH (a) WITH a.k AS k WHERE a.k > 1 RETURN k }, n.k";
+    if let Err(errs) = analyze(&parse(query).expect("should parse")) {
+        panic!("query: {query}, got: {:?}", errs.errors);
+    }
+
+    let query = "MATCH (n) RETURN n.k, count(*) AS c \
+                 ORDER BY EXISTS { WITH 1 AS one RETURN n.k AS k }";
+    let errs = analyze(&parse(query).expect("should parse")).unwrap_err();
+    assert!(
+        errs.errors
+            .iter()
+            .any(|e| matches!(e.kind(), ErrorKind::UnresolvedVariable { name } if name == "n")),
+        "query: {query}, got: {:?}",
+        errs.errors
+    );
+}
