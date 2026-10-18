@@ -37,7 +37,6 @@ jobs:
       - name: Assemble site
         working-directory: bindings/wasm
         run: node scripts/site.mjs
-      - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5
         with:
           path: bindings/wasm/site
