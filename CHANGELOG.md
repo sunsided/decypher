@@ -8,8 +8,22 @@ are marked **Breaking** below.
 
 ## [Unreleased]
 
+## [0.2.0-alpha.8] - 2026-10-18
+
 ### Added
 
+- GQL / Neo4j 5 syntax: `UNION DISTINCT`, and `IS` label predicates in
+  expressions and patterns (`WHERE n IS Person`, `(n IS Person)`,
+  `[r IS KNOWS]`) (#90, #69).
+- The GQL wildcard label `%` in label and relationship-type expressions
+  (`(n:%)`, `(n:!%)`, `[r:%]`, `n IS %`) (#94, #91).
+- Label expressions beyond static labels in HIR: new `hir::LabelExpr`, used
+  by `ExprKind::LabelCheck`, `NodePattern::label_expression` and
+  `RelationshipPattern::type_expression`. `n:A|B`, `(n:!A)`, `[r:!T]` and
+  `$(…)` labels no longer fail `analyze` as unsupported; `(n:A&B)` lowers to
+  two required labels (#94, #89).
+- GQL numeric type names in type predicates (`UNSIGNED INTEGER`,
+  `INT8`…`UINT256`, `BIGINT`, `DECIMAL`, `REAL`, `DOUBLE PRECISION`) (#93).
 - openCypher TCK conformance gate (`tests/tck.rs`): every query of the
   openCypher 2024.3 TCK syntax projection is checked for accept/reject,
   print/re-parse stability, lossless printing and, where the TCK expects no
@@ -37,6 +51,11 @@ are marked **Breaking** below.
 
 ### Changed
 
+- **Breaking:** new `ast::Expression::IsNormalized` / `IsTyped` (with
+  `ast::expr::NormalForm`), `ast::LabelExpression::Wildcard`, and
+  `hir::ExprKind::IsNormalized` / `IsTyped` / `LabelCheck`; new fields
+  `hir::NodePattern::label_expression` and
+  `hir::RelationshipPattern::type_expression` (#92, #94).
 - **Breaking:** `ast::ProcedureInvocation` gains `implicit_arguments`;
   `ast::MapProjectionItem` gains a `Variable` variant; `ast::LoadCsv` and
   `hir::ops::LoadCsvOp` gain `field_terminator`;
@@ -58,6 +77,9 @@ are marked **Breaking** below.
 
 ### Fixed
 
+- `IS [NOT] [NFC|NFD|NFKC|NFKD] NORMALIZED` and `IS [NOT] :: <type>` /
+  `IS TYPED <type>` were rebuilt as `IS NULL`, silently changing the query;
+  they are now kept as their own predicates (#92, #88).
 - Queries that parsed but silently changed meaning: map values truncated to
   their first operand, list elements and `DELETE` targets duplicated from
   flat expression chains, `UNWIND` binding the wrong variable, parenthesised
@@ -113,5 +135,6 @@ are marked **Breaking** below.
 See the [GitHub releases](https://github.com/sunsided/decypher/releases) for
 0.2.0-alpha.6 and earlier.
 
-[Unreleased]: https://github.com/sunsided/decypher/compare/v0.2.0-alpha.7...HEAD
+[Unreleased]: https://github.com/sunsided/decypher/compare/v0.2.0-alpha.8...HEAD
+[0.2.0-alpha.8]: https://github.com/sunsided/decypher/compare/v0.2.0-alpha.7...v0.2.0-alpha.8
 [0.2.0-alpha.7]: https://github.com/sunsided/decypher/compare/v0.2.0-alpha.6...v0.2.0-alpha.7
