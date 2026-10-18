@@ -97,6 +97,11 @@ are marked **Breaking** below.
   `Aggregate` of `RETURN DISTINCT *, count(*)` grouped by nothing, and
   `WITH *, n.x + count(*)` was rejected.
 - `task wasm:test` ran no Node.js tests (#106).
+- `UNION` chains inside subqueries: `CALL { … }` kept only the first and
+  last of three or more branches, and `EXISTS` / `COUNT` / `COLLECT` bodies
+  with `UNION` failed to parse. The printer no longer writes a double space
+  after a subquery part that ends without `RETURN`
+  (`EXISTS { MATCH (n)-->(m) }`).
 
 ## [0.2.0-alpha.8] - 2026-10-18
 

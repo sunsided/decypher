@@ -681,8 +681,22 @@ fn parse_pattern_or_subquery_body(p: &mut Parser) {
 }
 
 fn parse_subquery_body(p: &mut Parser) {
+    if !parse_subquery_part(p) {
+        p.error_here_with_help(
+            &[Expected::Category(Cow::Borrowed("subquery clause"))],
+            "subquery bodies usually start with clauses like `MATCH`, `WITH`, `CALL`, or `RETURN`",
+        );
+    }
+    parse_unions(p, |p| {
+        parse_subquery_part(p);
+    });
+}
+
+/// Parses the clauses of one `UNION` branch of a subquery expression,
+/// returning whether there were any.
+fn parse_subquery_part(p: &mut Parser) -> bool {
     let mut saw_clause = false;
-    while !p.at(SyntaxKind::R_BRACE) && p.current_len() > 0 {
+    while !p.at(SyntaxKind::R_BRACE) && !p.at(SyntaxKind::KW_UNION) && p.current_len() > 0 {
         if is_clause_start_for_subquery(p) {
             parse_clause(p);
             saw_clause = true;
@@ -693,11 +707,25 @@ fn parse_subquery_body(p: &mut Parser) {
         }
         p.skip_trivia();
     }
-    if !saw_clause {
-        p.error_here_with_help(
-            &[Expected::Category(Cow::Borrowed("subquery clause"))],
-            "subquery bodies usually start with clauses like `MATCH`, `WITH`, `CALL`, or `RETURN`",
-        );
+    saw_clause
+}
+
+/// Parses `UNION [ALL | DISTINCT] <branch>` repeatedly, each as a sibling
+/// `UNION` node holding its branch's clauses.
+fn parse_unions(p: &mut Parser, parse_branch: fn(&mut Parser)) {
+    p.skip_trivia();
+    while p.at(SyntaxKind::KW_UNION) {
+        p.start_node(SyntaxKind::UNION);
+        p.bump();
+        p.skip_trivia();
+        // `UNION DISTINCT` (GQL) spells out the default `UNION`.
+        if !p.eat(SyntaxKind::KW_ALL) {
+            p.eat(SyntaxKind::KW_DISTINCT);
+        }
+        p.skip_trivia();
+        parse_branch(p);
+        p.builder.finish_node();
+        p.skip_trivia();
     }
 }
 
@@ -2675,25 +2703,25 @@ fn parse_call_subquery(p: &mut Parser) {
 }
 
 fn parse_regular_query_body(p: &mut Parser) {
-    // Parse a RegularQuery: SinglePartQuery ( UNION SinglePartQuery )*
-    // A SinglePartQuery is: ReadingClause* UpdatingClause?
-    // Simplified: parse clauses until UNION or } or end
-    let mut has_clauses = false;
+    // RegularQuery: SingleQuery ( UNION SingleQuery )*
+    parse_query_part(p);
+    parse_unions(p, parse_query_part);
+}
+
+/// Parses the clauses of one `UNION` branch: until `UNION`, `}` or the end.
+fn parse_query_part(p: &mut Parser) {
     loop {
         p.skip_trivia();
         if p.at(SyntaxKind::R_BRACE) || p.current_len() == 0 {
             break;
         }
         if p.at(SyntaxKind::KW_UNION) {
-            // Handled by outer loop
             break;
         }
         if is_clause_start_for_subquery(p) {
-            has_clauses = true;
             parse_clause(p);
         } else if p.at(SyntaxKind::KW_YIELD) {
             // YIELD can appear in subquery context
-            has_clauses = true;
             p.start_node(SyntaxKind::IN_QUERY_CALL);
             parse_yield_items(p);
             p.builder.finish_node();
@@ -2704,22 +2732,6 @@ fn parse_regular_query_body(p: &mut Parser) {
         }
         p.skip_trivia();
     }
-    // Handle UNION chains
-    while p.at(SyntaxKind::KW_UNION) {
-        p.start_node(SyntaxKind::UNION);
-        p.bump();
-        p.skip_trivia();
-        // `UNION DISTINCT` (GQL) spells out the default `UNION`.
-        if !p.eat(SyntaxKind::KW_ALL) {
-            p.eat(SyntaxKind::KW_DISTINCT);
-        }
-        p.skip_trivia();
-        // Parse next query body
-        parse_regular_query_body(p);
-        p.builder.finish_node();
-        p.skip_trivia();
-    }
-    let _ = has_clauses;
 }
 
 fn is_clause_start_for_subquery(p: &Parser) -> bool {

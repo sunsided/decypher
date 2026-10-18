@@ -164,7 +164,16 @@ impl ToCypher for SinglePartQuery {
             }
             rc.write_cypher(w)?;
         }
-        if !self.reading_clauses.is_empty() {
+        // A subquery-expression part may end without RETURN or updates
+        // (`EXISTS { MATCH (n)-->(m) }`), leaving nothing to separate.
+        let empty_body = matches!(
+            &self.body,
+            SinglePartBody::Updating {
+                updating,
+                return_clause: None,
+            } if updating.is_empty()
+        );
+        if !self.reading_clauses.is_empty() && !empty_body {
             write!(w, " ")?;
         }
         self.body.write_cypher(w)
@@ -186,7 +195,9 @@ impl ToCypher for SinglePartBody {
                     uc.write_cypher(w)?;
                 }
                 if let Some(rc) = return_clause {
-                    write!(w, " ")?;
+                    if !updating.is_empty() {
+                        write!(w, " ")?;
+                    }
                     rc.write_cypher(w)?;
                 }
                 Ok(())

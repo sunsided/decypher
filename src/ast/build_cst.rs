@@ -209,21 +209,9 @@ fn build_regular_query(clauses: &[Clause], unions: &[Union]) -> Result<ast_c::Re
     for union_node in unions {
         let all = union_node.all_token().is_some();
         let union_clauses: Vec<_> = union_node.clauses().collect();
-        let inner_unions: Vec<_> = union_node.inner_unions().collect();
-        let mut sq = build_single_query_from_clauses(union_clauses)?;
-
-        // Handle nested unions
-        for nested in inner_unions {
-            let n_all = nested.all_token().is_some();
-            let n_clauses: Vec<_> = nested.clauses().collect();
-            let n_sq = build_single_query_from_clauses(n_clauses)?;
-            let _ = n_all;
-            sq = n_sq;
-        }
-
         result_unions.push(ast_c::Union {
             all,
-            single_query: sq,
+            single_query: build_single_query_from_clauses(union_clauses)?,
             span: span_of(union_node.syntax()),
         });
     }

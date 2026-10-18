@@ -868,3 +868,42 @@ fn rt_count_pattern_subquery() {
         "{printed}"
     );
 }
+
+/// Round-trip `UNION` chains inside subqueries: every branch survives, with
+/// its `ALL` flag, in `CALL { … }` and in `EXISTS` / `COUNT` / `COLLECT`
+/// bodies, which may end without `RETURN`.
+///
+/// Unit: `ToCypher::to_cypher` / `parse`
+/// Precondition: Subqueries with two and three `UNION` branches.
+/// Expectation: Re-parsed AST equals the original parsed AST, the text is
+///              unchanged, and the AST holds every branch.
+#[test]
+fn rt_union_chains_in_subqueries() {
+    for (query, unions) in [
+        (
+            "CALL { RETURN 1 AS a UNION RETURN 2 AS a UNION RETURN 3 AS a } RETURN a;",
+            2,
+        ),
+        (
+            "CALL { RETURN 1 AS a UNION ALL RETURN 2 AS a UNION ALL RETURN 3 AS a } RETURN a;",
+            2,
+        ),
+        (
+            "MATCH (n) RETURN COUNT { RETURN 1 AS a UNION RETURN 2 AS a UNION RETURN 3 AS a } AS c;",
+            2,
+        ),
+        (
+            "MATCH (n) WHERE EXISTS { MATCH (n)-[:R]->(m) UNION MATCH (n)<-[:R]-(m) } RETURN n;",
+            1,
+        ),
+        (
+            "RETURN COLLECT { RETURN 1 AS a UNION ALL RETURN 2 AS a } AS c;",
+            1,
+        ),
+    ] {
+        roundtrip(query);
+        let printed = parse(query).unwrap().to_cypher();
+        check!(printed == query);
+        check!(printed.matches("UNION").count() == unions);
+    }
+}
