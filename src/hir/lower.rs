@@ -30,7 +30,7 @@ use crate::ast::query::{
 };
 use crate::error::{Diagnostics, Span};
 
-use super::arena::{BindingId, ExprId, Id, LabelId, PropertyKeyId, RelTypeId, ScopeId};
+use super::arena::{BindingId, ExprId, FunctionId, Id, LabelId, PropertyKeyId, RelTypeId, ScopeId};
 use super::binding::{Binding, BindingKind, Scope};
 use super::config::LowerConfig;
 use super::expr::{
@@ -725,100 +725,7 @@ impl<'cfg> LoweringContext<'cfg> {
             // Pass-through all visible bindings
         }
 
-        let mut items: Vec<ProjectionItem> = Vec::new();
-        for pi in &w.items {
-            let expr = self.lower_expr(&pi.expression);
-            let alias_name = pi
-                .alias
-                .as_ref()
-                .map(|v| v.name.name.clone())
-                .unwrap_or_else(|| self.infer_alias_name(&pi.expression));
-            let alias = self.scope_stack.bind(
-                &mut self.arenas,
-                &alias_name,
-                BindingKind::WithAlias,
-                expr_span(&pi.expression),
-            );
-            items.push(ProjectionItem {
-                expression: expr,
-                alias,
-            });
-        }
-
-        // Check for aggregates
-        let has_aggregate = w.items.iter().any(|pi| self.has_aggregate(&pi.expression));
-        if has_aggregate {
-            let mut grouping_keys = Vec::new();
-            let mut aggregates = Vec::new();
-            for pi in &w.items {
-                if self.has_aggregate(&pi.expression) {
-                    let (func_id, args, distinct) = match &pi.expression {
-                        Expression::FunctionCall(fc) => {
-                            let key = Self::qualified_function_key(fc);
-                            let display = Self::qualified_function_name(fc);
-                            let fid = self
-                                .arenas
-                                .functions
-                                .intern_with_display(&key, &display, Id);
-                            let a = fc.arguments.iter().map(|a| self.lower_expr(a)).collect();
-                            (fid, a, fc.distinct)
-                        }
-                        Expression::CountStar { .. } => {
-                            let fid = self.arenas.functions.intern("COUNT", Id);
-                            (fid, vec![], false)
-                        }
-                        _ => {
-                            let fid = self.arenas.functions.intern("UNKNOWN", Id);
-                            (fid, vec![], false)
-                        }
-                    };
-                    let alias_name = pi
-                        .alias
-                        .as_ref()
-                        .map(|v| v.name.name.clone())
-                        .unwrap_or_else(|| self.infer_alias_name(&pi.expression));
-                    let alias = self.scope_stack.bind(
-                        &mut self.arenas,
-                        &alias_name,
-                        BindingKind::WithAlias,
-                        expr_span(&pi.expression),
-                    );
-                    aggregates.push(AggregateItem {
-                        function: func_id,
-                        args,
-                        distinct,
-                        alias,
-                    });
-                } else {
-                    let expr = self.lower_expr(&pi.expression);
-                    let alias_name = pi
-                        .alias
-                        .as_ref()
-                        .map(|v| v.name.name.clone())
-                        .unwrap_or_else(|| self.infer_alias_name(&pi.expression));
-                    let alias = self.scope_stack.bind(
-                        &mut self.arenas,
-                        &alias_name,
-                        BindingKind::WithAlias,
-                        expr_span(&pi.expression),
-                    );
-                    grouping_keys.push(ProjectionItem {
-                        expression: expr,
-                        alias,
-                    });
-                }
-            }
-            self.current_part_ops
-                .push(Operation::Aggregate(AggregateOp {
-                    grouping_keys,
-                    aggregates,
-                }));
-        } else {
-            self.current_part_ops.push(Operation::Project(ProjectOp {
-                items,
-                distinct: w.distinct,
-            }));
-        }
+        self.lower_projection(&w.items, w.distinct, BindingKind::WithAlias);
 
         if let Some(where_expr) = &w.where_clause {
             let pred = self.lower_expr(where_expr);
@@ -889,100 +796,7 @@ impl<'cfg> LoweringContext<'cfg> {
                 distinct: r.distinct,
             }));
         } else {
-            let mut items: Vec<ProjectionItem> = Vec::new();
-            for pi in &r.items {
-                let expr = self.lower_expr(&pi.expression);
-                let alias_name = pi
-                    .alias
-                    .as_ref()
-                    .map(|v| v.name.name.clone())
-                    .unwrap_or_else(|| self.infer_alias_name(&pi.expression));
-                let alias = self.scope_stack.bind(
-                    &mut self.arenas,
-                    &alias_name,
-                    BindingKind::ReturnAlias,
-                    expr_span(&pi.expression),
-                );
-                items.push(ProjectionItem {
-                    expression: expr,
-                    alias,
-                });
-            }
-
-            // Check for aggregates in RETURN
-            let has_aggregate = r.items.iter().any(|pi| self.has_aggregate(&pi.expression));
-            if has_aggregate {
-                let mut grouping_keys = Vec::new();
-                let mut aggregates = Vec::new();
-                for pi in &r.items {
-                    if self.has_aggregate(&pi.expression) {
-                        let (func_id, args, distinct) = match &pi.expression {
-                            Expression::FunctionCall(fc) => {
-                                let key = Self::qualified_function_key(fc);
-                                let display = Self::qualified_function_name(fc);
-                                let fid = self
-                                    .arenas
-                                    .functions
-                                    .intern_with_display(&key, &display, Id);
-                                let a = fc.arguments.iter().map(|a| self.lower_expr(a)).collect();
-                                (fid, a, fc.distinct)
-                            }
-                            Expression::CountStar { .. } => {
-                                let fid = self.arenas.functions.intern("COUNT", Id);
-                                (fid, vec![], false)
-                            }
-                            _ => {
-                                let fid = self.arenas.functions.intern("UNKNOWN", Id);
-                                (fid, vec![], false)
-                            }
-                        };
-                        let alias_name = pi
-                            .alias
-                            .as_ref()
-                            .map(|v| v.name.name.clone())
-                            .unwrap_or_else(|| self.infer_alias_name(&pi.expression));
-                        let alias = self.scope_stack.bind(
-                            &mut self.arenas,
-                            &alias_name,
-                            BindingKind::ReturnAlias,
-                            expr_span(&pi.expression),
-                        );
-                        aggregates.push(AggregateItem {
-                            function: func_id,
-                            args,
-                            distinct,
-                            alias,
-                        });
-                    } else {
-                        let expr = self.lower_expr(&pi.expression);
-                        let alias_name = pi
-                            .alias
-                            .as_ref()
-                            .map(|v| v.name.name.clone())
-                            .unwrap_or_else(|| self.infer_alias_name(&pi.expression));
-                        let alias = self.scope_stack.bind(
-                            &mut self.arenas,
-                            &alias_name,
-                            BindingKind::ReturnAlias,
-                            expr_span(&pi.expression),
-                        );
-                        grouping_keys.push(ProjectionItem {
-                            expression: expr,
-                            alias,
-                        });
-                    }
-                }
-                self.current_part_ops
-                    .push(Operation::Aggregate(AggregateOp {
-                        grouping_keys,
-                        aggregates,
-                    }));
-            } else {
-                self.current_part_ops.push(Operation::Project(ProjectOp {
-                    items,
-                    distinct: r.distinct,
-                }));
-            }
+            self.lower_projection(&r.items, r.distinct, BindingKind::ReturnAlias);
         }
 
         if let Some(order) = &r.order {
@@ -1817,32 +1631,223 @@ impl<'cfg> LoweringContext<'cfg> {
         }
     }
 
+    fn is_aggregate_call(&self, fc: &crate::ast::expr::FunctionInvocation) -> bool {
+        self.config
+            .aggregates
+            .contains(&Self::qualified_function_name(fc))
+    }
+
     fn has_aggregate(&self, expr: &Expression) -> bool {
+        expr.contains_aggregate(&|fc| self.is_aggregate_call(fc))
+    }
+
+    /// Lowers the items of a `WITH` or `RETURN` projection, binding each
+    /// item's alias with `kind`.
+    ///
+    /// Without aggregates this is a single `Project`. With aggregates, an
+    /// `Aggregate` operation computes the grouping keys and every aggregate
+    /// call, including calls nested in larger expressions (`abs(sum(x))`,
+    /// `count(n) + 1`), each into its own binding. A following `Project`
+    /// then computes those larger expressions from the aggregate bindings
+    /// and applies `DISTINCT`.
+    fn lower_projection(
+        &mut self,
+        items: &[crate::ast::clause::ProjectionItem],
+        distinct: bool,
+        kind: BindingKind,
+    ) {
+        self.report_duplicate_columns(items);
+
+        let alias_of = |this: &Self, pi: &crate::ast::clause::ProjectionItem| match &pi.alias {
+            Some(a) => (a.name.name.clone(), a.name.span),
+            None => (
+                this.infer_alias_name(&pi.expression),
+                expr_span(&pi.expression),
+            ),
+        };
+
+        if !items.iter().any(|pi| self.has_aggregate(&pi.expression)) {
+            // Evaluate every expression before any alias becomes visible.
+            let exprs: Vec<ExprId> = items
+                .iter()
+                .map(|pi| self.lower_expr(&pi.expression))
+                .collect();
+            let items = items
+                .iter()
+                .zip(exprs)
+                .map(|(pi, expression)| {
+                    let (name, span) = alias_of(self, pi);
+                    let alias = self.scope_stack.bind(&mut self.arenas, &name, kind, span);
+                    ProjectionItem { expression, alias }
+                })
+                .collect();
+            self.current_part_ops
+                .push(Operation::Project(ProjectOp { items, distinct }));
+            return;
+        }
+
+        enum Column {
+            Key(ExprId),
+            Aggregate(FunctionId, Vec<ExprId>, bool),
+            /// An expression around aggregates, rewritten to reference the
+            /// synthetic bindings of the extracted aggregate calls.
+            Computed(Expression),
+        }
+        let mut columns = Vec::new();
+        // Extracted nested aggregate calls, bound under unspellable names.
+        let mut nested: Vec<(String, FunctionId, Vec<ExprId>, bool, Span)> = Vec::new();
+        for pi in items {
+            let column = if !self.has_aggregate(&pi.expression) {
+                Column::Key(self.lower_expr(&pi.expression))
+            } else if let Some((function, args, d)) = self.lower_aggregate_call(&pi.expression) {
+                Column::Aggregate(function, args, d)
+            } else {
+                let mut rewritten = pi.expression.clone();
+                let offset = nested.len();
+                let calls = rewritten.extract_aggregates(&|fc| self.is_aggregate_call(fc), &|i| {
+                    format!(" aggregate {}", offset + i)
+                });
+                for call in calls {
+                    let span = expr_span(&call);
+                    let name = format!(" aggregate {}", nested.len());
+                    let (function, args, d) = self
+                        .lower_aggregate_call(&call)
+                        .expect("extracted expression is an aggregate call");
+                    nested.push((name, function, args, d, span));
+                }
+                Column::Computed(rewritten)
+            };
+            columns.push((column, alias_of(self, pi)));
+        }
+
+        let mut grouping_keys = Vec::new();
+        let mut aggregates = Vec::new();
+        let mut computed = Vec::new();
+        let mut outputs = Vec::new();
+        for (column, (name, span)) in columns {
+            match column {
+                Column::Key(expression) => {
+                    let alias = self.scope_stack.bind(&mut self.arenas, &name, kind, span);
+                    grouping_keys.push(ProjectionItem { expression, alias });
+                    outputs.push(Some(alias));
+                }
+                Column::Aggregate(function, args, distinct) => {
+                    let alias = self.scope_stack.bind(&mut self.arenas, &name, kind, span);
+                    aggregates.push(AggregateItem {
+                        function,
+                        args,
+                        distinct,
+                        alias,
+                    });
+                    outputs.push(Some(alias));
+                }
+                Column::Computed(expr) => {
+                    computed.push((expr, name, span));
+                    outputs.push(None);
+                }
+            }
+        }
+
+        // The synthetic bindings are only visible while lowering the
+        // computed expressions.
+        self.scope_stack.push_scope(&mut self.arenas);
+        for (name, function, args, distinct, span) in nested {
+            let alias = self
+                .scope_stack
+                .bind(&mut self.arenas, &name, BindingKind::Value, span);
+            aggregates.push(AggregateItem {
+                function,
+                args,
+                distinct,
+                alias,
+            });
+        }
+        let computed: Vec<_> = computed
+            .into_iter()
+            .map(|(expr, name, span)| (self.lower_expr(&expr), name, span))
+            .collect();
+        self.scope_stack.pop_scope();
+
+        let needs_projection = distinct || !computed.is_empty();
+        self.current_part_ops
+            .push(Operation::Aggregate(AggregateOp {
+                grouping_keys,
+                aggregates,
+            }));
+        if !needs_projection {
+            return;
+        }
+
+        let mut computed = computed.into_iter();
+        let items = outputs
+            .into_iter()
+            .map(|output| match output {
+                Some(alias) => ProjectionItem {
+                    expression: self.arenas.expressions.alloc(HirExpr {
+                        kind: ExprKind::Binding(alias),
+                        span: Span::new(0, 0),
+                    }),
+                    alias,
+                },
+                None => {
+                    let (expression, name, span) =
+                        computed.next().expect("one computed expression per column");
+                    let alias = self.scope_stack.bind(&mut self.arenas, &name, kind, span);
+                    ProjectionItem { expression, alias }
+                }
+            })
+            .collect();
+        self.current_part_ops
+            .push(Operation::Project(ProjectOp { items, distinct }));
+    }
+
+    /// Lowers `expr` if it is itself an aggregate call (`count(*)` or a
+    /// registered aggregate function), returning the function, its arguments
+    /// and whether it is `DISTINCT`.
+    fn lower_aggregate_call(
+        &mut self,
+        expr: &Expression,
+    ) -> Option<(FunctionId, Vec<ExprId>, bool)> {
         match expr {
-            Expression::FunctionCall(fc) => {
-                let name = Self::qualified_function_name(fc);
-                self.config.aggregates.contains(&name)
+            Expression::CountStar { .. } => {
+                Some((self.arenas.functions.intern("COUNT", Id), Vec::new(), false))
             }
-            Expression::CountStar { .. } => true,
-            Expression::BinaryOp { lhs, rhs, .. } => {
-                self.has_aggregate(lhs) || self.has_aggregate(rhs)
+            Expression::FunctionCall(fc) if self.is_aggregate_call(fc) => {
+                let key = Self::qualified_function_key(fc);
+                let display = Self::qualified_function_name(fc);
+                let function = self
+                    .arenas
+                    .functions
+                    .intern_with_display(&key, &display, Id);
+                let args = fc.arguments.iter().map(|a| self.lower_expr(a)).collect();
+                Some((function, args, fc.distinct))
             }
-            Expression::UnaryOp { operand, .. } => self.has_aggregate(operand),
-            Expression::Comparison { lhs, operators, .. } => {
-                self.has_aggregate(lhs) || operators.iter().any(|(_, rhs)| self.has_aggregate(rhs))
+            Expression::Parenthesized(inner) => self.lower_aggregate_call(inner),
+            _ => None,
+        }
+    }
+
+    /// Reports projection items that produce the same column name
+    /// (`RETURN 1 AS a, 2 AS a`). Unaliased items are named by their text.
+    fn report_duplicate_columns(&mut self, items: &[crate::ast::clause::ProjectionItem]) {
+        let mut seen: HashMap<String, Span> = HashMap::new();
+        for pi in items {
+            let (name, span) = match &pi.alias {
+                Some(a) => (a.name.name.clone(), a.name.span),
+                None => match &pi.expression {
+                    Expression::Variable(v) => (v.name.name.clone(), v.name.span),
+                    other => (crate::ast::ToCypher::to_cypher(other), expr_span(other)),
+                },
+            };
+            if let Some(&first) = seen.get(&name) {
+                self.diagnostics.push(HirDiagnostic::DuplicateVariable {
+                    name,
+                    first,
+                    second: span,
+                });
+            } else {
+                seen.insert(name, span);
             }
-            Expression::Case(case) => {
-                case.alternatives
-                    .iter()
-                    .any(|alt| self.has_aggregate(&alt.when) || self.has_aggregate(&alt.then))
-                    || case
-                        .scrutinee
-                        .as_ref()
-                        .is_some_and(|s| self.has_aggregate(s))
-                    || case.default.as_ref().is_some_and(|d| self.has_aggregate(d))
-            }
-            Expression::Parenthesized(inner) => self.has_aggregate(inner),
-            _ => false,
         }
     }
 }
