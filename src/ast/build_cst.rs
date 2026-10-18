@@ -1601,7 +1601,14 @@ fn build_parameter(p: expressions::Parameter) -> Result<ast_c::Expression> {
         tok.text_range().start().into(),
         tok.text_range().end().into(),
     );
-    let name_text = tok.text().to_string();
+    // `$`odd param`` names the parameter `odd param`, without the backticks.
+    let name_text = match tok.kind() {
+        SyntaxKind::ESCAPED_IDENT => {
+            let inner = tok.text().strip_prefix('`').unwrap_or(tok.text());
+            inner.strip_suffix('`').unwrap_or(inner).replace("``", "`")
+        }
+        _ => tok.text().to_string(),
+    };
     Ok(ast_c::Expression::Parameter(ast_c::Parameter {
         name: ast_c::SymbolicName {
             name: name_text,
@@ -1875,7 +1882,14 @@ fn build_filter_parts(fe: &FilterExpression, sp: Span) -> Result<ast_c::FilterEx
 
 fn build_exists_subquery(es: ExistsSubquery) -> Result<ast_c::Expression> {
     let sp = span_of(es.syntax());
-    if es.clauses().next().is_some() {
+    // `EXISTS { (a)-->(b) WHERE … }` has a top-level node pattern; anything
+    // else is a full subquery. (A pattern's WHERE_CLAUSE also casts to
+    // `Clause`, so the presence of clauses alone doesn't decide it.)
+    let is_pattern_form = es
+        .syntax()
+        .children()
+        .any(|n| n.kind() == SyntaxKind::NODE_PATTERN);
+    if !is_pattern_form {
         return Ok(ast_c::Expression::Exists(Box::new(
             ast_c::ExistsExpression {
                 inner: Box::new(ast_c::ExistsInner::RegularQuery(Box::new(

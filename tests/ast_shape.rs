@@ -494,3 +494,30 @@ fn test_label_items_keep_variable_and_labels() {
         check_roundtrip(q, &format!("{q};"));
     }
 }
+
+/// `EXISTS { pattern WHERE … }` keeps its pattern and predicate (#78), and
+/// parameter and identifier names print in a form that parses back to the
+/// same name (#66).
+///
+/// Unit: `parse()` / `ExistsExpression`, `Parameter`, `SymbolicName` printing
+/// Precondition: Pattern-form `exists` with `WHERE`, nested in a subquery;
+///               numeric, escaped and plain parameters; names containing
+///               backticks.
+/// Expectation: Each query round-trips with the same names and content.
+#[test]
+fn test_exists_patterns_and_names_round_trip() {
+    check_roundtrip(
+        "MATCH (n) WHERE exists { (n)-->(m) WHERE n.p = m.p } RETURN n",
+        "MATCH (n) WHERE EXISTS { (n)-[]->(m) WHERE n.p = m.p } RETURN n;",
+    );
+    check_roundtrip(
+        "MATCH (n) WHERE exists { MATCH (m) WHERE exists { (n)-[]->(m) WHERE n.prop = m.prop } RETURN true } RETURN n",
+        "MATCH (n) WHERE EXISTS { MATCH (m) WHERE EXISTS { (n)-[]->(m) WHERE n.prop = m.prop } RETURN true } RETURN n;",
+    );
+    for q in [
+        "RETURN $1 AS a, $`odd param` AS b, $p AS c",
+        "MATCH (n:`we``ird`) RETURN n.`a``b` AS `x``y`",
+    ] {
+        check_roundtrip(q, &format!("{q};"));
+    }
+}

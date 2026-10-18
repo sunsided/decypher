@@ -985,7 +985,12 @@ impl ToCypher for MapLiteral {
 impl ToCypher for Parameter {
     fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
         write!(w, "$")?;
-        self.name.write_cypher(w)
+        // `$1`: openCypher also allows a decimal integer as parameter name.
+        if !self.name.name.is_empty() && self.name.name.bytes().all(|b| b.is_ascii_digit()) {
+            write!(w, "{}", self.name.name)
+        } else {
+            self.name.write_cypher(w)
+        }
     }
 }
 
@@ -1307,7 +1312,7 @@ impl ToCypher for SymbolicName {
         if is_safe {
             write!(w, "{}", self.name)
         } else {
-            write!(w, "`{}`", self.name)
+            write!(w, "`{}`", self.name.replace('`', "``"))
         }
     }
 }
