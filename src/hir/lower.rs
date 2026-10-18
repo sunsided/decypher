@@ -1218,6 +1218,9 @@ impl<'cfg> LoweringContext<'cfg> {
                 })
             }
             Expression::PatternComprehension(pc) => {
+                // The path variable and the pattern's variables are local to
+                // the comprehension.
+                let _scope = self.scope_stack.push_scope(&mut self.arenas);
                 let var = pc.variable.as_ref().map(|v| {
                     self.scope_stack.bind(
                         &mut self.arenas,
@@ -1229,6 +1232,7 @@ impl<'cfg> LoweringContext<'cfg> {
                 let pattern = self.lower_relationships_pattern(&pc.pattern);
                 let filter = pc.where_clause.as_ref().map(|w| self.lower_expr(w));
                 let map = self.lower_expr(&pc.map);
+                self.scope_stack.pop_scope();
                 ExprKind::PatternComprehension(HirPatternComprehension {
                     variable: var,
                     pattern,
