@@ -12,6 +12,8 @@ repository = "https://github.com/sunsided/decypher"
 license = "EUPL-1.2 OR MIT OR Apache-2.0"
 keywords = ["sql", "cypher", "graph", "parser", "opencypher"]
 categories = ["parser-implementations"]
+# The vendored openCypher TCK corpus (Apache-2.0, ~5 MB) is test-only.
+exclude = ["tests/tck/", "tests/tck.rs"]
 
 [dependencies]
 thiserror = "2"
@@ -42,3 +44,4 @@ required-features = ["hir"]
 [dev-dependencies]
 assert2 = "0.4"
 proptest = "1"
+serde_json = "1"
