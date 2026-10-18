@@ -450,4 +450,9 @@ pub enum MapProjectionItem {
         /// The value expression.
         value: Expression,
     },
+    /// `variable` — a variable selector, short for `variable: variable`.
+    Variable {
+        /// The selected variable.
+        variable: Variable,
+    },
 }

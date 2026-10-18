@@ -284,6 +284,8 @@ pub struct LoadCsv {
     pub source: Expression,
     /// The variable bound to each CSV row.
     pub variable: Variable,
+    /// The `FIELDTERMINATOR` string, if given.
+    pub field_terminator: Option<super::expr::StringLiteral>,
     /// Byte-offset span of the clause.
     pub span: Span,
 }

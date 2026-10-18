@@ -1120,6 +1120,15 @@ impl AstNode for LoadCsvClause {
 }
 
 impl LoadCsvClause {
+    /// The string literal after `FIELDTERMINATOR`, if present.
+    pub fn field_terminator(&self) -> Option<super::expressions::StringLiteral> {
+        self.0
+            .children_with_tokens()
+            .skip_while(|c| c.kind() != SyntaxKind::KW_FIELDTERMINATOR)
+            .filter_map(|c| c.into_node())
+            .find_map(super::expressions::StringLiteral::cast)
+    }
+
     pub fn with_headers(&self) -> bool {
         self.0
             .children_with_tokens()

@@ -485,6 +485,7 @@ impl<'cfg> LoweringContext<'cfg> {
             source,
             variable: var,
             with_headers: l.with_headers,
+            field_terminator: l.field_terminator.as_ref().map(|t| t.value.clone()),
         }));
     }
 
@@ -1335,6 +1336,12 @@ impl<'cfg> LoweringContext<'cfg> {
                             let v = self.lower_expr(value);
                             HirMapProjectionItem::Literal { key: k, value: v }
                         }
+                        // `{c}` is `{c: c}`.
+                        MapProjectionItem::Variable { variable } => {
+                            let k = self.arenas.property_keys.intern(&variable.name.name, Id);
+                            let v = self.lower_expr(&Expression::Variable(variable.clone()));
+                            HirMapProjectionItem::Literal { key: k, value: v }
+                        }
                     })
                     .collect();
                 ExprKind::MapProjection { base, items }
@@ -1762,15 +1769,24 @@ impl<'cfg> LoweringContext<'cfg> {
 
     // ── Helpers ──────────────────────────────────────────────────────────
 
+    /// Resolves the target of an update or projection (`SET n:L`,
+    /// `SET n = …`, `n {.a}`), which must already be bound. An unknown name is
+    /// reported, then bound so that lowering can continue.
     fn resolve_or_bind_variable(&mut self, var: &Variable) -> BindingId {
         match self.scope_stack.resolve(&var.name.name) {
             Some(id) => id,
-            None => self.scope_stack.bind(
-                &mut self.arenas,
-                &var.name.name,
-                BindingKind::Value,
-                var.name.span,
-            ),
+            None => {
+                self.diagnostics.push(HirDiagnostic::UnknownVariable {
+                    name: var.name.name.clone(),
+                    span: var.name.span,
+                });
+                self.scope_stack.bind(
+                    &mut self.arenas,
+                    &var.name.name,
+                    BindingKind::Value,
+                    var.name.span,
+                )
+            }
         }
     }
 

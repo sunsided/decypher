@@ -2363,6 +2363,7 @@ pub fn walk_map_projection_item<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Map
             v.visit_property_key_name(key);
             v.visit_expression(value);
         }
+        MapProjectionItem::Variable { variable } => v.visit_variable(variable),
     }
 }
 
@@ -2510,5 +2511,6 @@ pub fn walk_map_projection_item_mut<V: VisitMut>(v: &mut V, node: &mut MapProjec
             v.visit_property_key_name(key);
             v.visit_expression(value);
         }
+        MapProjectionItem::Variable { variable } => v.visit_variable(variable),
     }
 }

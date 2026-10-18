@@ -344,6 +344,8 @@ pub struct LoadCsvOp {
     pub variable: BindingId,
     /// `true` when `WITH HEADERS`.
     pub with_headers: bool,
+    /// The `FIELDTERMINATOR` string, if given.
+    pub field_terminator: Option<String>,
 }
 
 /// `FOREACH (variable IN list | operations)` operation.

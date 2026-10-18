@@ -1723,11 +1723,12 @@ fn parse_remove_item(p: &mut Parser) {
         p.builder.finish_node();
         p.builder.finish_node();
         p.skip_trivia();
-        if p.at(SyntaxKind::COLON) {
+        // `REMOVE n:A:B` removes several labels, as `SET n:A:B` sets them.
+        while p.at(SyntaxKind::COLON) {
             p.start_node(SyntaxKind::NODE_LABELS);
             p.bump();
             p.skip_trivia();
-            if p.at(SyntaxKind::IDENT) {
+            if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) || is_keyword_as_name(p) {
                 p.start_node(SyntaxKind::NODE_LABEL);
                 p.start_node(SyntaxKind::LABEL_NAME);
                 p.start_node(SyntaxKind::SYMBOLIC_NAME);
@@ -1737,6 +1738,7 @@ fn parse_remove_item(p: &mut Parser) {
                 p.builder.finish_node();
             }
             p.builder.finish_node();
+            p.skip_trivia();
         }
         while p.at(SyntaxKind::DOT) {
             p.start_node(SyntaxKind::PROPERTY_LOOKUP);
