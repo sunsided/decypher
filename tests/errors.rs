@@ -407,3 +407,14 @@ fn test_invalid_number_literals() {
         );
     }
 }
+
+/// The legacy `|:` alternation is only valid for relationship types, not for
+/// node labels.
+///
+/// Unit: `parse()`
+/// Precondition: `MATCH (a:A|:B) RETURN a`.
+/// Expectation: Returns a syntax error.
+#[test]
+fn test_legacy_alternation_rejected_for_labels() {
+    check!(parse("MATCH (a:A|:B) RETURN a").is_err());
+}

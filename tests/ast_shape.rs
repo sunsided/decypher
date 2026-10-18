@@ -627,3 +627,33 @@ fn test_keywords_as_names() {
         check_roundtrip(input, printed);
     }
 }
+
+/// Pattern parameters, legacy relationship-type alternation, parenthesised
+/// `SET` targets and keyword labels in label predicates (#65).
+///
+/// Unit: `parse()`
+/// Precondition: `(n $param)`, `[r:FOO $param]`, `[:A|:B]`, `SET (n).name`,
+///               `RETURN m:TYPE` and `RETURN (-3) - 2`.
+/// Expectation: Each query parses; legacy `|:` prints in the modern form.
+#[test]
+fn test_misc_valid_forms() {
+    for (input, printed) in [
+        ("MATCH (n $param) RETURN n", "MATCH (n $param) RETURN n;"),
+        (
+            "MATCH ()-[r:FOO $param]->() RETURN r",
+            "MATCH ()-[r:FOO $param]->() RETURN r;",
+        ),
+        (
+            "MATCH (a)-[:A|:B]->(b) RETURN b",
+            "MATCH (a)-[:A|B]->(b) RETURN b;",
+        ),
+        (
+            "MATCH (n:A) SET (n).name = 'neo4j' RETURN n",
+            "MATCH (n:A) SET (n).name = 'neo4j' RETURN n;",
+        ),
+        ("MATCH (n) RETURN n:TYPE", "MATCH (n) RETURN n:TYPE;"),
+        ("RETURN (-3) - 2 AS b", "RETURN (-3) - 2 AS b;"),
+    ] {
+        check_roundtrip(input, printed);
+    }
+}
