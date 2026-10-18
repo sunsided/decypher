@@ -1,0 +1,11 @@
+# The openCypher release the vendored TCK projection was generated from.
+# Checked monthly by .github/workflows/upstream-release.yml.
+tag = "2024.3"
+commit = "677cbafabb8c3c5eed458fd3b1ec0daec8d67d23"
+
+# Where TCK_SYNTAX.jsonl was taken from (see README.md).
+[projection]
+repository = "https://github.com/a-poor/open-cypher"
+commit = "8a3b1cedd997eb83d9fdaacb96d5256a6503a198"
+path = "spec/generated/TCK_SYNTAX.jsonl"
+sha256 = "bfc514dcc70c8a55cc35407d91ef6b62643435cd203a5d619d77d2253203dd1c"
