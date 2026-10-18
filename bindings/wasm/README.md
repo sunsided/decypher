@@ -7,7 +7,7 @@ Neo4j 5 and GQL extensions decypher supports, and gives you:
 | Function                    | Returns                                                            |
 | --------------------------- | ------------------------------------------------------------------ |
 | `parse(source)`             | the typed AST as plain JSON                                        |
-| `validate(source)`          | syntax errors and unresolved / out-of-scope variables, no tree     |
+| `validate(source)`          | syntax errors, unresolved / out-of-scope variables and invalid aggregations, no tree |
 | `format(source)`            | the query re-emitted as canonical single-line Cypher               |
 | `cst(source)`               | the lossless syntax tree (every token, whitespace and comments)    |
 | `version()`                 | the package version                                                |

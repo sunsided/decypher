@@ -71,6 +71,16 @@ describe("validate", () => {
     assert.equal(result.ok, false);
     assert.match(result.errors[0].message, /unresolved variable `m`/);
   });
+
+  it("finds implicit grouping keys", () => {
+    const result = validate("MATCH (n) RETURN n.x + count(n)");
+    assert.equal(result.ok, false);
+    assert.match(result.errors[0].message, /non-grouping keys: \["n\.x"\]/);
+    assert.deepEqual(
+      validate("MATCH (n) WITH toUpper(n.name) AS k, count(*) AS c RETURN k, c"),
+      { ok: true },
+    );
+  });
 });
 
 describe("format", () => {

@@ -17,6 +17,36 @@ are marked **Breaking** below.
   runnable Node.js and browser examples.
 - The `serde` feature now derives `Serialize` for every AST node and for
   `Span` / `Spanned`; previously it was declared but had no effect.
+- `sema::check_aggregation_with` and `sema::analyze_with` take an
+  `AggregateRegistry`, so user-defined aggregates count as aggregates in
+  semantic analysis too. The registry now lives in `sema` and is re-exported
+  as `hir::AggregateRegistry` (#97).
+
+### Changed
+
+- **Breaking:** `analyze` scopes variables per query part: after a `WITH`
+  only its columns are visible (`MATCH (p)-->(m) WITH p RETURN m` is
+  rejected), and `WITH n.name` without alias no longer binds `name`. The
+  `WHERE` and `ORDER BY` of a `WITH` still see the variables it read unless
+  it aggregates (or, for `ORDER BY`, is `DISTINCT`), as the openCypher TCK
+  requires. `RETURN … ORDER BY` follows the same rule. Each
+  `hir::QueryPart::output_scope` is now the scope holding the part's columns
+  (#96).
+- **Breaking:** `analyze` reports `ErrorKind::AggregationMix` for an
+  aggregating projection item that uses variables or properties which are
+  not grouping keys (`RETURN n.x + count(n)`), consulting the
+  `AggregateRegistry` of the `LowerConfig`. `hir::HirDiagnostic::InvalidAggregation`
+  gains a `non_grouping` field (#98).
+- `sema::check_aggregation` follows the same grouping rule: every
+  non-aggregate item is a grouping key, whatever its expression, so
+  `WITH toUpper(n.name) AS k, count(*) AS c` is accepted, while
+  `RETURN n.a + n.b, n.a + n.b + count(*)` is rejected as in Neo4j (#97).
+- The wasm `validate()` relies on HIR lowering alone and now also reports
+  invalid aggregations.
+
+### Fixed
+
+- `RETURN *, n.x AS x` dropped the explicit items in HIR.
 
 ## [0.2.0-alpha.8] - 2026-10-18
 
