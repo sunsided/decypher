@@ -123,3 +123,44 @@ fn with_star_projection() {
     let result = analyze(&query);
     assert!(result.is_ok(), "analysis failed: {:?}", result);
 }
+
+/// Subqueries see the enclosing scope and keep it intact; `CALL` exports its
+/// returned columns, and every UNION branch starts from the same scope (#67).
+///
+/// Unit: `sema::analyze()`
+/// Precondition: Correlated CALL subqueries, a UNION inside and outside a
+///               subquery, and COUNT/EXISTS bodies containing `WITH` or new
+///               pattern variables.
+/// Expectation: Valid queries pass; variables that are local to a subquery
+///              or its pattern are unresolved outside it.
+#[test]
+fn subqueries_import_export_and_keep_outer_scope() {
+    for q in [
+        "CALL { MATCH (n) RETURN n } RETURN n",
+        "WITH 1 AS x CALL { WITH x RETURN x + 1 AS y } RETURN x, y",
+        "MATCH (n) CALL { WITH n MATCH (n)-->(m) RETURN count(m) AS c } RETURN n, c",
+        "CALL { RETURN 1 AS a UNION RETURN 2 AS a } RETURN a",
+        "RETURN 1 AS a UNION RETURN 2 AS a",
+        "MATCH (n) RETURN COUNT { MATCH (n)-->(m) WITH m RETURN m } AS c, n",
+        "MATCH (n) WHERE EXISTS { (n)-->(m) WHERE m.x > 1 } RETURN n",
+    ] {
+        let query = parse(q).expect("should parse");
+        let result = analyze(&query);
+        assert!(result.is_ok(), "query: {q}, analysis failed: {result:?}");
+    }
+    for (q, var) in [
+        ("MATCH (n) CALL { WITH n CREATE (m) } RETURN n, m", "m"),
+        ("MATCH (n) WHERE EXISTS { (n)-->(m) } RETURN m", "m"),
+        ("CALL { RETURN zz AS a } RETURN a", "zz"),
+    ] {
+        let query = parse(q).expect("should parse");
+        let errs = analyze(&query).unwrap_err();
+        assert!(
+            errs.iter().any(|e| matches!(
+                e.kind(),
+                ErrorKind::UnresolvedVariable { name } if name == var
+            )),
+            "query: {q}, got: {errs:?}"
+        );
+    }
+}

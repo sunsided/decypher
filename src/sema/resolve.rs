@@ -327,15 +327,69 @@ impl<'ast> Visit<'ast> for NameResolver {
     }
 
     fn visit_call_subquery(&mut self, node: &'ast CallSubquery) {
-        // Subqueries have their own scope — visit the inner query with a fresh scope
-        let saved_scopes = std::mem::take(&mut self.scopes);
+        // The subquery sees the outer variables (its leading `WITH` imports
+        // them and then replaces the scope), but nothing it binds leaks out
+        // except the columns it returns.
+        let outer = self.scopes.clone();
         self.visit_regular_query(&node.query);
-        self.scopes = saved_scopes;
+        self.scopes = outer;
+        for (name, span) in subquery_columns(&node.query) {
+            if let Err(first_span) = self.scopes.bind(&name, SymbolKind::ReturnAlias, span) {
+                self.emit(SemaError::RedeclaredVariable {
+                    name,
+                    first_span,
+                    redecl_span: span,
+                });
+            }
+        }
         if let Some(it) = &node.in_transactions
             && let Some(of_rows) = &it.of_rows
         {
             self.visit_expression(of_rows);
         }
+    }
+
+    fn visit_regular_query(&mut self, node: &'ast RegularQuery) {
+        // Every UNION branch starts from the scope the query was entered with.
+        let entry = self.scopes.clone();
+        self.visit_single_query(&node.single_query);
+        for union in &node.unions {
+            self.scopes = entry.clone();
+            self.visit_single_query(&union.single_query);
+        }
+    }
+
+    fn visit_exists_inner(&mut self, node: &'ast ExistsInner) {
+        let outer = self.scopes.clone();
+        match node {
+            ExistsInner::Pattern(pattern, where_clause) => {
+                // New pattern variables are local to the predicate.
+                self.scopes.push_scope();
+                bind_pattern(
+                    &mut self.scopes,
+                    pattern,
+                    SymbolKind::PatternBound,
+                    &mut self.errors,
+                );
+                if let Some(w) = where_clause {
+                    self.visit_expression(w);
+                }
+            }
+            ExistsInner::RegularQuery(rq) => self.visit_regular_query(rq),
+        }
+        self.scopes = outer;
+    }
+
+    fn visit_count_subquery_expression(&mut self, node: &'ast CountSubqueryExpression) {
+        let outer = self.scopes.clone();
+        self.visit_regular_query(&node.query);
+        self.scopes = outer;
+    }
+
+    fn visit_collect_subquery_expression(&mut self, node: &'ast CollectSubqueryExpression) {
+        let outer = self.scopes.clone();
+        self.visit_regular_query(&node.query);
+        self.scopes = outer;
     }
 
     fn visit_foreach(&mut self, node: &'ast Foreach) {
@@ -560,6 +614,30 @@ fn bind_relationships_pattern(
 ///
 /// Cypher requires `AS` to introduce a new variable for property lookups
 /// and other expressions.
+/// The columns a `CALL` subquery returns: the alias or variable name of each
+/// final `RETURN` item. A unit subquery (no `RETURN`) returns none.
+fn subquery_columns(query: &RegularQuery) -> Vec<(String, crate::error::Span)> {
+    let body = match &query.single_query.kind {
+        SingleQueryKind::SinglePart(sp) => &sp.body,
+        SingleQueryKind::MultiPart(mp) => &mp.final_part.body,
+    };
+    let ret = match body {
+        SinglePartBody::Return(ret) => Some(ret),
+        SinglePartBody::Updating { return_clause, .. } => return_clause.as_ref(),
+        SinglePartBody::Finish(_) => None,
+    };
+    ret.map(|ret| {
+        ret.items
+            .iter()
+            .filter_map(|item| match &item.alias {
+                Some(alias) => Some((alias.name.name.clone(), alias.name.span)),
+                None => derive_projection_name(&item.expression),
+            })
+            .collect()
+    })
+    .unwrap_or_default()
+}
+
 fn derive_projection_name(expr: &Expression) -> Option<(String, crate::error::Span)> {
     match expr {
         Expression::Variable(v) => Some((v.name.name.clone(), v.name.span)),
