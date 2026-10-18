@@ -1507,11 +1507,16 @@ impl<'cfg> LoweringContext<'cfg> {
     // ── Pattern lowering ─────────────────────────────────────────────────
 
     fn lower_pattern(&mut self, pattern: &Pattern) -> GraphPattern {
+        self.lower_pattern_parts(&pattern.parts)
+    }
+
+    /// Lowers pattern parts, binding each `p = …` path variable.
+    fn lower_pattern_parts(&mut self, parts: &[crate::ast::pattern::PatternPart]) -> GraphPattern {
         let mut nodes = Vec::new();
         let mut relationships = Vec::new();
         let mut path_bindings = Vec::new();
 
-        for part in &pattern.parts {
+        for part in parts {
             let path_binding = part.variable.as_ref().map(|v| {
                 self.scope_stack.bind(
                     &mut self.arenas,
@@ -1582,15 +1587,26 @@ impl<'cfg> LoweringContext<'cfg> {
         (nodes, relationships)
     }
 
-    fn lower_node_pattern(&mut self, node: &NodePattern) -> HirNodePattern {
-        let binding = node.variable.as_ref().map(|v| {
-            self.scope_stack.bind(
+    /// Binding for a node or relationship variable in a pattern: a variable
+    /// that is already visible refers to the same entity (`MATCH (n) MATCH
+    /// (n)-->(m)`), so its binding is reused; otherwise a new one is created.
+    fn bind_pattern_variable(&mut self, v: &Variable) -> BindingId {
+        match self.scope_stack.resolve(&v.name.name) {
+            Some(id) => id,
+            None => self.scope_stack.bind(
                 &mut self.arenas,
                 &v.name.name,
                 BindingKind::PatternBound,
                 v.name.span,
-            )
-        });
+            ),
+        }
+    }
+
+    fn lower_node_pattern(&mut self, node: &NodePattern) -> HirNodePattern {
+        let binding = node
+            .variable
+            .as_ref()
+            .map(|v| self.bind_pattern_variable(v));
         let labels: Vec<LabelId> = node
             .labels
             .iter()
@@ -1611,14 +1627,10 @@ impl<'cfg> LoweringContext<'cfg> {
         right: NodeIndex,
     ) -> HirRelationshipPattern {
         let (binding, types, length, properties) = if let Some(detail) = &rel.detail {
-            let binding = detail.variable.as_ref().map(|v| {
-                self.scope_stack.bind(
-                    &mut self.arenas,
-                    &v.name.name,
-                    BindingKind::PatternBound,
-                    v.name.span,
-                )
-            });
+            let binding = detail
+                .variable
+                .as_ref()
+                .map(|v| self.bind_pattern_variable(v));
             let types: Vec<RelTypeId> = detail
                 .types
                 .as_ref()
@@ -1686,18 +1698,8 @@ impl<'cfg> LoweringContext<'cfg> {
         &mut self,
         part: &crate::ast::pattern::PatternPart,
     ) -> GraphPattern {
-        let mut nodes = Vec::new();
-        let mut relationships = Vec::new();
-
-        let (ns, rs) = self.lower_pattern_element(&part.anonymous.element);
-        nodes.extend(ns);
-        relationships.extend(rs);
-
-        GraphPattern {
-            nodes,
-            relationships,
-            path_bindings: Vec::new(),
-        }
+        // `MERGE p = (a)-[:R]->(b)` binds `p` just like `MATCH p = …`.
+        self.lower_pattern_parts(std::slice::from_ref(part))
     }
 
     fn lower_label_expression_id(&mut self, expr: &LabelExpression) -> LabelId {

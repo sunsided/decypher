@@ -827,3 +827,39 @@ fn analyze_unbound_update_targets_are_reported() {
     }
     analyze("MATCH (n) SET n:Foo, n = {a: 1} RETURN n {.a}").unwrap();
 }
+
+/// A pattern variable that is already bound refers to the same entity, so
+/// HIR reuses its binding instead of allocating a new one (#79).
+///
+/// Unit: `analyze()`
+/// Precondition: `n` bound by one MATCH and used again in a second MATCH;
+///               `a` bound by MATCH and used again in CREATE.
+/// Expectation: Exactly one pattern binding exists for each variable.
+#[test]
+fn analyze_reuses_bindings_for_repeated_pattern_variables() {
+    use decypher::hir::binding::BindingKind;
+    for (query, var) in [
+        ("MATCH (n) MATCH (n)-->(m) RETURN m", "n"),
+        ("MATCH (a) CREATE (a)-[:R]->(b) RETURN b", "a"),
+    ] {
+        let hir = analyze(query).unwrap();
+        let pattern_bindings = hir
+            .arenas
+            .bindings
+            .iter()
+            .filter(|(_, b)| b.name == var && b.kind == BindingKind::PatternBound)
+            .count();
+        check!(pattern_bindings == 1, "query: {query}");
+    }
+}
+
+/// `MERGE p = …` binds the path variable like `MATCH p = …` (#67).
+///
+/// Unit: `analyze()`
+/// Precondition: A path variable introduced by MERGE and returned.
+/// Expectation: `analyze` succeeds.
+#[test]
+fn analyze_merge_binds_path_variable() {
+    analyze("MERGE p = (a {num: 1}) RETURN p").unwrap();
+    analyze("MERGE (a {num: 1}) MERGE (b {num: 2}) MERGE p = (a)-[:R]->(b) RETURN p").unwrap();
+}
