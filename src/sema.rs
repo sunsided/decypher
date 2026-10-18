@@ -24,6 +24,7 @@ mod resolve;
 mod scope;
 
 pub use aggregate_registry::AggregateRegistry;
+#[cfg(feature = "hir")]
 pub(crate) use aggregation::implicit_grouping_keys;
 pub use aggregation::{AggregationViolation, check_aggregation, check_aggregation_with};
 pub use error::SemaError;
