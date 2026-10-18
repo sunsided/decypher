@@ -10,8 +10,8 @@
 //! - `lossless`: every identifier and literal of the query still appears in
 //!   the printed query. This catches parts dropped while building the AST,
 //!   which the idempotency check cannot see once the first print has lost them;
-//! - `analyze`: queries the TCK expects to compile without error also pass
-//!   semantic analysis.
+//! - `analyze` (with the `hir` feature): queries the TCK expects to compile
+//!   without error also pass semantic analysis.
 //!
 //! Known failures are listed in `tests/tck/known_failures.txt`. The test fails
 //! on any failure not in the list and on any listed entry that now passes, so
@@ -111,6 +111,7 @@ fn check_query(q: &TckQuery) -> Vec<(&'static str, String)> {
         failures.push(("lossless", e));
     }
 
+    #[cfg(feature = "hir")]
     if q.accept && !q.expects_error {
         let analyzed =
             guarded(|| decypher::analyze(q.source.as_str()).map_err(|e| e.kind.to_string()));
@@ -231,7 +232,12 @@ fn tck_conformance() {
         return;
     }
 
-    let known = load_known_failures();
+    // `analyze` needs the `hir` feature; without it, its known failures
+    // can't be checked and must not be reported as stale.
+    let known: BTreeSet<_> = load_known_failures()
+        .into_iter()
+        .filter(|(check, _)| cfg!(feature = "hir") || check != "analyze")
+        .collect();
     let unexpected: Vec<_> = failures
         .iter()
         .filter(|(key, _)| !known.contains(*key))
