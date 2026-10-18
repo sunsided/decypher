@@ -7,12 +7,16 @@
 //!
 //! The entry point is [`resolve_names`].
 
+use crate::ast::ToCypher;
 use crate::ast::clause::*;
 use crate::ast::expr::*;
 use crate::ast::pattern::*;
 use crate::ast::query::*;
-use crate::ast::visit::{Visit, walk_create, walk_match, walk_merge, walk_single_query};
+use crate::ast::visit::{
+    Visit, walk_create, walk_expression, walk_match, walk_merge, walk_single_query,
+};
 use crate::error::CypherError;
+use crate::sema::AggregateRegistry;
 use crate::sema::error::SemaError;
 use crate::sema::scope::{ScopeStack, SymbolKind};
 
@@ -27,7 +31,19 @@ pub struct ResolutionResult {
 /// Returns `Ok(())` when every variable reference is bound, or
 /// `Err(errors)` with all resolution violations found.
 pub fn resolve_names(query: &Query) -> Result<(), Vec<CypherError>> {
-    let mut resolver = NameResolver::new();
+    resolve_names_with(query, &AggregateRegistry::default())
+}
+
+/// Run name resolution over `query`, treating the functions in `aggregates`
+/// as aggregates when deciding what a `WITH`'s `WHERE` and `ORDER BY` see.
+///
+/// Returns `Ok(())` when every variable reference is bound, or
+/// `Err(errors)` with all resolution violations found.
+pub fn resolve_names_with(
+    query: &Query,
+    aggregates: &AggregateRegistry,
+) -> Result<(), Vec<CypherError>> {
+    let mut resolver = NameResolver::new(aggregates.clone());
     resolver.visit_query(query);
     if resolver.errors.is_empty() {
         Ok(())
@@ -42,15 +58,65 @@ struct NameResolver {
     errors: Vec<CypherError>,
     /// The current lexical scope stack.
     scopes: ScopeStack,
+    /// The functions treated as aggregates.
+    aggregates: AggregateRegistry,
+    /// While visiting the `WHERE` or `ORDER BY` of a projection that
+    /// aggregates or is `DISTINCT`: its printed item expressions, which stand
+    /// for their columns there (`RETURN n.a, count(*) ORDER BY n.a`).
+    projected: Vec<String>,
 }
 
 impl NameResolver {
     /// Create a fresh resolver with an empty scope stack.
-    fn new() -> Self {
+    fn new(aggregates: AggregateRegistry) -> Self {
         Self {
             errors: Vec::new(),
             scopes: ScopeStack::new(),
+            aggregates,
+            projected: Vec::new(),
         }
+    }
+
+    fn has_aggregate(&self, items: &[ProjectionItem]) -> bool {
+        items.iter().any(|item| {
+            item.expression
+                .contains_aggregate(&|fc| self.aggregates.is_aggregate_call(fc))
+        })
+    }
+
+    /// Runs `visit` on the `WHERE` or `ORDER BY` of a projection, with the
+    /// columns of the projection in `self.scopes`.
+    ///
+    /// These also see the variables the projection read (`before`), as the
+    /// openCypher TCK requires (`WITH a.name AS name WHERE a.age > 1`),
+    /// unless the projection `narrow`s its rows: aggregation for both, and
+    /// `DISTINCT` for `ORDER BY`. Then only the columns are visible, plus
+    /// expressions repeating an item.
+    fn visit_after_projection(
+        &mut self,
+        before: &ScopeStack,
+        items: &[ProjectionItem],
+        narrow: bool,
+        visit: impl FnOnce(&mut Self),
+    ) {
+        let columns = self.scopes.clone();
+        if narrow {
+            self.projected = items
+                .iter()
+                .map(|item| item.expression.to_cypher())
+                .collect();
+        } else {
+            let mut both = before.clone();
+            both.push_scope();
+            for (name, entry) in columns.visible_bindings() {
+                // Fresh scope, so binding can't conflict.
+                let _ = both.bind(&name, entry.kind, entry.span);
+            }
+            self.scopes = both;
+        }
+        visit(self);
+        self.projected.clear();
+        self.scopes = columns;
     }
 
     /// Emit a semantic error, converting it to a [`CypherError`] first.
@@ -236,7 +302,7 @@ impl<'ast> Visit<'ast> for NameResolver {
             }
         }
 
-        self.scopes = ScopeStack::new();
+        let before = std::mem::take(&mut self.scopes);
 
         for (bind_name, bind_span) in projected {
             // Duplicate columns were reported above.
@@ -245,9 +311,16 @@ impl<'ast> Visit<'ast> for NameResolver {
                 .bind(&bind_name, SymbolKind::WithAlias, bind_span);
         }
 
-        // ORDER BY, SKIP, LIMIT, WHERE are evaluated in the projected scope.
+        // SKIP and LIMIT are evaluated in the projected scope; WHERE and
+        // ORDER BY may also see the variables the WITH read.
+        let aggregating = self.has_aggregate(&node.items);
         if let Some(order) = &node.order {
-            self.visit_order(order);
+            self.visit_after_projection(
+                &before,
+                &node.items,
+                aggregating || node.distinct,
+                |this| this.visit_order(order),
+            );
         }
         if let Some(skip) = &node.skip {
             self.visit_expression(skip);
@@ -256,7 +329,9 @@ impl<'ast> Visit<'ast> for NameResolver {
             self.visit_expression(limit);
         }
         if let Some(wc) = &node.where_clause {
-            self.visit_expression(wc);
+            self.visit_after_projection(&before, &node.items, aggregating, |this| {
+                this.visit_expression(wc)
+            });
         }
     }
 
@@ -268,17 +343,28 @@ impl<'ast> Visit<'ast> for NameResolver {
         for item in &node.items {
             self.visit_expression(&item.expression);
         }
-        // Aliases live in their own scope, so they may shadow a variable of
-        // the query (`AS a` above) and are visible to ORDER BY.
+        // ORDER BY sees the columns; unless the RETURN aggregates or is
+        // DISTINCT, also the variables it read, which aliases may shadow
+        // (`AS a` above).
+        let before = std::mem::take(&mut self.scopes);
+        if node.star {
+            for (name, entry) in before.visible_bindings() {
+                let _ = self.scopes.bind(&name, entry.kind, entry.span);
+            }
+        }
         self.scopes.push_scope();
-        for alias in node.items.iter().filter_map(|item| item.alias.as_ref()) {
+        for (name, span) in node.items.iter().filter_map(|item| match &item.alias {
+            Some(alias) => Some((alias.name.name.clone(), alias.name.span)),
+            None => derive_projection_name(&item.expression),
+        }) {
             // Duplicate columns were reported above.
-            let _ = self
-                .scopes
-                .bind(&alias.name.name, SymbolKind::ReturnAlias, alias.name.span);
+            let _ = self.scopes.bind(&name, SymbolKind::ReturnAlias, span);
         }
         if let Some(order) = &node.order {
-            self.visit_order(order);
+            let narrow = node.distinct || self.has_aggregate(&node.items);
+            self.visit_after_projection(&before, &node.items, narrow, |this| {
+                this.visit_order(order)
+            });
         }
         if let Some(skip) = &node.skip {
             self.visit_expression(skip);
@@ -516,6 +602,12 @@ impl<'ast> Visit<'ast> for NameResolver {
         }
         self.visit_expression(&node.expression);
         self.scopes.pop_scope();
+    }
+
+    fn visit_expression(&mut self, node: &'ast Expression) {
+        if self.projected.is_empty() || !self.projected.contains(&node.to_cypher()) {
+            walk_expression(self, node);
+        }
     }
 
     fn visit_variable(&mut self, node: &'ast crate::ast::names::Variable) {

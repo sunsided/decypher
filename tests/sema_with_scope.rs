@@ -10,18 +10,14 @@ use decypher::{ErrorKind, parse};
 /// Variables not projected by a `WITH` clause are no longer visible after it.
 ///
 /// Unit: `sema::analyze()`
-/// Precondition: `MATCH (n) WITH n.name AS name WHERE n.other IS NOT NULL RETURN name`.
-///   `n` is not re-projected, so the WHERE clause must not reference it.
+/// Precondition: `MATCH (n) WITH n.name AS name MATCH (m) WHERE m.x = n.x RETURN name`.
+///   `n` is not re-projected, so the later clause must not reference it.
 /// Expectation: Analysis returns `Err` with one `UnresolvedVariable { name: "n" }`.
 #[test]
 fn with_hides_previous_variables() {
-    // After WITH n.name AS name, 'n' should be out of scope
-    let query = parse("MATCH (n) WITH n.name AS name WHERE n.other IS NOT NULL RETURN name")
+    let query = parse("MATCH (n) WITH n.name AS name MATCH (m) WHERE m.x = n.x RETURN name")
         .expect("should parse");
-    let result = analyze(&query);
-    assert!(result.is_err());
-    let errs = result.unwrap_err();
-    // Should have an unresolved variable error for 'n' in the WHERE clause
+    let errs = analyze(&query).unwrap_err();
     assert_eq!(errs.len(), 1);
     match errs.errors[0].kind() {
         ErrorKind::UnresolvedVariable { name } => {
@@ -31,6 +27,52 @@ fn with_hides_previous_variables() {
             "expected UnresolvedVariable, got {:?}",
             errs.errors[0].kind()
         ),
+    }
+}
+
+/// The `WHERE` and `ORDER BY` of a `WITH`, and the `ORDER BY` of a `RETURN`,
+/// still see the variables the projection read, unless it aggregates (or,
+/// for `ORDER BY`, is `DISTINCT`), as the openCypher TCK requires (#105).
+///
+/// Unit: `sema::analyze()`
+/// Precondition: Queries from TCK `WithWhere7`, `WithOrderBy*` and
+///   `ReturnOrderBy*`, valid and invalid.
+/// Expectation: The valid ones pass; the others report the hidden variable.
+#[test]
+fn with_where_and_order_by_see_read_variables() {
+    for query in [
+        "MATCH (a) WITH a.name2 AS name WHERE a.name2 = 'B' RETURN name",
+        "MATCH (a) WITH DISTINCT a.name2 AS name WHERE a.name2 = 'B' RETURN name",
+        "MATCH (a) WITH a.name AS name ORDER BY a.age RETURN name",
+        "MATCH (a) RETURN a.name AS name ORDER BY a.age",
+        "MATCH (a) RETURN DISTINCT a.name ORDER BY a.name",
+        "MATCH (n) RETURN n.k, count(*) ORDER BY n.k, count(*)",
+        "MATCH (n) WITH n.k AS k, count(*) AS c WHERE c > 1 RETURN k",
+        "MATCH (n) WITH * ORDER BY n.x RETURN n",
+    ] {
+        let parsed = parse(query).expect("should parse");
+        if let Err(errs) = analyze(&parsed) {
+            panic!("query: {query}, got: {:?}", errs.errors[0].kind());
+        }
+    }
+    for (query, var) in [
+        ("MATCH (a) RETURN DISTINCT a.name ORDER BY a.age", "a"),
+        ("MATCH (n) WITH count(*) AS c WHERE n.x > 1 RETURN c", "n"),
+        (
+            "MATCH (me)--(you) WITH count(you.age) AS agg ORDER BY me.age RETURN agg",
+            "me",
+        ),
+        ("MATCH (a), (c) WITH a WITH a ORDER BY c RETURN a", "c"),
+    ] {
+        let errs = analyze(&parse(query).expect("should parse")).unwrap_err();
+        assert!(
+            errs.errors.iter().any(|e| matches!(
+                e.kind(),
+                ErrorKind::UnresolvedVariable { name } if name == var
+            )),
+            "query: {query}, got: {:?}",
+            errs.errors
+        );
     }
 }
 

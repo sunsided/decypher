@@ -10,8 +10,9 @@
 //! - `lossless`: every identifier and literal of the query still appears in
 //!   the printed query. This catches parts dropped while building the AST,
 //!   which the idempotency check cannot see once the first print has lost them;
-//! - `analyze` (with the `hir` feature): queries the TCK expects to compile
-//!   without error also pass semantic analysis.
+//! - `sema`: queries the TCK expects to compile without error also pass
+//!   `sema::analyze`;
+//! - `analyze` (with the `hir` feature): such queries also pass HIR lowering.
 //!
 //! Known failures are listed in `tests/tck/known_failures.txt`. The test fails
 //! on any failure not in the list and on any listed entry that now passes, so
@@ -116,6 +117,19 @@ fn check_query(q: &TckQuery) -> Vec<(&'static str, String)> {
 
     if let Err(e) = guarded(|| lossless(&q.source, &ast.to_cypher())) {
         failures.push(("lossless", e));
+    }
+
+    if q.accept && !q.expects_error {
+        let analyzed = guarded(|| {
+            decypher::sema::analyze(&ast).map_err(|d| {
+                d.errors
+                    .first()
+                    .map_or_else(String::new, |e| e.kind.to_string())
+            })
+        });
+        if let Err(e) = analyzed {
+            failures.push(("sema", e));
+        }
     }
 
     #[cfg(feature = "hir")]
