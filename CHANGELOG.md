@@ -8,13 +8,15 @@ are marked **Breaking** below.
 
 ## [Unreleased]
 
+## [0.2.0-alpha.9] - 2026-10-19
+
 ### Added
 
 - WebAssembly bindings in `bindings/wasm`, packaged as the npm package
   `@sunsided/decypher` for Node.js and browsers: `parse` (typed AST as JSON),
   `validate` (syntax errors and unresolved or out-of-scope variables),
   `format`, and `cst` (lossless syntax tree), with TypeScript types and
-  runnable Node.js and browser examples.
+  runnable Node.js and browser examples (#100).
 - The `serde` feature now derives `Serialize` for every AST node and for
   `Span` / `Spanned`; previously it was declared but had no effect.
 - `sema::check_aggregation_with`, `sema::analyze_with` and
@@ -103,7 +105,6 @@ are marked **Breaking** below.
   …`, `MATCH p = (p)-->()`) and `CREATE` / `MERGE` patterns that re-create a
   bound node or relationship (`MATCH (a) CREATE (a)`,
   `MATCH ()-[r]->() CREATE ()-[r:T]->()`) (#108).
-
 - **Breaking:** `analyze` scopes variables per query part: after a `WITH`
   only its columns are visible (`MATCH (p)-->(m) WITH p RETURN m` is
   rejected), and `WITH n.name` without alias no longer binds `name`. The
@@ -115,7 +116,7 @@ are marked **Breaking** below.
 - **Breaking:** `analyze` reports `ErrorKind::AggregationMix` for an
   aggregating projection item that uses variables or properties which are
   not grouping keys (`RETURN n.x + count(n)`), consulting the
-  `AggregateRegistry` of the `LowerConfig`. `hir::HirDiagnostic::InvalidAggregation`
+  aggregates of the `LowerConfig`'s catalog. `hir::HirDiagnostic::InvalidAggregation`
   gains a `non_grouping` field (#98).
 - `sema::check_aggregation` follows the same grouping rule: every
   non-aggregate item is a grouping key, whatever its expression, so
@@ -293,6 +294,7 @@ are marked **Breaking** below.
 See the [GitHub releases](https://github.com/sunsided/decypher/releases) for
 0.2.0-alpha.6 and earlier.
 
-[Unreleased]: https://github.com/sunsided/decypher/compare/v0.2.0-alpha.8...HEAD
+[Unreleased]: https://github.com/sunsided/decypher/compare/v0.2.0-alpha.9...HEAD
+[0.2.0-alpha.9]: https://github.com/sunsided/decypher/compare/v0.2.0-alpha.8...v0.2.0-alpha.9
 [0.2.0-alpha.8]: https://github.com/sunsided/decypher/compare/v0.2.0-alpha.7...v0.2.0-alpha.8
 [0.2.0-alpha.7]: https://github.com/sunsided/decypher/compare/v0.2.0-alpha.6...v0.2.0-alpha.7
