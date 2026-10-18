@@ -539,3 +539,28 @@ fn test_map_projection_variables_and_field_terminator() {
         check_roundtrip(q, &format!("{q};"));
     }
 }
+
+/// A list starting with `(` or `-` is only a pattern comprehension when a
+/// relationship pattern follows; otherwise it is a list literal.
+///
+/// Unit: `parse()` / bracket disambiguation
+/// Precondition: Lists starting with a negative number, a negated variable,
+///               a parenthesised expression, or a comparison `x = 1`, next to
+///               real pattern comprehensions.
+/// Expectation: Each query round-trips unchanged.
+#[test]
+fn test_bracket_list_vs_pattern_comprehension() {
+    for q in [
+        "RETURN [-1000, -3]",
+        "WITH 1 AS x RETURN [-x]",
+        "RETURN [(1), 2]",
+        "RETURN [(1 + 2) * 3]",
+        "WITH 1 AS x RETURN [x = 1]",
+    ] {
+        check_roundtrip(q, &format!("{q};"));
+    }
+    check_roundtrip(
+        "MATCH (a) RETURN [p = (a)-->(b) | p] AS x",
+        "MATCH (a) RETURN [p = (a)-[]->(b) | p] AS x;",
+    );
+}

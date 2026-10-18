@@ -4,7 +4,7 @@
 analyze 166fc9f64b76c642  # unresolved variable `p` | MERGE (a {num: 1}) MERGE (b {num: 2}) MERGE p = (a)-[:R]->(b) RETURN p
 analyze de784694bbe18e0e  # unresolved variable `p` | MERGE p = (a {num: 1}) RETURN p
 parse 020463e6a8601b85  # unexpected token `:`, expected `(`, dynamic label expression, label name | MATCH (a)-[:T|:T]->(b) RETURN b
-parse 049f299e707fb552  # unexpected token `.`, expected `)` | RETURN [-.1e-5] AS literal
+parse 049f299e707fb552  # unexpected token `.`, expected expression | RETURN [-.1e-5] AS literal
 parse 091f33f759daddfc  # internal error: invalid number | RETURN -0o0 AS literal
 parse 0a6a8589e2739879  # unexpected token `.`, expected expression | RETURN .00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000…
 parse 0eaaa987b71e557c  # unexpected token `false`, expected `}` | RETURN NOT {false: false}
@@ -17,7 +17,6 @@ parse 1d974dbfc9d5194e  # internal error: invalid number | RETURN 0o777777777777
 parse 2c022d24f2ca532f  # unexpected token `property`, expected expression | MATCH (a:Begin) WITH a.num AS property LIMIT 1 MATCH (b) WHERE b.id = property RETURN b
 parse 3b3cdf5aae3027bf  # unexpected token `.`, expected expression | RETURN -.1E-5 AS literal
 parse 3e7b775b8a788ab5  # unexpected token `.`, expected expression | RETURN -.0 AS literal
-parse 3ee92f7d543cfaa5  # unexpected token `0x162CD4F6`, expected `)` | RETURN [-0x162CD4F6] AS literal
 parse 427a6e2c87eac40f  # internal error: invalid number | RETURN -9223372036854775809 AS literal
 parse 46667d7c91c96e7d  # unexpected token `$`, expected `)` | MATCH (n $param) RETURN n
 parse 469f6d2a4523d6a2  # unexpected token `types`, expected expression | MATCH p = (n:N)-[r:REL]->() UNWIND [n, r, p, 1.5, ['list'], 'text', null, false, 0.0 / 0.0, {a: 'map…
@@ -68,7 +67,6 @@ parse e83f2e6832dca976  # unexpected token `(`, expected clause | MATCH ()-[r:RE
 parse e8c93df621ac42a4  # internal error: invalid number | RETURN 9223372036854775808 AS literal
 parse ece69e9293a9dddf  # unexpected token `:`, expected clause | MATCH (n:Single) OPTIONAL MATCH (n)-[r:TYPE]-(m) RETURN m:TYPE
 parse f160df25ca07dad6  # unexpected token `property`, expected expression | MATCH (a:Begin) WITH a.num AS property MATCH (b:End) WHERE property = b.num RETURN b
-parse f7ecda252efa5e05  # unexpected token `1000`, expected `)` | WITH 0 AS start, [1, 2, 500, 1000, 1500] AS stopList, [-1000, -3, -2, -1, 1, 2, 3, 1000] AS stepList…
 parse f905e568447774e3  # unexpected token `:`, expected `(`, dynamic label expression, label name | CREATE ()-[:A|:B]->()
 parse fc31c9f028ae2ca1  # internal error: invalid number | RETURN 0o1 AS literal
 parse fedb5781849639db  # internal error: invalid number | RETURN -0x8000000000000001 AS literal

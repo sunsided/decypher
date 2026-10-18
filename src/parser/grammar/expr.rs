@@ -1167,30 +1167,29 @@ fn parse_bracket_expr(p: &mut Parser) {
     let mut is_list_comprehension = false;
     let mut is_pattern_comprehension = false;
 
+    let next_significant = |lx: &mut crate::parser::lexer::Lexer<'_>| loop {
+        match lx.advance() {
+            Some(t) if matches!(t.kind, SyntaxKind::WHITESPACE | SyntaxKind::COMMENT) => {}
+            other => break other.map(|t| t.kind),
+        }
+    };
     if let Some(tok) = first {
         if tok.kind == SyntaxKind::IDENT || tok.kind == SyntaxKind::ESCAPED_IDENT {
-            loop {
-                match lx.advance() {
-                    Some(t) if t.kind == SyntaxKind::WHITESPACE => continue,
-                    Some(t) => {
-                        if t.kind == SyntaxKind::KW_IN {
-                            is_list_comprehension = true;
-                        } else if t.kind == SyntaxKind::EQ {
-                            is_pattern_comprehension = true;
-                        }
-                        break;
-                    }
-                    None => break,
+            match next_significant(&mut lx) {
+                Some(SyntaxKind::KW_IN) => is_list_comprehension = true,
+                // `[p = (a)-->(b) | …]`; `[x = 1]` is a list holding a
+                // comparison, so a relationship pattern must follow.
+                Some(SyntaxKind::EQ) => {
+                    is_pattern_comprehension = next_significant(&mut lx)
+                        == Some(SyntaxKind::L_PAREN)
+                        && relationship_pattern_follows(lx.clone());
                 }
+                _ => {}
             }
-        } else if tok.kind == SyntaxKind::L_PAREN
-            || tok.kind == SyntaxKind::MINUS
-            || tok.kind == SyntaxKind::DASH
-        {
-            // PatternComprehension with optional variable omitted:
-            // [ (node)-[rel]->(node) WHERE ... | expr ]
-            // or [ -[rel]->(node) WHERE ... | expr ] (anonymous start)
-            is_pattern_comprehension = true;
+        } else if tok.kind == SyntaxKind::L_PAREN {
+            // `[(a)-->(b) | …]` rather than a list starting with a
+            // parenthesised expression such as `[(1 + 2) * 3]`.
+            is_pattern_comprehension = relationship_pattern_follows(lx.clone());
         }
     }
 
