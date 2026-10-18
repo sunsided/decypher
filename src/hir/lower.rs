@@ -48,8 +48,8 @@ use super::ops::{
     SortDirection, SortItem, SortOp, UnwindOp,
 };
 use super::pattern::{
-    GraphPattern, NodeIndex, NodePattern as HirNodePattern, PathBinding, RelIndex,
-    RelationshipDirection as HirRelationshipDirection, RelationshipLength,
+    GraphPattern, LabelExpr as HirLabelExpr, NodeIndex, NodePattern as HirNodePattern, PathBinding,
+    RelIndex, RelationshipDirection as HirRelationshipDirection, RelationshipLength,
     RelationshipPattern as HirRelationshipPattern,
 };
 use super::{HirArenas, HirDiagnostic, HirQuery, QueryPart};
@@ -929,14 +929,10 @@ impl<'cfg> LoweringContext<'cfg> {
                 }
             }
             Expression::NodeLabels { base, labels, .. } => {
-                let base_id = self.lower_expr(base);
-                let label_ids: Vec<LabelId> = labels
-                    .iter()
-                    .map(|l| self.lower_label_expression_id(l))
-                    .collect();
-                ExprKind::NodeLabels {
-                    base: base_id,
-                    labels: label_ids,
+                let base = self.lower_expr(base);
+                match self.lower_node_labels(labels) {
+                    (labels, None) => ExprKind::NodeLabels { base, labels },
+                    (_, Some(expression)) => ExprKind::LabelCheck { base, expression },
                 }
             }
             Expression::BinaryOp { op, lhs, rhs, .. } => {
@@ -1427,15 +1423,12 @@ impl<'cfg> LoweringContext<'cfg> {
             .variable
             .as_ref()
             .map(|v| self.bind_pattern_variable(v));
-        let labels: Vec<LabelId> = node
-            .labels
-            .iter()
-            .map(|l| self.lower_label_expression_id(l))
-            .collect();
+        let (labels, label_expression) = self.lower_node_labels(&node.labels);
         let properties = node.properties.as_ref().map(|p| self.lower_properties(p));
         HirNodePattern {
             binding,
             labels,
+            label_expression,
             properties,
         }
     }
@@ -1446,29 +1439,26 @@ impl<'cfg> LoweringContext<'cfg> {
         left: NodeIndex,
         right: NodeIndex,
     ) -> HirRelationshipPattern {
-        let (binding, types, length, properties) = if let Some(detail) = &rel.detail {
-            let binding = detail
-                .variable
-                .as_ref()
-                .map(|v| self.bind_pattern_variable(v));
-            let types: Vec<RelTypeId> = detail
-                .types
-                .as_ref()
-                .map(|t| self.lower_label_expression_to_rel_types(t))
-                .unwrap_or_default();
-            let length = detail
-                .range
-                .as_ref()
-                .map(|r| RelationshipLength::Variable {
-                    min: r.start.map(|n| n as u32),
-                    max: r.end.map(|n| n as u32),
-                })
-                .unwrap_or(RelationshipLength::Single);
-            let properties = detail.properties.as_ref().map(|p| self.lower_properties(p));
-            (binding, types, length, properties)
-        } else {
-            (None, Vec::new(), RelationshipLength::Single, None)
-        };
+        let (binding, types, type_expression, length, properties) =
+            if let Some(detail) = &rel.detail {
+                let binding = detail
+                    .variable
+                    .as_ref()
+                    .map(|v| self.bind_pattern_variable(v));
+                let (types, type_expression) = self.lower_rel_types(detail.types.as_ref());
+                let length = detail
+                    .range
+                    .as_ref()
+                    .map(|r| RelationshipLength::Variable {
+                        min: r.start.map(|n| n as u32),
+                        max: r.end.map(|n| n as u32),
+                    })
+                    .unwrap_or(RelationshipLength::Single);
+                let properties = detail.properties.as_ref().map(|p| self.lower_properties(p));
+                (binding, types, type_expression, length, properties)
+            } else {
+                (None, Vec::new(), None, RelationshipLength::Single, None)
+            };
 
         let direction = match rel.direction {
             RelationshipDirection::Left => HirRelationshipDirection::RightToLeft,
@@ -1479,6 +1469,7 @@ impl<'cfg> LoweringContext<'cfg> {
 
         HirRelationshipPattern {
             binding,
+            type_expression,
             direction,
             left,
             right,
@@ -1522,44 +1513,100 @@ impl<'cfg> LoweringContext<'cfg> {
         self.lower_pattern_parts(std::slice::from_ref(part))
     }
 
-    fn lower_label_expression_id(&mut self, expr: &LabelExpression) -> LabelId {
+    /// Lowers a node-label (`for_types == false`) or relationship-type
+    /// (`for_types == true`) expression.
+    fn lower_label_expr(&mut self, expr: &LabelExpression, for_types: bool) -> HirLabelExpr {
         match expr {
-            LabelExpression::Static(sym) => self.arenas.labels.intern(&sym.name, Id),
-            LabelExpression::Dynamic { span, .. }
-            | LabelExpression::Or { span, .. }
-            | LabelExpression::And { span, .. }
-            | LabelExpression::Not { span, .. }
-            | LabelExpression::Group { span, .. } => {
-                self.diagnostics.push(HirDiagnostic::UnsupportedFeature {
-                    feature: "dynamic label expression".to_string(),
-                    span: *span,
-                });
-                Id(usize::MAX)
+            LabelExpression::Static(sym) => HirLabelExpr::Name(if for_types {
+                self.arenas.relationship_types.intern(&sym.name, Id)
+            } else {
+                self.arenas.labels.intern(&sym.name, Id)
+            }),
+            LabelExpression::Wildcard { .. } => HirLabelExpr::Wildcard,
+            LabelExpression::Dynamic { expression, .. } => {
+                HirLabelExpr::Dynamic(self.lower_expr(expression))
             }
+            LabelExpression::Or { lhs, rhs, .. } => HirLabelExpr::Or(
+                Box::new(self.lower_label_expr(lhs, for_types)),
+                Box::new(self.lower_label_expr(rhs, for_types)),
+            ),
+            LabelExpression::And { lhs, rhs, .. } => HirLabelExpr::And(
+                Box::new(self.lower_label_expr(lhs, for_types)),
+                Box::new(self.lower_label_expr(rhs, for_types)),
+            ),
+            LabelExpression::Not { inner, .. } => {
+                HirLabelExpr::Not(Box::new(self.lower_label_expr(inner, for_types)))
+            }
+            LabelExpression::Group { inner, .. } => self.lower_label_expr(inner, for_types),
         }
     }
 
-    fn lower_label_expression_to_rel_types(&mut self, expr: &LabelExpression) -> Vec<RelTypeId> {
-        match expr {
-            LabelExpression::Static(sym) => {
-                vec![self.arenas.relationship_types.intern(&sym.name, Id)]
-            }
-            LabelExpression::Or { lhs, rhs, .. } => {
-                let mut types = self.lower_label_expression_to_rel_types(lhs);
-                types.extend(self.lower_label_expression_to_rel_types(rhs));
-                types
-            }
-            LabelExpression::Dynamic { span, .. }
-            | LabelExpression::And { span, .. }
-            | LabelExpression::Not { span, .. }
-            | LabelExpression::Group { span, .. } => {
-                self.diagnostics.push(HirDiagnostic::UnsupportedFeature {
-                    feature: "dynamic relationship type expression".to_string(),
-                    span: *span,
-                });
-                Vec::new()
+    /// Lowers the label groups of a node pattern or label predicate (`:A:B`
+    /// is two groups, all required). A conjunction of static labels becomes a
+    /// label list; anything else a label expression.
+    fn lower_node_labels(
+        &mut self,
+        groups: &[LabelExpression],
+    ) -> (Vec<LabelId>, Option<HirLabelExpr>) {
+        fn static_conjunction(expr: &LabelExpression, out: &mut Vec<String>) -> bool {
+            match expr {
+                LabelExpression::Static(sym) => {
+                    out.push(sym.name.clone());
+                    true
+                }
+                LabelExpression::And { lhs, rhs, .. } => {
+                    static_conjunction(lhs, out) && static_conjunction(rhs, out)
+                }
+                LabelExpression::Group { inner, .. } => static_conjunction(inner, out),
+                _ => false,
             }
         }
+        let mut names = Vec::new();
+        if groups.iter().all(|g| static_conjunction(g, &mut names)) {
+            let ids = names
+                .iter()
+                .map(|n| self.arenas.labels.intern(n, Id))
+                .collect();
+            return (ids, None);
+        }
+        let expression = groups
+            .iter()
+            .map(|g| self.lower_label_expr(g, false))
+            .reduce(|acc, next| HirLabelExpr::And(Box::new(acc), Box::new(next)));
+        (Vec::new(), expression)
+    }
+
+    /// Lowers a relationship type expression. An alternation of static types
+    /// (`:A|B`) becomes a type list; anything else a type expression.
+    fn lower_rel_types(
+        &mut self,
+        expr: Option<&LabelExpression>,
+    ) -> (Vec<RelTypeId>, Option<HirLabelExpr>) {
+        fn static_alternation(expr: &LabelExpression, out: &mut Vec<String>) -> bool {
+            match expr {
+                LabelExpression::Static(sym) => {
+                    out.push(sym.name.clone());
+                    true
+                }
+                LabelExpression::Or { lhs, rhs, .. } => {
+                    static_alternation(lhs, out) && static_alternation(rhs, out)
+                }
+                LabelExpression::Group { inner, .. } => static_alternation(inner, out),
+                _ => false,
+            }
+        }
+        let Some(expr) = expr else {
+            return (Vec::new(), None);
+        };
+        let mut names = Vec::new();
+        if static_alternation(expr, &mut names) {
+            let ids = names
+                .iter()
+                .map(|n| self.arenas.relationship_types.intern(n, Id))
+                .collect();
+            return (ids, None);
+        }
+        (Vec::new(), Some(self.lower_label_expr(expr, true)))
     }
 
     fn lower_properties(&mut self, props: &Properties) -> ExprId {

@@ -753,3 +753,33 @@ fn test_normalization_and_type_predicates() {
         check_roundtrip(input, printed);
     }
 }
+
+/// The GQL wildcard label `%` parses in patterns and label predicates, alone,
+/// negated and in alternations (#91), without disturbing the modulo operator.
+///
+/// Unit: `parse()` / `LabelExpression::Wildcard`
+/// Precondition: `%`, `!%`, `Person|%` in node patterns, `[r:%]`, `n:%`,
+///               `n IS %`, and `n % 2`.
+/// Expectation: Each query round-trips (`IS` printed as `:`).
+#[test]
+fn test_wildcard_label() {
+    for (input, printed) in [
+        ("MATCH (n:%) RETURN n", "MATCH (n:%) RETURN n;"),
+        ("MATCH (n:!%) RETURN n", "MATCH (n:!%) RETURN n;"),
+        (
+            "MATCH (n:Person|%)-[r:%]->() RETURN r",
+            "MATCH (n:Person|%)-[r:%]->() RETURN r;",
+        ),
+        (
+            "MATCH (n) WHERE n:% RETURN n",
+            "MATCH (n) WHERE n:% RETURN n;",
+        ),
+        (
+            "MATCH (n) WHERE n IS % RETURN n",
+            "MATCH (n) WHERE n:% RETURN n;",
+        ),
+        ("MATCH (n) RETURN n % 2", "MATCH (n) RETURN n % 2;"),
+    ] {
+        check_roundtrip(input, printed);
+    }
+}

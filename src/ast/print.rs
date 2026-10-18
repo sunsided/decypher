@@ -1206,6 +1206,7 @@ impl ToCypher for LabelExpression {
     fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
         match self {
             LabelExpression::Static(sym) => sym.write_cypher(w),
+            LabelExpression::Wildcard { .. } => write!(w, "%"),
             LabelExpression::Dynamic { expression, .. } => {
                 write!(w, "$(")?;
                 expression.write_cypher(w)?;

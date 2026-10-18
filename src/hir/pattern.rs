@@ -32,13 +32,37 @@ impl GraphPattern {
     }
 }
 
+/// A label or relationship-type expression that is more than a plain list of
+/// static names: alternatives, conjunctions, negation, the `%` wildcard or
+/// dynamic labels.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LabelExpr {
+    /// A static name, interned in `labels` for node labels or in
+    /// `relationship_types` for relationship types.
+    Name(LabelId),
+    /// `$(expr)`: a label or type computed at runtime.
+    Dynamic(ExprId),
+    /// `%`: any label or type.
+    Wildcard,
+    /// `lhs | rhs`
+    Or(Box<LabelExpr>, Box<LabelExpr>),
+    /// `lhs & rhs`
+    And(Box<LabelExpr>, Box<LabelExpr>),
+    /// `!inner`
+    Not(Box<LabelExpr>),
+}
+
 /// A single node in a normalised graph pattern.
 #[derive(Debug, Clone)]
 pub struct NodePattern {
     /// Optional variable binding for this node.
     pub binding: Option<BindingId>,
-    /// Required label IDs.
+    /// Required label IDs, when the node's labels are a plain conjunction of
+    /// static labels (`(n:A:B)`); otherwise empty, see `label_expression`.
     pub labels: Vec<LabelId>,
+    /// The node's label expression when it is more than a conjunction of
+    /// static labels (`(n:A|B)`, `(n:!A)`, `(n:%)`, `(n:$(x))`).
+    pub label_expression: Option<LabelExpr>,
     /// Optional property constraint expression.
     pub properties: Option<ExprId>,
 }
@@ -54,8 +78,13 @@ pub struct RelationshipPattern {
     pub left: NodeIndex,
     /// Index into [`GraphPattern::nodes`] for the right (end) node.
     pub right: NodeIndex,
-    /// Required relationship type IDs (empty means any type).
+    /// Allowed relationship type IDs when the type expression is a plain
+    /// alternation of static types (`[:A|B]`); empty means any type, unless
+    /// `type_expression` is set.
     pub types: Vec<RelTypeId>,
+    /// The relationship's type expression when it is more than an alternation
+    /// of static types (`[:!A]`, `[:A&B]`, `[:%]`, `[:$(x)]`).
+    pub type_expression: Option<LabelExpr>,
     /// Variable-length range, or [`RelationshipLength::Single`] for fixed.
     pub length: RelationshipLength,
     /// Optional property constraint expression.
