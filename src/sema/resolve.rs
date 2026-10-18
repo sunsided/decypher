@@ -77,6 +77,19 @@ impl NameResolver {
         }
     }
 
+    /// `RETURN *` without further items needs a variable in scope. (`WITH *`
+    /// may pass nothing on, as in `CREATE () WITH * CREATE ()`.)
+    fn check_star_scope_of(
+        &mut self,
+        scopes: &ScopeStack,
+        only_star: bool,
+        span: crate::error::Span,
+    ) {
+        if only_star && scopes.visible_bindings().is_empty() {
+            self.emit(SemaError::NoVariablesInScope { span });
+        }
+    }
+
     fn has_aggregate(&self, items: &[ProjectionItem]) -> bool {
         items.iter().any(|item| {
             item.expression
@@ -149,6 +162,7 @@ impl NameResolver {
                 SemaError::AggregationMix { span, .. } => *span,
                 SemaError::DistinctNotAllowed { span } => *span,
                 SemaError::AggregateNotAllowed { span, .. } => *span,
+                SemaError::NoVariablesInScope { span } => *span,
                 SemaError::InvalidReference { span, .. } => *span,
             },
             source_label: None,
@@ -353,6 +367,7 @@ impl<'ast> Visit<'ast> for NameResolver {
         // (`AS a` above).
         let before = std::mem::take(&mut self.scopes);
         if node.star {
+            self.check_star_scope_of(&before, node.items.is_empty(), node.span);
             for (name, entry) in before.visible_bindings() {
                 let _ = self.scopes.bind(&name, entry.kind, entry.span);
             }

@@ -1073,7 +1073,6 @@ fn analyze_with_hides_unprojected_variables() {
     for (query, var) in [
         ("MATCH (p)-->(m) WITH p RETURN m", "m"),
         ("MATCH (a), (b) WITH a, b WITH a RETURN b", "b"),
-        ("MATCH (n) WITH n.name RETURN name", "name"),
         ("MATCH (n) WITH n MATCH (n)-->(m) WITH n RETURN m", "m"),
         ("MATCH (a), (c) WITH a WITH a ORDER BY c RETURN a", "c"),
         ("MATCH (a) RETURN DISTINCT a.name ORDER BY a.age", "a"),
@@ -1304,7 +1303,7 @@ fn analyze_reports_implicit_grouping_keys_in_order_by() {
     for query in [
         "MATCH (me)--(you) RETURN me.age + you.age, count(*) AS cnt \
          ORDER BY me.age + you.age + count(*)",
-        "MATCH (me)--(you) WITH me.age + you.age, count(*) AS cnt \
+        "MATCH (me)--(you) WITH me.age + you.age AS s, count(*) AS cnt \
          ORDER BY me.age + you.age + count(*) RETURN *",
     ] {
         let err = analyze(query).unwrap_err();
@@ -1387,8 +1386,8 @@ fn analyze_reports_redeclared_pattern_variables() {
         "MATCH (a) CREATE (a {name: 'foo'})",
         "CREATE (n:Foo)-[:T1]->(), (n:Bar)-[:T2]->()",
         "CREATE (a:Foo) MERGE (a)-[r:KNOWS]->(a:Bar)",
-        "MATCH ()-[r]->() CREATE ()-[r]->()",
-        "MATCH (a)-[r]->(b) MERGE (a)-[r]->(b)",
+        "MATCH ()-[r]->() CREATE ()-[r:T]->()",
+        "MATCH (a)-[r]->(b) MERGE (a)-[r:T]->(b)",
         "MATCH (a) FOREACH (x IN [1] | CREATE (a))",
     ] {
         let err = analyze(query).unwrap_err();
@@ -1410,6 +1409,92 @@ fn analyze_reports_redeclared_pattern_variables() {
         "MATCH (a) MERGE (a)-[:R]->(b:Foo) RETURN b",
         "CREATE (a:Foo)-[:R]->(b), (b)-[:S]->(a)",
         "MATCH p = (a)-->(b) RETURN p, a, b",
+    ] {
+        analyze(query).unwrap_or_else(|e| panic!("query: {query}, got: {e}"));
+        decypher::sema::analyze(&decypher::parse(query).unwrap())
+            .unwrap_or_else(|e| panic!("query: {query}, sema got: {:?}", e.errors));
+    }
+}
+
+/// Structural rules (#109): UNION columns and kinds, read-only subqueries,
+/// relationships created by `CREATE`/`MERGE`, relationships matched twice,
+/// `DELETE` targets, `WITH` aliases and `RETURN *` without variables.
+///
+/// Unit: `analyze()` / `sema::analyze()`
+/// Precondition: One query per rule, from the openCypher TCK; and valid
+///               counterparts.
+/// Expectation: Both analyzers report the rule's error kind; the valid
+///              queries pass.
+#[test]
+fn analyze_reports_structural_errors() {
+    use decypher::ErrorKind;
+    for (query, expected) in [
+        (
+            "RETURN 1 AS a UNION RETURN 2 AS b",
+            ErrorKind::UnionColumnMismatch,
+        ),
+        ("MATCH (n) DELETE n:Person", ErrorKind::InvalidDeleteTarget),
+        (
+            "MATCH (a) WITH a, count(*) RETURN a",
+            ErrorKind::MissingAlias,
+        ),
+        ("MATCH () RETURN *", ErrorKind::NoVariablesInScope),
+    ] {
+        let err = analyze(query).unwrap_err();
+        check!(err.kind == expected, "query: {query}, got: {err}");
+        let sema = decypher::sema::analyze(&decypher::parse(query).unwrap()).unwrap_err();
+        check!(
+            sema.errors.iter().any(|e| e.kind == expected),
+            "query: {query}, sema got: {:?}",
+            sema.errors
+        );
+    }
+    for query in [
+        "RETURN 1 AS a UNION RETURN 2 AS a UNION ALL RETURN 3 AS a",
+        "MATCH (n) WHERE EXISTS { MATCH (n)-->(m) SET m.prop = 'fail' } RETURN n",
+        "MATCH (n) RETURN COUNT { MATCH (n)-->(m) DELETE m } AS c",
+    ] {
+        let err = analyze(query).unwrap_err();
+        check!(
+            matches!(err.kind, ErrorKind::InvalidClauseComposition { .. }),
+            "query: {query}, got: {err}"
+        );
+    }
+    for query in [
+        "CREATE ()-[:FOO*2]->()",
+        "CREATE ()-->()",
+        "CREATE ()-[:A|:B]->()",
+        "CREATE (a)-[:FOO]-(b)",
+        "CREATE (a)<-[:FOO]->(b)",
+        "MATCH (a), (b) MERGE (a)-[NO_COLON]->(b)",
+        "MERGE (a)-[:FOO*2]->(b)",
+        "MATCH (a)-[r]->()-[r]->(a) RETURN r",
+        "MATCH (a)-[r]->(), ()-[r]->(a) RETURN r",
+    ] {
+        let err = analyze(query).unwrap_err();
+        check!(
+            matches!(err.kind, ErrorKind::InvalidRelationshipPattern { .. }),
+            "query: {query}, got: {err}"
+        );
+        let sema = decypher::sema::analyze(&decypher::parse(query).unwrap()).unwrap_err();
+        check!(
+            sema.errors
+                .iter()
+                .any(|e| matches!(e.kind, ErrorKind::InvalidRelationshipPattern { .. })),
+            "query: {query}, sema got: {:?}",
+            sema.errors
+        );
+    }
+    for query in [
+        "RETURN 1 AS a, 2 AS b UNION RETURN 3 AS b, 4 AS a",
+        "RETURN 1 AS a UNION ALL RETURN 2 AS a UNION ALL RETURN 3 AS a",
+        "MATCH (a), (b) MERGE (a)-[:R]-(b)",
+        "MATCH (a), (b) CREATE (a)<-[:R]-(b)",
+        "MATCH (a)-[r*]->(b) RETURN r",
+        "MATCH p = (a)-->(b) DELETE p",
+        "MATCH (a) WITH a, count(*) AS c RETURN a, c",
+        "MATCH () CREATE () WITH * CREATE ()",
+        "MATCH (n) WHERE EXISTS { MATCH (n)-->(m) } RETURN n",
     ] {
         analyze(query).unwrap_or_else(|e| panic!("query: {query}, got: {e}"));
         decypher::sema::analyze(&decypher::parse(query).unwrap())

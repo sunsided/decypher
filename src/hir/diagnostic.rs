@@ -29,13 +29,6 @@ pub enum HirDiagnostic {
         /// Location of the duplicate introduction.
         second: Span,
     },
-    /// A variable was used outside the scope in which it was introduced.
-    VariableOutOfScope {
-        /// The variable name.
-        name: String,
-        /// Source location of the out-of-scope reference.
-        span: Span,
-    },
     /// A projection item combines an aggregate with variables or properties
     /// that are not grouping keys (`RETURN n.a + count(*)`).
     InvalidAggregation {
@@ -52,17 +45,40 @@ pub enum HirDiagnostic {
         /// Source location of the call.
         span: Span,
     },
-    /// A `DELETE` target expression is not a valid node or relationship reference.
+    /// A `DELETE` target is not a node, relationship or path
+    /// (`DELETE n:Person`).
     InvalidDeleteTarget {
         /// Source location of the invalid target.
         span: Span,
     },
-    /// A relationship pattern is structurally invalid.
+    /// A relationship pattern its clause cannot use (an untyped or
+    /// undirected relationship in `CREATE`, a relationship matched twice).
     InvalidRelationshipPattern {
+        /// Why the pattern is invalid.
+        reason: &'static str,
         /// Source location of the invalid pattern.
         span: Span,
     },
-    /// A called function is not known to the lowering pass.
+    /// Clauses that cannot be combined (`UNION` with `UNION ALL`, updates in
+    /// an `EXISTS` subquery).
+    InvalidClauseComposition {
+        /// Why the clauses cannot be combined.
+        reason: &'static str,
+        /// Source location of the offending clause.
+        span: Span,
+    },
+    /// A `WITH` item other than a variable has no `AS` alias.
+    MissingAlias {
+        /// Source location of the item.
+        span: Span,
+    },
+    /// `RETURN *` with no variables in scope.
+    NoVariablesInScope {
+        /// Source location of the clause.
+        span: Span,
+    },
+    /// A called function is not known to the lowering pass. Not reported yet
+    /// (see #110).
     UnknownFunction {
         /// The function name.
         name: String,
@@ -76,16 +92,28 @@ pub enum HirDiagnostic {
         /// Source location of the unsupported construct.
         span: Span,
     },
-    /// Two `UNION` branches project a different number of columns.
+    /// Two `UNION` branches return different columns.
     UnionColumnMismatch {
         /// Source location of the mismatched `UNION`.
         span: Span,
     },
-    /// A `MERGE` pattern is structurally invalid.
-    InvalidMergePattern {
-        /// Source location of the invalid merge pattern.
-        span: Span,
-    },
+}
+
+impl From<crate::sema::StructuralError> for HirDiagnostic {
+    fn from(error: crate::sema::StructuralError) -> Self {
+        use crate::sema::StructuralError as E;
+        match error {
+            E::UnionColumnMismatch { span } => HirDiagnostic::UnionColumnMismatch { span },
+            E::InvalidClauseComposition { reason, span } => {
+                HirDiagnostic::InvalidClauseComposition { reason, span }
+            }
+            E::InvalidRelationshipPattern { reason, span } => {
+                HirDiagnostic::InvalidRelationshipPattern { reason, span }
+            }
+            E::InvalidDeleteTarget { span } => HirDiagnostic::InvalidDeleteTarget { span },
+            E::MissingAlias { span } => HirDiagnostic::MissingAlias { span },
+        }
+    }
 }
 
 impl HirDiagnostic {
@@ -120,7 +148,17 @@ impl HirDiagnostic {
             HirDiagnostic::UnsupportedFeature { feature, .. } => ErrorKind::Unsupported {
                 production: std::borrow::Cow::Owned(feature.clone()),
             },
-            _ => ErrorKind::Internal {
+            HirDiagnostic::InvalidDeleteTarget { .. } => ErrorKind::InvalidDeleteTarget,
+            HirDiagnostic::InvalidRelationshipPattern { reason, .. } => {
+                ErrorKind::InvalidRelationshipPattern { reason }
+            }
+            HirDiagnostic::InvalidClauseComposition { reason, .. } => {
+                ErrorKind::InvalidClauseComposition { reason }
+            }
+            HirDiagnostic::MissingAlias { .. } => ErrorKind::MissingAlias,
+            HirDiagnostic::NoVariablesInScope { .. } => ErrorKind::NoVariablesInScope,
+            HirDiagnostic::UnionColumnMismatch { .. } => ErrorKind::UnionColumnMismatch,
+            HirDiagnostic::UnknownFunction { .. } => ErrorKind::Internal {
                 message: format!("{:?}", self),
             },
         }
@@ -131,14 +169,15 @@ impl HirDiagnostic {
         match self {
             HirDiagnostic::UnknownVariable { span, .. } => *span,
             HirDiagnostic::DuplicateVariable { second: span, .. } => *span,
-            HirDiagnostic::VariableOutOfScope { span, .. } => *span,
             HirDiagnostic::InvalidAggregation { span, .. } => *span,
             HirDiagnostic::InvalidDeleteTarget { span } => *span,
-            HirDiagnostic::InvalidRelationshipPattern { span } => *span,
+            HirDiagnostic::InvalidRelationshipPattern { span, .. } => *span,
+            HirDiagnostic::InvalidClauseComposition { span, .. } => *span,
+            HirDiagnostic::MissingAlias { span } => *span,
+            HirDiagnostic::NoVariablesInScope { span } => *span,
             HirDiagnostic::UnknownFunction { span, .. } => *span,
             HirDiagnostic::UnsupportedFeature { span, .. } => *span,
             HirDiagnostic::UnionColumnMismatch { span } => *span,
-            HirDiagnostic::InvalidMergePattern { span } => *span,
             HirDiagnostic::AggregateNotAllowed { span, .. } => *span,
         }
     }

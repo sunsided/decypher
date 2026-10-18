@@ -189,6 +189,21 @@ pub enum ErrorKind {
     /// An aggregate function called where aggregation is not allowed, such
     /// as `MATCH … WHERE count(n) > 1` (semantic).
     AggregateNotAllowed { function: String },
+    /// `UNION` branches return different columns (semantic).
+    UnionColumnMismatch,
+    /// Clauses that cannot be combined, such as `UNION` with `UNION ALL`
+    /// (semantic).
+    InvalidClauseComposition { reason: &'static str },
+    /// A relationship pattern its clause cannot use, such as an untyped
+    /// relationship in `CREATE` (semantic).
+    InvalidRelationshipPattern { reason: &'static str },
+    /// A `DELETE` target that is not a node, relationship or path, such as
+    /// `DELETE n:Person` (semantic).
+    InvalidDeleteTarget,
+    /// A `WITH` item other than a variable without `AS` alias (semantic).
+    MissingAlias,
+    /// `RETURN *` with no variables in scope (semantic).
+    NoVariablesInScope,
     /// Invalid reference in ORDER BY / WHERE after WITH (semantic).
     InvalidReference { name: String, reason: &'static str },
 }
@@ -250,6 +265,23 @@ impl fmt::Display for ErrorKind {
             }
             ErrorKind::AggregateNotAllowed { function } => {
                 write!(f, "aggregate function `{function}` is not allowed here")
+            }
+            ErrorKind::UnionColumnMismatch => {
+                write!(f, "all parts of a UNION must return the same columns")
+            }
+            ErrorKind::InvalidClauseComposition { reason }
+            | ErrorKind::InvalidRelationshipPattern { reason } => write!(f, "{reason}"),
+            ErrorKind::InvalidDeleteTarget => {
+                write!(f, "DELETE expects nodes, relationships or paths")
+            }
+            ErrorKind::MissingAlias => {
+                write!(f, "expressions in WITH must be aliased (use AS)")
+            }
+            ErrorKind::NoVariablesInScope => {
+                write!(
+                    f,
+                    "RETURN * is not allowed when there are no variables in scope"
+                )
             }
             ErrorKind::InvalidReference { name, reason } => {
                 write!(f, "invalid reference to `{}`: {}", name, reason)

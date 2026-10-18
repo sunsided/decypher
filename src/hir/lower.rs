@@ -73,6 +73,11 @@ pub fn lower(query: &Query, config: &LowerConfig) -> Result<HirQuery, Diagnostic
         ctx.diagnostics
             .push(HirDiagnostic::AggregateNotAllowed { function, span });
     }
+    ctx.diagnostics.extend(
+        crate::sema::structural_errors(query)
+            .into_iter()
+            .map(HirDiagnostic::from),
+    );
 
     for stmt in &query.statements {
         let stmt_parts = ctx.lower_query_body(stmt);
@@ -801,10 +806,22 @@ impl<'cfg> LoweringContext<'cfg> {
         scope
     }
 
+    /// The variables `RETURN *` passes through; with no further items
+    /// (`only_star`) there must be at least one. (`WITH *` may pass nothing
+    /// on, as in `CREATE () WITH * CREATE ()`.)
+    fn visible_for_star(&mut self, only_star: bool, span: Span) -> Vec<(String, BindingId)> {
+        let visible = self.scope_stack.visible();
+        if visible.is_empty() && only_star {
+            self.diagnostics
+                .push(HirDiagnostic::NoVariablesInScope { span });
+        }
+        visible
+    }
+
     /// Lowers a `RETURN`, returning the scope of its columns.
     fn lower_return(&mut self, r: &Return) -> ScopeId {
         let visible = if r.star {
-            self.scope_stack.visible()
+            self.visible_for_star(r.items.is_empty(), r.span)
         } else {
             Vec::new()
         };
