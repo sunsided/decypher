@@ -1060,3 +1060,71 @@ fn analyze_label_expressions() {
         Some(LabelExpr::Not(_))
     ));
 }
+
+/// `WITH` replaces the visible variables by its columns (#96).
+///
+/// Unit: `analyze()`
+/// Precondition: Variables used after a `WITH` that did not project them,
+///               including an unaliased `WITH n.name` that does not bind
+///               `name`, and `ORDER BY` after `DISTINCT` or aggregation.
+/// Expectation: `analyze` fails with an unresolved variable.
+#[test]
+fn analyze_with_hides_unprojected_variables() {
+    for (query, var) in [
+        ("MATCH (p)-->(m) WITH p RETURN m", "m"),
+        ("MATCH (a), (b) WITH a, b WITH a RETURN b", "b"),
+        ("MATCH (n) WITH n.name RETURN name", "name"),
+        ("MATCH (n) WITH n MATCH (n)-->(m) WITH n RETURN m", "m"),
+        ("MATCH (a), (c) WITH a WITH a ORDER BY c RETURN a", "c"),
+        ("MATCH (a) RETURN DISTINCT a.name ORDER BY a.age", "a"),
+        (
+            "MATCH (me)--(you) WITH count(you.age) AS agg ORDER BY me.age RETURN *",
+            "me",
+        ),
+        ("MATCH (n) WITH count(*) AS c WHERE n.x > 1 RETURN c", "n"),
+        (
+            "MATCH (n) WITH n.x AS x CALL { RETURN n AS m } RETURN m",
+            "n",
+        ),
+        ("MATCH (n), (m) WITH n RETURN *, m", "m"),
+    ] {
+        let err = analyze(query).unwrap_err();
+        check!(
+            err.to_string()
+                .contains(&format!("unresolved variable `{var}`")),
+            "query: {query}, got: {err}"
+        );
+    }
+}
+
+/// What stays visible across a `WITH` (#96): its columns, everything for
+/// `WITH *`, and for its own `WHERE` and `ORDER BY` also the variables it
+/// read, as long as aggregation (or, for `ORDER BY`, `DISTINCT`) did not
+/// collapse the rows. `ORDER BY` after a narrowing projection may repeat a
+/// projected expression.
+///
+/// Unit: `analyze()`
+/// Precondition: Queries the openCypher TCK accepts (`WithWhere7`,
+///               `WithOrderBy*`, `ReturnOrderBy*`).
+/// Expectation: `analyze` succeeds.
+#[test]
+fn analyze_with_keeps_projected_and_readable_variables() {
+    for query in [
+        "MATCH (p)-->(m) WITH p, m.x AS x RETURN p, x",
+        "MATCH (p)-->(m) WITH * RETURN p, m",
+        "MATCH (p)-->(m) WITH *, m.x AS x RETURN p, m, x",
+        "MATCH (a) WITH a.name2 AS name WHERE a.name2 = 'B' RETURN name",
+        "MATCH (a) WITH DISTINCT a.name2 AS name WHERE a.name2 = 'B' RETURN name",
+        "MATCH (a) WITH a.name AS name ORDER BY a.age RETURN name",
+        "MATCH (a) RETURN a.name AS name ORDER BY a.age",
+        "MATCH (a) RETURN DISTINCT a.name ORDER BY a.name",
+        "MATCH (n) WITH n.k AS k, count(*) AS c WHERE c > 1 RETURN k",
+        "MATCH (n) RETURN n.k, count(*) ORDER BY n.k, count(*)",
+        "MATCH (n) WITH n CALL { WITH n RETURN n.x AS x } RETURN n, x",
+        "MATCH (n) WITH n MATCH (n)-->(m) RETURN n, m",
+    ] {
+        if let Err(err) = analyze(query) {
+            panic!("query: {query}, got: {err}");
+        }
+    }
+}
