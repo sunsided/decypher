@@ -11,7 +11,7 @@ use crate::ast::clause::*;
 use crate::ast::expr::*;
 use crate::ast::pattern::*;
 use crate::ast::query::*;
-use crate::ast::visit::{Visit, walk_match, walk_single_query};
+use crate::ast::visit::{Visit, walk_create, walk_match, walk_merge, walk_single_query};
 use crate::error::CypherError;
 use crate::sema::error::SemaError;
 use crate::sema::scope::{ScopeStack, SymbolKind};
@@ -149,6 +149,26 @@ impl<'ast> Visit<'ast> for NameResolver {
             &mut self.errors,
         );
         walk_match(self, node);
+    }
+
+    fn visit_create(&mut self, node: &'ast Create) {
+        bind_pattern(
+            &mut self.scopes,
+            &node.pattern,
+            SymbolKind::PatternBound,
+            &mut self.errors,
+        );
+        walk_create(self, node);
+    }
+
+    fn visit_merge(&mut self, node: &'ast Merge) {
+        bind_pattern_part(
+            &mut self.scopes,
+            &node.pattern,
+            SymbolKind::PatternBound,
+            &mut self.errors,
+        );
+        walk_merge(self, node);
     }
 
     fn visit_unwind(&mut self, node: &'ast Unwind) {
@@ -376,12 +396,7 @@ impl<'ast> Visit<'ast> for NameResolver {
                 redecl_span: var.name.span,
             });
         }
-        bind_relationships_pattern(
-            &mut self.scopes,
-            &node.pattern,
-            SymbolKind::PatternBound,
-            &mut self.errors,
-        );
+        bind_relationships_pattern(&mut self.scopes, &node.pattern, SymbolKind::PatternBound);
         if let Some(wc) = &node.where_clause {
             self.visit_expression(wc);
         }
@@ -451,89 +466,19 @@ fn bind_pattern(
     errors: &mut Vec<CypherError>,
 ) {
     for part in &pattern.parts {
-        if let Some(var) = &part.variable
-            && let Err(first_span) = scopes.bind(&var.name.name, kind, var.name.span)
-        {
-            errors.push(
-                SemaError::RedeclaredVariable {
-                    name: var.name.name.clone(),
-                    first_span,
-                    redecl_span: var.name.span,
-                }
-                .into_error(),
-            );
-        }
-        bind_node_pattern(scopes, &part.anonymous.element, kind, errors);
+        bind_pattern_part(scopes, part, kind, errors);
     }
 }
 
-fn bind_node_pattern(
+/// Binds a pattern part's path variable (`p = …`, which must be new) and its
+/// node and relationship variables.
+fn bind_pattern_part(
     scopes: &mut ScopeStack,
-    element: &PatternElement,
+    part: &PatternPart,
     kind: SymbolKind,
     errors: &mut Vec<CypherError>,
 ) {
-    match element {
-        PatternElement::Path { start, chains } => {
-            if let Some(var) = &start.variable
-                && let Err(first_span) = scopes.bind(&var.name.name, kind, var.name.span)
-            {
-                errors.push(
-                    SemaError::RedeclaredVariable {
-                        name: var.name.name.clone(),
-                        first_span,
-                        redecl_span: var.name.span,
-                    }
-                    .into_error(),
-                );
-            }
-            for chain in chains {
-                if let Some(var) = &chain
-                    .relationship
-                    .detail
-                    .as_ref()
-                    .and_then(|d| d.variable.as_ref())
-                    && let Err(first_span) = scopes.bind(&var.name.name, kind, var.name.span)
-                {
-                    errors.push(
-                        SemaError::RedeclaredVariable {
-                            name: var.name.name.clone(),
-                            first_span,
-                            redecl_span: var.name.span,
-                        }
-                        .into_error(),
-                    );
-                }
-                if let Some(var) = &chain.node.variable
-                    && let Err(first_span) = scopes.bind(&var.name.name, kind, var.name.span)
-                {
-                    errors.push(
-                        SemaError::RedeclaredVariable {
-                            name: var.name.name.clone(),
-                            first_span,
-                            redecl_span: var.name.span,
-                        }
-                        .into_error(),
-                    );
-                }
-            }
-        }
-        PatternElement::Parenthesized(inner) => {
-            bind_node_pattern(scopes, inner, kind, errors);
-        }
-        PatternElement::Quantified { element, .. } => {
-            bind_node_pattern(scopes, element, kind, errors);
-        }
-    }
-}
-
-fn bind_relationships_pattern(
-    scopes: &mut ScopeStack,
-    pattern: &RelationshipsPattern,
-    kind: SymbolKind,
-    errors: &mut Vec<CypherError>,
-) {
-    if let Some(var) = &pattern.start.variable
+    if let Some(var) = &part.variable
         && let Err(first_span) = scopes.bind(&var.name.name, kind, var.name.span)
     {
         errors.push(
@@ -545,34 +490,67 @@ fn bind_relationships_pattern(
             .into_error(),
         );
     }
+    bind_node_pattern(scopes, &part.anonymous.element, kind);
+}
+
+fn bind_node_pattern(scopes: &mut ScopeStack, element: &PatternElement, kind: SymbolKind) {
+    match element {
+        PatternElement::Path { start, chains } => {
+            if let Some(var) = &start.variable {
+                bind_or_reuse(scopes, var, kind);
+            }
+            for chain in chains {
+                if let Some(var) = chain
+                    .relationship
+                    .detail
+                    .as_ref()
+                    .and_then(|d| d.variable.as_ref())
+                {
+                    bind_or_reuse(scopes, var, kind);
+                }
+                if let Some(var) = &chain.node.variable {
+                    bind_or_reuse(scopes, var, kind);
+                }
+            }
+        }
+        PatternElement::Parenthesized(inner) => {
+            bind_node_pattern(scopes, inner, kind);
+        }
+        PatternElement::Quantified { element, .. } => {
+            bind_node_pattern(scopes, element, kind);
+        }
+    }
+}
+
+/// Binds a node or relationship variable of a pattern. A name that is
+/// already visible refers to the same entity (`MATCH (n) MATCH (n)-->(m)`),
+/// which is a reference rather than a redeclaration.
+fn bind_or_reuse(scopes: &mut ScopeStack, var: &crate::ast::names::Variable, kind: SymbolKind) {
+    if scopes.resolve(&var.name.name).is_none() {
+        // Can't fail: the name isn't visible, so it isn't in the current scope.
+        let _ = scopes.bind(&var.name.name, kind, var.name.span);
+    }
+}
+
+fn bind_relationships_pattern(
+    scopes: &mut ScopeStack,
+    pattern: &RelationshipsPattern,
+    kind: SymbolKind,
+) {
+    if let Some(var) = &pattern.start.variable {
+        bind_or_reuse(scopes, var, kind);
+    }
     for chain in &pattern.chains {
-        if let Some(var) = &chain
+        if let Some(var) = chain
             .relationship
             .detail
             .as_ref()
             .and_then(|d| d.variable.as_ref())
-            && let Err(first_span) = scopes.bind(&var.name.name, kind, var.name.span)
         {
-            errors.push(
-                SemaError::RedeclaredVariable {
-                    name: var.name.name.clone(),
-                    first_span,
-                    redecl_span: var.name.span,
-                }
-                .into_error(),
-            );
+            bind_or_reuse(scopes, var, kind);
         }
-        if let Some(var) = &chain.node.variable
-            && let Err(first_span) = scopes.bind(&var.name.name, kind, var.name.span)
-        {
-            errors.push(
-                SemaError::RedeclaredVariable {
-                    name: var.name.name.clone(),
-                    first_span,
-                    redecl_span: var.name.span,
-                }
-                .into_error(),
-            );
+        if let Some(var) = &chain.node.variable {
+            bind_or_reuse(scopes, var, kind);
         }
     }
 }
