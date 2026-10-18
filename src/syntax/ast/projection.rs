@@ -253,7 +253,8 @@ impl AstNode for SkipClause {
 
 impl SkipClause {
     pub fn expr(&self) -> Option<Expression> {
-        child(&self.0)
+        // Flat chain: the last expression node is the composed one.
+        self.0.children().filter_map(Expression::cast).last()
     }
 }
 
@@ -280,6 +281,7 @@ impl AstNode for LimitClause {
 
 impl LimitClause {
     pub fn expr(&self) -> Option<Expression> {
-        child(&self.0)
+        // Flat chain: the last expression node is the composed one.
+        self.0.children().filter_map(Expression::cast).last()
     }
 }

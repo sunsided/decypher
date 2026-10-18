@@ -1219,6 +1219,7 @@ impl ToCypher for ExistsInner {
 
 impl ToCypher for StandaloneCall {
     fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        write!(w, "CALL ")?;
         self.call.write_cypher(w)?;
         if let Some(yield_spec) = &self.yield_items {
             write!(w, " ")?;
@@ -1230,9 +1231,10 @@ impl ToCypher for StandaloneCall {
 
 impl ToCypher for InQueryCall {
     fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        write!(w, "CALL ")?;
         self.call.write_cypher(w)?;
         if let Some(yield_items) = &self.yield_items {
-            write!(w, " ")?;
+            write!(w, " YIELD ")?;
             yield_items.write_cypher(w)?;
         }
         Ok(())
@@ -1241,7 +1243,17 @@ impl ToCypher for InQueryCall {
 
 impl ToCypher for ProcedureInvocation {
     fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
-        self.name.write_cypher(w)
+        if self.implicit_arguments {
+            for (i, part) in self.name.name.iter().enumerate() {
+                if i > 0 {
+                    write!(w, ".")?;
+                }
+                part.write_cypher(w)?;
+            }
+            Ok(())
+        } else {
+            self.name.write_cypher(w)
+        }
     }
 }
 

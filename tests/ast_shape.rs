@@ -356,3 +356,82 @@ fn test_list_slice_binary_bounds() {
         "WITH [1] AS l, 0 AS a, 1 AS b RETURN l[a + 1..b * 2] AS r;",
     );
 }
+
+/// Composed expressions in comma-separated lists and single-expression slots
+/// keep their full composition instead of only the first node of the flat CST
+/// chain (#56, #58, #59).
+///
+/// Unit: `parse()` / CST accessors over flat binary chains
+/// Precondition: Binary, comparison, property and index chains in map values,
+///               list elements, `DELETE`, `UNWIND`, `SKIP`/`LIMIT`,
+///               `LOAD CSV`, map projections and dynamic property keys.
+/// Expectation: Every expression survives the round trip unchanged.
+#[test]
+fn test_flat_chains_are_kept_whole() {
+    for q in [
+        "RETURN {a: 1 + 2, b: 1 < 2, c: true AND false} AS m",
+        "MATCH (n {flag: 1 = $x}) RETURN n",
+        "MATCH (a) RETURN [a.l[1], a.l[0]] AS x",
+        "MATCH (a) WITH a ORDER BY [a.l[1]] + a.l RETURN a",
+        "MATCH (u) WITH {key: collect(u)} AS m DETACH DELETE m.key[0], u",
+        "UNWIND [[1]] AS l WITH l UNWIND l AS x RETURN x",
+        "UNWIND a.b[0] AS x RETURN x",
+        "MATCH (n) RETURN n SKIP $s + 1 LIMIT $l * 2",
+        "LOAD CSV FROM $base + 'x.csv' AS line RETURN line",
+        "MATCH (n) RETURN n{.a, b: n.x + 1} AS m",
+        "MATCH (n) SET n[$k + 'x'] = 1 RETURN n",
+    ] {
+        check_roundtrip(q, &format!("{q};"));
+    }
+}
+
+/// A parenthesis is only read as a relationship pattern when a relationship
+/// actually follows it, so parenthesised arguments and operands survive (#60).
+///
+/// Unit: `parse()` / pattern-vs-parenthesis lookahead
+/// Precondition: Parenthesised operands followed by arithmetic or comparison
+///               operators that share prefixes with ASCII arrows, and
+///               `exists(...)` around real patterns.
+/// Expectation: Each query round-trips with its original meaning.
+#[test]
+fn test_parenthesis_vs_relationship_pattern() {
+    for q in [
+        "RETURN a - f((b)) - c",
+        "RETURN (1) - 2 AS b",
+        "WITH 1 AS a RETURN (a) - 1 AS b",
+        "WITH 1 AS a RETURN (a) - -1 AS b",
+        "WITH 1 AS a RETURN (a) < -1 AS b",
+    ] {
+        check_roundtrip(q, &format!("{q};"));
+    }
+    check_roundtrip(
+        "MATCH (n) WHERE exists((n)<--()) RETURN n",
+        "MATCH (n) WHERE EXISTS { (n)<-[]-() } RETURN n;",
+    );
+    check_roundtrip(
+        "MATCH (a {x: (1)})-->(b) RETURN a",
+        "MATCH (a {x: (1)})-[]->(b) RETURN a;",
+    );
+}
+
+/// Procedure calls keep their arguments, the `CALL` keyword and their
+/// `YIELD` items, and an in-query call is kept as a reading clause (#57).
+///
+/// Unit: `parse()` / procedure calls
+/// Precondition: Standalone calls with explicit and implicit arguments, and
+///               in-query calls with `YIELD … WHERE`, aliases and more clauses.
+/// Expectation: Each query round-trips unchanged.
+#[test]
+fn test_procedure_calls_round_trip() {
+    check_roundtrip("CALL foo(1, 2)", "CALL foo(1, 2);");
+    check_roundtrip("CALL foo", "CALL foo;");
+    check_roundtrip("CALL test.my.proc YIELD *", "CALL test.my.proc YIELD *;");
+    for q in [
+        "CALL db.labels() YIELD label",
+        "CALL foo() YIELD x RETURN x",
+        "MATCH (n) CALL foo(n, 1 + 2) YIELD x WHERE x > 1 RETURN x",
+        "CALL test.my.proc(NULL) YIELD a AS c, b RETURN c, b",
+    ] {
+        check_roundtrip(q, &format!("{q};"));
+    }
+}
