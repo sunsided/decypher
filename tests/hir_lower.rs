@@ -1315,3 +1315,33 @@ fn analyze_reports_implicit_grouping_keys_in_order_by() {
     }
     analyze("MATCH (n) RETURN n.k AS k, count(*) AS c ORDER BY k, c + count(*)").unwrap();
 }
+
+/// A pattern predicate cannot introduce variables: every named node or
+/// relationship must already be bound (#104, TCK `Pattern1 [10]`).
+///
+/// Unit: `analyze()`
+/// Precondition: Pattern predicates naming unbound nodes and relationships,
+///               and ones over bound variables only.
+/// Expectation: The first report the unbound name; the others pass and do
+///              not leak bindings.
+#[test]
+fn analyze_pattern_predicates_need_bound_variables() {
+    for (query, var) in [
+        ("MATCH (n) WHERE (n)-[r]->(a) RETURN n", "a"),
+        ("MATCH (n) WHERE (a)-->(n) RETURN n", "a"),
+        ("MATCH (n) WHERE ()-[r]-() RETURN n", "r"),
+        (
+            "MATCH (n) WHERE (n)-[:REL]->(:C)<-[s:REL]-(a {num: 5}) RETURN n",
+            "a",
+        ),
+    ] {
+        let err = analyze(query).unwrap_err();
+        check!(
+            err.to_string()
+                .contains(&format!("unresolved variable `{var}`")),
+            "query: {query}, got: {err}"
+        );
+    }
+    analyze("MATCH (n), (m) WHERE (n)-->(m) RETURN n").unwrap();
+    analyze("MATCH (n)-[r]->(m) WHERE NOT (m)-[r]->(n) RETURN size((n)-->()) AS d").unwrap();
+}

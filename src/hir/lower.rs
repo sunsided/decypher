@@ -1217,7 +1217,30 @@ impl<'cfg> LoweringContext<'cfg> {
                 return self.lower_expr(inner);
             }
             Expression::Pattern(rp) => {
+                // A pattern predicate can only match variables that are
+                // already bound (`WHERE (n)-->(m)` needs `m`).
+                let variables = std::iter::once(&rp.start)
+                    .chain(rp.chains.iter().map(|chain| &chain.node))
+                    .filter_map(|node| node.variable.as_ref())
+                    .chain(rp.chains.iter().filter_map(|chain| {
+                        chain
+                            .relationship
+                            .detail
+                            .as_ref()
+                            .and_then(|detail| detail.variable.as_ref())
+                    }));
+                for v in variables {
+                    if self.scope_stack.resolve(&v.name.name).is_none() {
+                        self.diagnostics.push(HirDiagnostic::UnknownVariable {
+                            name: v.name.name.clone(),
+                            span: v.name.span,
+                        });
+                    }
+                }
+                // Unknown names are bound locally so that lowering continues.
+                self.scope_stack.push_scope(&mut self.arenas);
                 let pattern = self.lower_relationships_pattern(rp);
+                self.scope_stack.pop_scope();
                 ExprKind::PatternExpr(pattern)
             }
             Expression::Exists(exists) => {
