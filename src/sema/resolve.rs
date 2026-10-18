@@ -333,7 +333,7 @@ impl<'ast> Visit<'ast> for NameResolver {
         let outer = self.scopes.clone();
         self.visit_regular_query(&node.query);
         self.scopes = outer;
-        for (name, span) in subquery_columns(&node.query) {
+        for (name, span) in node.query.returned_columns() {
             if let Err(first_span) = self.scopes.bind(&name, SymbolKind::ReturnAlias, span) {
                 self.emit(SemaError::RedeclaredVariable {
                     name,
@@ -614,30 +614,6 @@ fn bind_relationships_pattern(
 ///
 /// Cypher requires `AS` to introduce a new variable for property lookups
 /// and other expressions.
-/// The columns a `CALL` subquery returns: the alias or variable name of each
-/// final `RETURN` item. A unit subquery (no `RETURN`) returns none.
-fn subquery_columns(query: &RegularQuery) -> Vec<(String, crate::error::Span)> {
-    let body = match &query.single_query.kind {
-        SingleQueryKind::SinglePart(sp) => &sp.body,
-        SingleQueryKind::MultiPart(mp) => &mp.final_part.body,
-    };
-    let ret = match body {
-        SinglePartBody::Return(ret) => Some(ret),
-        SinglePartBody::Updating { return_clause, .. } => return_clause.as_ref(),
-        SinglePartBody::Finish(_) => None,
-    };
-    ret.map(|ret| {
-        ret.items
-            .iter()
-            .filter_map(|item| match &item.alias {
-                Some(alias) => Some((alias.name.name.clone(), alias.name.span)),
-                None => derive_projection_name(&item.expression),
-            })
-            .collect()
-    })
-    .unwrap_or_default()
-}
-
 fn derive_projection_name(expr: &Expression) -> Option<(String, crate::error::Span)> {
     match expr {
         Expression::Variable(v) => Some((v.name.name.clone(), v.name.span)),

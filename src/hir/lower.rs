@@ -476,7 +476,9 @@ impl<'cfg> LoweringContext<'cfg> {
     fn lower_call_subquery(&mut self, c: &CallSubquery) {
         let (query, imported) = self.lower_subquery(&c.query);
         // The subquery's returned columns become variables of the outer query.
-        let exported = subquery_columns(&c.query)
+        let exported = c
+            .query
+            .returned_columns()
             .into_iter()
             .map(|(name, span)| {
                 self.scope_stack
@@ -1843,38 +1845,6 @@ impl<'cfg> LoweringContext<'cfg> {
             _ => false,
         }
     }
-}
-
-/// The columns a subquery returns, as `(name, span)`: the `AS` alias or the
-/// variable/property name of each final `RETURN` item. A unit subquery (no
-/// `RETURN`) returns none; `RETURN *` is not expanded.
-fn subquery_columns(query: &RegularQuery) -> Vec<(String, Span)> {
-    let body = match &query.single_query.kind {
-        SingleQueryKind::SinglePart(sp) => &sp.body,
-        SingleQueryKind::MultiPart(mp) => &mp.final_part.body,
-    };
-    let ret = match body {
-        SinglePartBody::Return(ret) => Some(ret),
-        SinglePartBody::Updating { return_clause, .. } => return_clause.as_ref(),
-        SinglePartBody::Finish(_) => None,
-    };
-    ret.map(|ret| {
-        ret.items
-            .iter()
-            .map(|item| match &item.alias {
-                Some(alias) => (alias.name.name.clone(), alias.name.span),
-                None => {
-                    let name = match &item.expression {
-                        Expression::Variable(v) => v.name.name.clone(),
-                        Expression::PropertyLookup { property, .. } => property.name.name.clone(),
-                        other => crate::ast::ToCypher::to_cypher(other),
-                    };
-                    (name, expr_span(&item.expression))
-                }
-            })
-            .collect()
-    })
-    .unwrap_or_default()
 }
 
 fn expr_span(expr: &Expression) -> Span {

@@ -164,3 +164,26 @@ fn subqueries_import_export_and_keep_outer_scope() {
         );
     }
 }
+
+/// A `CALL` subquery exports only aliased or plain-variable columns, and a
+/// duplicate alias inside the subquery is reported once, not again at the
+/// `CALL` site.
+///
+/// Unit: `sema::analyze()`
+/// Precondition: An unaliased property item, and `RETURN 1 AS a, 2 AS a`
+///               inside a subquery.
+/// Expectation: The property item exports no `name`; the duplicate alias
+///              yields exactly one `RedeclaredVariable`.
+#[test]
+fn subquery_exports_aliases_and_variables_only() {
+    let query = parse("MATCH (n) CALL { WITH n RETURN n.name } RETURN name").expect("should parse");
+    assert!(analyze(&query).is_err());
+
+    let query = parse("CALL { RETURN 1 AS a, 2 AS a } RETURN a").expect("should parse");
+    let errs = analyze(&query).unwrap_err();
+    assert_eq!(errs.len(), 1, "got: {errs:?}");
+    assert!(matches!(
+        errs.errors[0].kind(),
+        ErrorKind::RedeclaredVariable { name, .. } if name == "a"
+    ));
+}

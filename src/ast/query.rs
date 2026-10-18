@@ -183,6 +183,40 @@ pub struct RegularQuery {
     pub unions: Vec<Union>,
 }
 
+impl RegularQuery {
+    /// The columns this query returns, as `(name, span)`: the `AS` alias or the
+    /// variable name of each final `RETURN` item, without duplicates.
+    ///
+    /// Used for the variables a `CALL { … }` subquery exports. Unaliased
+    /// non-variable items (`RETURN n.name`) define no column here, as Cypher
+    /// requires them to be aliased in a subquery; a unit subquery (no
+    /// `RETURN`) returns none, and `RETURN *` is not expanded.
+    pub(crate) fn returned_columns(&self) -> Vec<(String, Span)> {
+        let body = match &self.single_query.kind {
+            SingleQueryKind::SinglePart(sp) => &sp.body,
+            SingleQueryKind::MultiPart(mp) => &mp.final_part.body,
+        };
+        let ret = match body {
+            SinglePartBody::Return(ret) => Some(ret),
+            SinglePartBody::Updating { return_clause, .. } => return_clause.as_ref(),
+            SinglePartBody::Finish(_) => None,
+        };
+        let mut columns: Vec<(String, Span)> = Vec::new();
+        for item in ret.map(|r| r.items.as_slice()).unwrap_or_default() {
+            let column = match (&item.alias, &item.expression) {
+                (Some(alias), _) => (alias.name.name.clone(), alias.name.span),
+                (None, Expression::Variable(v)) => (v.name.name.clone(), v.name.span),
+                _ => continue,
+            };
+            // A duplicate alias is reported inside the subquery already.
+            if !columns.iter().any(|(name, _)| *name == column.0) {
+                columns.push(column);
+            }
+        }
+        columns
+    }
+}
+
 /// A single `UNION` or `UNION ALL` branch in a [`RegularQuery`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct Union {
