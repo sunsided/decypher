@@ -77,7 +77,14 @@ fn load_queries() -> Vec<TckQuery> {
 
 /// Runs `f`, turning a panic into an error message.
 fn guarded<T>(f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
-    catch_unwind(AssertUnwindSafe(f)).unwrap_or_else(|_| Err("panic".to_owned()))
+    catch_unwind(AssertUnwindSafe(f)).unwrap_or_else(|payload| {
+        let message = payload
+            .downcast_ref::<&str>()
+            .map(|s| (*s).to_owned())
+            .or_else(|| payload.downcast_ref::<String>().cloned())
+            .unwrap_or_else(|| "<non-string payload>".to_owned());
+        Err(format!("panic: {message}"))
+    })
 }
 
 /// Runs all checks for one query, returning `(check, message)` per failure.
@@ -122,8 +129,9 @@ fn check_query(q: &TckQuery) -> Vec<(&'static str, String)> {
     failures
 }
 
-/// Identifier and literal tokens of `source`, with escaped identifiers
-/// unescaped so that `` `a` `` and `a` compare equal.
+/// Identifier and literal tokens of `source`, normalised so that equivalent
+/// spellings (`` `a` `` and `a`, `0x1F` and `31`, `'x'` and `"x"`, `NULL` and
+/// `null`) compare equal.
 fn significant_tokens(source: &str) -> BTreeMap<String, usize> {
     use decypher::syntax::SyntaxKind;
     let mut counts = BTreeMap::new();
@@ -141,13 +149,39 @@ fn significant_tokens(source: &str) -> BTreeMap<String, usize> {
             // …and may switch quote style, so compare strings by content.
             SyntaxKind::STRING => {
                 let t = token.text();
-                format!("'{}'", t.get(1..t.len().saturating_sub(1)).unwrap_or(t))
+                format!(
+                    "'{}'",
+                    unescape(t.get(1..t.len().saturating_sub(1)).unwrap_or(t))
+                )
+            }
+            SyntaxKind::TRUE_KW | SyntaxKind::FALSE_KW | SyntaxKind::NULL_KW => {
+                token.text().to_ascii_lowercase()
             }
             _ => continue,
         };
         *counts.entry(text).or_insert(0) += 1;
     }
     counts
+}
+
+/// Decodes backslash escapes so that `'it\'s'` and `"it's"` compare equal.
+fn unescape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('n') => out.push('\n'),
+            Some('t') => out.push('\t'),
+            Some('r') => out.push('\r'),
+            Some(other) => out.push(other),
+            None => out.push('\\'),
+        }
+    }
+    out
 }
 
 /// A canonical rendering of a number literal's value.
@@ -215,6 +249,11 @@ fn tck_conformance() {
     }
 
     if std::env::var_os("TCK_BLESS").is_some() {
+        // Without `hir` no analyze failures are produced, so blessing would
+        // erase the analyze baseline.
+        if !cfg!(feature = "hir") {
+            panic!("TCK_BLESS requires the `hir` feature (drop --no-default-features)");
+        }
         let mut out = String::from(
             "# Known openCypher TCK failures; see tests/tck.rs.\n\
              # Format: <check> <query id>  # <error> | <query>\n\
