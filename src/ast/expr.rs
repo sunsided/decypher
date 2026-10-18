@@ -458,6 +458,51 @@ pub enum MapProjectionItem {
 }
 
 impl Expression {
+    /// The byte-offset span of this expression, or an empty span for
+    /// expressions that don't record one.
+    pub(crate) fn span(&self) -> Span {
+        match self {
+            Expression::Literal(lit) => match lit {
+                Literal::Number(n) => match n {
+                    NumberLiteral::Integer(_) => Span::new(0, 0),
+                    NumberLiteral::Float(_) => Span::new(0, 0),
+                },
+                Literal::String(s) => s.span,
+                Literal::Boolean(_) => Span::new(0, 0),
+                Literal::Null => Span::new(0, 0),
+                Literal::List(l) => l.span,
+                Literal::Map(m) => m.span,
+            },
+            Expression::Variable(v) => v.name.span,
+            Expression::Parameter(p) => p.span,
+            Expression::PropertyLookup { span, .. } => *span,
+            Expression::NodeLabels { span, .. } => *span,
+            Expression::BinaryOp { span, .. } => *span,
+            Expression::UnaryOp { span, .. } => *span,
+            Expression::Comparison { span, .. } => *span,
+            Expression::ListIndex { span, .. } => *span,
+            Expression::ListSlice { span, .. } => *span,
+            Expression::In { span, .. } => *span,
+            Expression::IsNull { span, .. } => *span,
+            Expression::FunctionCall(fc) => fc.span,
+            Expression::CountStar { span } => *span,
+            Expression::Case(case) => case.span,
+            Expression::ListComprehension(lc) => lc.span,
+            Expression::PatternComprehension(pc) => pc.span,
+            Expression::All(fe)
+            | Expression::Any(fe)
+            | Expression::None(fe)
+            | Expression::Single(fe) => fe.span,
+            Expression::Reduce(r) => r.span,
+            Expression::Parenthesized(_) => Span::new(0, 0),
+            Expression::Pattern(rp) => rp.span,
+            Expression::Exists(ex) => ex.span,
+            Expression::CountSubquery(c) => c.span,
+            Expression::CollectSubquery(c) => c.span,
+            Expression::MapProjection(mp) => mp.span,
+        }
+    }
+
     /// Whether this expression contains an aggregate call — `count(*)` or a
     /// function call for which `is_aggregate` holds — outside of subqueries,
     /// whose aggregates belong to the subquery.

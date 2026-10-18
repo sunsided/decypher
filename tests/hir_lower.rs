@@ -989,3 +989,18 @@ fn analyze_reports_duplicate_projection_columns() {
     analyze("MATCH (a), (b) RETURN a.name, b.name").unwrap();
     analyze("RETURN 1, 2").unwrap();
 }
+
+/// Aliases are not visible to other items of the same projection (#85
+/// review): the later `a` is still the matched node, and referencing an
+/// alias defined in the same `WITH` fails.
+///
+/// Unit: `analyze()`
+/// Precondition: A RETURN alias shadowing a node variable used again in the
+///               same RETURN, and `WITH 1 AS a, a + 1 AS b`.
+/// Expectation: The first lowers; the second fails with an unresolved `a`.
+#[test]
+fn analyze_aliases_are_not_visible_within_their_projection() {
+    analyze("MATCH (a) RETURN a.id IS NOT NULL AS a, a IS NOT NULL AS b").unwrap();
+    let err = analyze("WITH 1 AS a, a + 1 AS b RETURN b").unwrap_err();
+    check!(err.to_string().contains("unresolved variable `a`"));
+}

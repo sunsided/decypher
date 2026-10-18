@@ -1828,17 +1828,11 @@ impl<'cfg> LoweringContext<'cfg> {
     }
 
     /// Reports projection items that produce the same column name
-    /// (`RETURN 1 AS a, 2 AS a`). Unaliased items are named by their text.
+    /// (`RETURN 1 AS a, 2 AS a`, `RETURN count(*), count(*)`).
     fn report_duplicate_columns(&mut self, items: &[crate::ast::clause::ProjectionItem]) {
         let mut seen: HashMap<String, Span> = HashMap::new();
         for pi in items {
-            let (name, span) = match &pi.alias {
-                Some(a) => (a.name.name.clone(), a.name.span),
-                None => match &pi.expression {
-                    Expression::Variable(v) => (v.name.name.clone(), v.name.span),
-                    other => (crate::ast::ToCypher::to_cypher(other), expr_span(other)),
-                },
-            };
+            let (name, span) = pi.column();
             if let Some(&first) = seen.get(&name) {
                 self.diagnostics.push(HirDiagnostic::DuplicateVariable {
                     name,
@@ -1853,46 +1847,7 @@ impl<'cfg> LoweringContext<'cfg> {
 }
 
 fn expr_span(expr: &Expression) -> Span {
-    match expr {
-        Expression::Literal(lit) => match lit {
-            Literal::Number(n) => match n {
-                NumberLiteral::Integer(_) => Span::new(0, 0),
-                NumberLiteral::Float(_) => Span::new(0, 0),
-            },
-            Literal::String(s) => s.span,
-            Literal::Boolean(_) => Span::new(0, 0),
-            Literal::Null => Span::new(0, 0),
-            Literal::List(l) => l.span,
-            Literal::Map(m) => m.span,
-        },
-        Expression::Variable(v) => v.name.span,
-        Expression::Parameter(p) => p.span,
-        Expression::PropertyLookup { span, .. } => *span,
-        Expression::NodeLabels { span, .. } => *span,
-        Expression::BinaryOp { span, .. } => *span,
-        Expression::UnaryOp { span, .. } => *span,
-        Expression::Comparison { span, .. } => *span,
-        Expression::ListIndex { span, .. } => *span,
-        Expression::ListSlice { span, .. } => *span,
-        Expression::In { span, .. } => *span,
-        Expression::IsNull { span, .. } => *span,
-        Expression::FunctionCall(fc) => fc.span,
-        Expression::CountStar { span } => *span,
-        Expression::Case(case) => case.span,
-        Expression::ListComprehension(lc) => lc.span,
-        Expression::PatternComprehension(pc) => pc.span,
-        Expression::All(fe)
-        | Expression::Any(fe)
-        | Expression::None(fe)
-        | Expression::Single(fe) => fe.span,
-        Expression::Reduce(r) => r.span,
-        Expression::Parenthesized(_) => Span::new(0, 0),
-        Expression::Pattern(rp) => rp.span,
-        Expression::Exists(ex) => ex.span,
-        Expression::CountSubquery(c) => c.span,
-        Expression::CollectSubquery(c) => c.span,
-        Expression::MapProjection(mp) => mp.span,
-    }
+    expr.span()
 }
 
 #[cfg(test)]

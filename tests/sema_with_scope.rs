@@ -187,3 +187,37 @@ fn subquery_exports_aliases_and_variables_only() {
         ErrorKind::RedeclaredVariable { name, .. } if name == "a"
     ));
 }
+
+/// Projection columns: duplicates are reported whether aliased or not, and
+/// aliases are not visible to other items of the same projection, so a
+/// `RETURN` alias may shadow a variable of the query (TCK queries such as
+/// `MATCH (a) RETURN a.id IS NOT NULL AS a, a IS NOT NULL AS b`).
+///
+/// Unit: `sema::analyze()`
+/// Precondition: Duplicate aliased and unaliased columns; aliases shadowing
+///               and referenced within the same projection; ORDER BY on an
+///               alias.
+/// Expectation: Duplicates and same-projection alias references fail;
+///              shadowing and ORDER BY on aliases pass.
+#[test]
+fn projection_columns_and_alias_visibility() {
+    for q in [
+        "MATCH (a) RETURN a.id IS NOT NULL AS a, a IS NOT NULL AS b",
+        "MATCH (a) RETURN a.id AS a, a.id",
+        "MATCH (n) RETURN n.x AS k ORDER BY k",
+    ] {
+        let query = parse(q).expect("should parse");
+        let result = analyze(&query);
+        assert!(result.is_ok(), "query: {q}, analysis failed: {result:?}");
+    }
+    for q in [
+        "MATCH (n) RETURN count(*), count(*)",
+        "MATCH (n) RETURN n, n",
+        "RETURN 1 AS a, 2 AS a",
+        "WITH 1 AS a, a + 1 AS b RETURN b",
+    ] {
+        let query = parse(q).expect("should parse");
+        let errs = analyze(&query).unwrap_err();
+        assert_eq!(errs.len(), 1, "query: {q}, got: {errs:?}");
+    }
+}
