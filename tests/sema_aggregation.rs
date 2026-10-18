@@ -116,3 +116,30 @@ fn star_variables_are_grouping_keys() {
         assert!(found.is_empty(), "query: {query}, got: {found:?}");
     }
 }
+
+/// The aggregating `ORDER BY` items of an aggregating projection follow the
+/// same rule, with the projection's columns counting as grouping keys
+/// (openCypher TCK `ReturnOrderBy6`, `WithOrderBy4`).
+///
+/// Unit: `sema::analyze()`
+/// Precondition: `ORDER BY` repeating a complex grouping expression next to
+///               an aggregate, and `ORDER BY` over columns and keys.
+/// Expectation: The first is rejected naming the implicit keys; the others
+///              pass.
+#[test]
+fn order_by_implicit_grouping_keys_are_rejected() {
+    let query = "MATCH (me)--(you) RETURN me.age + you.age, count(*) AS cnt \
+                 ORDER BY me.age + you.age + count(*)";
+    assert_eq!(
+        non_grouping(query, &AggregateRegistry::default()),
+        vec!["me.age", "you.age"]
+    );
+    for query in [
+        "MATCH (n) RETURN n.k, count(*) AS c ORDER BY n.k + count(*)",
+        "MATCH (n) RETURN n.k AS k, count(*) AS c ORDER BY c + count(*), k",
+        "MATCH (n) WITH n, count(*) AS c ORDER BY n.x + count(*) RETURN n",
+    ] {
+        let found = non_grouping(query, &AggregateRegistry::default());
+        assert!(found.is_empty(), "query: {query}, got: {found:?}");
+    }
+}

@@ -102,7 +102,8 @@ impl AggregationChecker<'_> {
             SingleQueryKind::SinglePart(sp) => self.check_body(&sp.body),
             SingleQueryKind::MultiPart(mp) => {
                 for part in &mp.parts {
-                    self.check_projection(&part.with.items, part.with.star, part.with.span);
+                    let with = &part.with;
+                    self.check_projection(&with.items, with.star, with.order.as_ref(), with.span);
                 }
                 self.check_body(&mp.final_part.body);
             }
@@ -117,14 +118,29 @@ impl AggregationChecker<'_> {
             SinglePartBody::Finish(_) => None,
         };
         if let Some(ret) = ret {
-            self.check_projection(&ret.items, ret.star, ret.span);
+            self.check_projection(&ret.items, ret.star, ret.order.as_ref(), ret.span);
         }
     }
 
     /// Report the implicit grouping keys of a `WITH` or `RETURN` item list.
-    fn check_projection(&mut self, items: &[ProjectionItem], star: bool, span: Span) {
+    fn check_projection(
+        &mut self,
+        items: &[ProjectionItem],
+        star: bool,
+        order: Option<&Order>,
+        span: Span,
+    ) {
         let is_aggregate = |fc: &FunctionInvocation| self.aggregates.is_aggregate_call(fc);
-        let non_grouping: Vec<String> = implicit_grouping_keys(items, star, &is_aggregate)
+        let mut violations = implicit_grouping_keys(items, star, &is_aggregate);
+        if let Some(order) = order {
+            violations.extend(implicit_grouping_keys_in_order(
+                items,
+                star,
+                order,
+                &is_aggregate,
+            ));
+        }
+        let non_grouping: Vec<String> = violations
             .into_iter()
             .flat_map(|(_, names)| names)
             .collect();
@@ -148,33 +164,88 @@ pub(crate) fn implicit_grouping_keys(
     star: bool,
     is_aggregate: &dyn Fn(&FunctionInvocation) -> bool,
 ) -> Vec<(Span, Vec<String>)> {
-    let (aggregating, keys): (Vec<_>, Vec<_>) = items
+    if !items
         .iter()
-        .partition(|item| item.expression.contains_aggregate(is_aggregate));
-    if aggregating.is_empty() {
+        .any(|item| item.expression.contains_aggregate(is_aggregate))
+    {
         return Vec::new();
     }
-    let keys: HashSet<String> = keys
+    let keys = grouping_keys(items, is_aggregate);
+    items
         .iter()
+        .filter_map(|item| ungrouped_references(&item.expression, &keys, star, is_aggregate))
+        .collect()
+}
+
+/// For each `ORDER BY` item of an aggregating projection that contains an
+/// aggregate, the references it makes outside its aggregate calls that are
+/// neither grouping keys nor columns of the projection, with the sort item's
+/// span (`RETURN n.a + n.b, count(*) ORDER BY n.a + n.b + count(*)` yields
+/// `n.a` and `n.b`).
+pub(crate) fn implicit_grouping_keys_in_order(
+    items: &[ProjectionItem],
+    star: bool,
+    order: &Order,
+    is_aggregate: &dyn Fn(&FunctionInvocation) -> bool,
+) -> Vec<(Span, Vec<String>)> {
+    if !items
+        .iter()
+        .any(|item| item.expression.contains_aggregate(is_aggregate))
+    {
+        return Vec::new();
+    }
+    let mut keys = grouping_keys(items, is_aggregate);
+    keys.extend(
+        items
+            .iter()
+            .filter_map(|item| match (&item.alias, &item.expression) {
+                (Some(alias), _) => Some(alias.name.name.clone()),
+                (None, Expression::Variable(v)) => Some(v.name.name.clone()),
+                _ => None,
+            }),
+    );
+    order
+        .items
+        .iter()
+        .filter_map(|sort| ungrouped_references(&sort.expression, &keys, star, is_aggregate))
+        .collect()
+}
+
+/// The printed grouping-key expressions of a projection: its non-aggregate
+/// items that are variables or property accesses.
+fn grouping_keys(
+    items: &[ProjectionItem],
+    is_aggregate: &dyn Fn(&FunctionInvocation) -> bool,
+) -> HashSet<String> {
+    items
+        .iter()
+        .filter(|item| !item.expression.contains_aggregate(is_aggregate))
         .map(|item| unparenthesized(&item.expression))
         .filter(|expr| is_reference(expr))
         .map(|expr| expr.to_cypher())
-        .collect();
-
-    aggregating
-        .into_iter()
-        .filter_map(|item| {
-            let mut finder = UngroupedReferences {
-                is_aggregate,
-                star,
-                keys: &keys,
-                locals: Vec::new(),
-                found: Vec::new(),
-            };
-            finder.visit_expression(&item.expression);
-            (!finder.found.is_empty()).then(|| (item.expression.span(), finder.found))
-        })
         .collect()
+}
+
+/// The references `expr` makes outside its aggregate calls that are not in
+/// `keys`, with its span, if it contains an aggregate and any such reference.
+fn ungrouped_references(
+    expr: &Expression,
+    keys: &HashSet<String>,
+    star: bool,
+    is_aggregate: &dyn Fn(&FunctionInvocation) -> bool,
+) -> Option<(Span, Vec<String>)> {
+    if !expr.contains_aggregate(is_aggregate) {
+        return None;
+    }
+    let mut finder = UngroupedReferences {
+        is_aggregate,
+        star,
+        keys,
+        locals: Vec::new(),
+        found: Vec::new(),
+    };
+    finder.visit_expression(expr);
+    (!finder.found.is_empty()).then(|| (expr.span(), finder.found))
 }
 
 fn unparenthesized(mut expr: &Expression) -> &Expression {

@@ -782,6 +782,7 @@ impl<'cfg> LoweringContext<'cfg> {
         self.lower_order_skip_limit(
             &w.items,
             &columns,
+            w.star,
             w.distinct,
             w.order.as_ref(),
             w.skip.as_ref(),
@@ -807,6 +808,7 @@ impl<'cfg> LoweringContext<'cfg> {
         self.lower_order_skip_limit(
             &r.items,
             &columns,
+            r.star,
             r.distinct,
             r.order.as_ref(),
             r.skip.as_ref(),
@@ -828,6 +830,7 @@ impl<'cfg> LoweringContext<'cfg> {
         &mut self,
         items: &[crate::ast::clause::ProjectionItem],
         columns: &[BindingId],
+        star: bool,
         distinct: bool,
         order: Option<&Order>,
         skip: Option<&Expression>,
@@ -835,6 +838,13 @@ impl<'cfg> LoweringContext<'cfg> {
         outer: ScopeMark,
     ) {
         if let Some(order) = order {
+            let is_aggregate = |fc: &FunctionInvocation| self.is_aggregate_call(fc);
+            for (span, non_grouping) in
+                crate::sema::implicit_grouping_keys_in_order(items, star, order, &is_aggregate)
+            {
+                self.diagnostics
+                    .push(HirDiagnostic::InvalidAggregation { non_grouping, span });
+            }
             let narrow = distinct || self.has_any_aggregate(items);
             let sort_items = self.lower_after_projection(items, columns, narrow, outer, |this| {
                 order

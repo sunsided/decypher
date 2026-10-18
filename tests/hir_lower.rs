@@ -1291,3 +1291,27 @@ fn analyze_reports_misplaced_aggregates() {
         }
     }
 }
+
+/// Aggregating `ORDER BY` items may not use implicit grouping keys either.
+///
+/// Unit: `analyze()`
+/// Precondition: TCK `ReturnOrderBy6 [5]` / `WithOrderBy4 [20]` queries and
+///               a valid `ORDER BY` over a grouping key and a column.
+/// Expectation: `AggregationMix` for the first two; success for the third.
+#[test]
+fn analyze_reports_implicit_grouping_keys_in_order_by() {
+    use decypher::ErrorKind;
+    for query in [
+        "MATCH (me)--(you) RETURN me.age + you.age, count(*) AS cnt \
+         ORDER BY me.age + you.age + count(*)",
+        "MATCH (me)--(you) WITH me.age + you.age, count(*) AS cnt \
+         ORDER BY me.age + you.age + count(*) RETURN *",
+    ] {
+        let err = analyze(query).unwrap_err();
+        check!(
+            matches!(err.kind, ErrorKind::AggregationMix { .. }),
+            "query: {query}, got: {err}"
+        );
+    }
+    analyze("MATCH (n) RETURN n.k AS k, count(*) AS c ORDER BY k, c + count(*)").unwrap();
+}
