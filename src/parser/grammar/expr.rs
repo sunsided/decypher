@@ -932,6 +932,16 @@ fn parse_atom(p: &mut Parser) {
                 p.builder.finish_node();
             }
         }
+        // Every keyword with a meaning of its own in expression position has
+        // been handled above, so any other non-reserved keyword here is a name:
+        // `WITH collect(row) AS rows UNWIND rows AS node RETURN node`.
+        _ if is_keyword_as_name(p) => {
+            p.start_node(SyntaxKind::VARIABLE);
+            p.start_node(SyntaxKind::SYMBOLIC_NAME);
+            p.bump();
+            p.builder.finish_node();
+            p.builder.finish_node();
+        }
         _ => {
             if p.current_len() > 0 {
                 let start = p.byte_pos;
@@ -1174,7 +1184,10 @@ fn parse_bracket_expr(p: &mut Parser) {
         }
     };
     if let Some(tok) = first {
-        if tok.kind == SyntaxKind::IDENT || tok.kind == SyntaxKind::ESCAPED_IDENT {
+        if tok.kind == SyntaxKind::IDENT
+            || tok.kind == SyntaxKind::ESCAPED_IDENT
+            || keyword_can_be_name(tok.kind)
+        {
             match next_significant(&mut lx) {
                 Some(SyntaxKind::KW_IN) => is_list_comprehension = true,
                 // `[p = (a)-->(b) | …]`; `[x = 1]` is a list holding a
@@ -1428,7 +1441,15 @@ fn parse_map_entry(p: &mut Parser) {
     } else {
         p.start_node(SyntaxKind::PROPERTY_KEY_NAME);
         p.start_node(SyntaxKind::SYMBOLIC_NAME);
-        if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) || is_keyword_as_name(p) {
+        // Property keys may be any name, including the reserved literals
+        // `null`, `true` and `false` (`{null: 'Mats'}`).
+        if p.at(SyntaxKind::IDENT)
+            || p.at(SyntaxKind::ESCAPED_IDENT)
+            || is_keyword_as_name(p)
+            || p.at(SyntaxKind::NULL_KW)
+            || p.at(SyntaxKind::TRUE_KW)
+            || p.at(SyntaxKind::FALSE_KW)
+        {
             p.bump();
         }
         p.builder.finish_node();
@@ -3116,8 +3137,14 @@ fn parse_finish_clause(p: &mut Parser) {
 // ── Helpers ─────────────────────────────────────────────────────
 
 fn is_keyword_as_name(p: &Parser) -> bool {
+    keyword_can_be_name(p.current_kind())
+}
+
+/// Whether the non-reserved keyword `kind` may be used as a name (variable,
+/// alias, label, property key, …).
+fn keyword_can_be_name(kind: SyntaxKind) -> bool {
     matches!(
-        p.current_kind(),
+        kind,
         SyntaxKind::KW_ACCESS
             | SyntaxKind::KW_ADD
             | SyntaxKind::KW_ALL

@@ -590,3 +590,40 @@ fn test_number_literals() {
         check_roundtrip(input, printed);
     }
 }
+
+/// Non-reserved keywords can be used as variables, and the reserved literals
+/// as map keys (#64).
+///
+/// Unit: `parse()` / keyword-as-name handling
+/// Precondition: Variables named `node`, `types`, `rows`, `match` and `key`
+///               (including as a list comprehension variable), and map keys
+///               `null`, `true`, `false`.
+/// Expectation: Each query parses and prints back with the same names.
+#[test]
+fn test_keywords_as_names() {
+    for (input, printed) in [
+        ("RETURN node", "RETURN node;"),
+        (
+            "WITH 1 AS node RETURN node.x",
+            "WITH 1 AS node RETURN node.x;",
+        ),
+        (
+            "WITH 1 AS rows RETURN size(rows)",
+            "WITH 1 AS rows RETURN size(rows);",
+        ),
+        (
+            "WITH 1 AS match RETURN match",
+            "WITH 1 AS `match` RETURN `match`;",
+        ),
+        (
+            "WITH [1] AS k RETURN [key IN k | key]",
+            "WITH [1] AS k RETURN [key IN k | key];",
+        ),
+        (
+            "RETURN {null: 1, true: 2, false: 3} AS m",
+            "RETURN {`null`: 1, `true`: 2, `false`: 3} AS m;",
+        ),
+    ] {
+        check_roundtrip(input, printed);
+    }
+}
