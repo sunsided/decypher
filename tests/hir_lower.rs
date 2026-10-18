@@ -1060,3 +1060,180 @@ fn analyze_label_expressions() {
         Some(LabelExpr::Not(_))
     ));
 }
+
+/// `WITH` replaces the visible variables by its columns (#96).
+///
+/// Unit: `analyze()`
+/// Precondition: Variables used after a `WITH` that did not project them,
+///               including an unaliased `WITH n.name` that does not bind
+///               `name`, and `ORDER BY` after `DISTINCT` or aggregation.
+/// Expectation: `analyze` fails with an unresolved variable.
+#[test]
+fn analyze_with_hides_unprojected_variables() {
+    for (query, var) in [
+        ("MATCH (p)-->(m) WITH p RETURN m", "m"),
+        ("MATCH (a), (b) WITH a, b WITH a RETURN b", "b"),
+        ("MATCH (n) WITH n.name RETURN name", "name"),
+        ("MATCH (n) WITH n MATCH (n)-->(m) WITH n RETURN m", "m"),
+        ("MATCH (a), (c) WITH a WITH a ORDER BY c RETURN a", "c"),
+        ("MATCH (a) RETURN DISTINCT a.name ORDER BY a.age", "a"),
+        (
+            "MATCH (me)--(you) WITH count(you.age) AS agg ORDER BY me.age RETURN *",
+            "me",
+        ),
+        ("MATCH (n) WITH count(*) AS c WHERE n.x > 1 RETURN c", "n"),
+        (
+            "MATCH (n) WITH n.x AS x CALL { RETURN n AS m } RETURN m",
+            "n",
+        ),
+        ("MATCH (n), (m) WITH n RETURN *, m", "m"),
+    ] {
+        let err = analyze(query).unwrap_err();
+        check!(
+            err.to_string()
+                .contains(&format!("unresolved variable `{var}`")),
+            "query: {query}, got: {err}"
+        );
+    }
+}
+
+/// What stays visible across a `WITH` (#96): its columns, everything for
+/// `WITH *`, and for its own `WHERE` and `ORDER BY` also the variables it
+/// read, as long as aggregation (or, for `ORDER BY`, `DISTINCT`) did not
+/// collapse the rows. `ORDER BY` after a narrowing projection may repeat a
+/// projected expression.
+///
+/// Unit: `analyze()`
+/// Precondition: Queries the openCypher TCK accepts (`WithWhere7`,
+///               `WithOrderBy*`, `ReturnOrderBy*`).
+/// Expectation: `analyze` succeeds.
+#[test]
+fn analyze_with_keeps_projected_and_readable_variables() {
+    for query in [
+        "MATCH (p)-->(m) WITH p, m.x AS x RETURN p, x",
+        "MATCH (p)-->(m) WITH * RETURN p, m",
+        "MATCH (p)-->(m) WITH *, m.x AS x RETURN p, m, x",
+        "MATCH (a) WITH a.name2 AS name WHERE a.name2 = 'B' RETURN name",
+        "MATCH (a) WITH DISTINCT a.name2 AS name WHERE a.name2 = 'B' RETURN name",
+        "MATCH (a) WITH a.name AS name ORDER BY a.age RETURN name",
+        "MATCH (a) RETURN a.name AS name ORDER BY a.age",
+        "MATCH (a) RETURN DISTINCT a.name ORDER BY a.name",
+        "MATCH (n) WITH n.k AS k, count(*) AS c WHERE c > 1 RETURN k",
+        "MATCH (n) RETURN n.k, count(*) ORDER BY n.k, count(*)",
+        "MATCH (n) WITH n CALL { WITH n RETURN n.x AS x } RETURN n, x",
+        "MATCH (n) WITH n MATCH (n)-->(m) RETURN n, m",
+    ] {
+        if let Err(err) = analyze(query) {
+            panic!("query: {query}, got: {err}");
+        }
+    }
+}
+
+/// Lowering reports aggregating items that use references which are not
+/// grouping keys (#98), deciding what is an aggregate with the registry.
+///
+/// Unit: `analyze()` / `analyze_with_config()`
+/// Precondition: `n.x + count(n)` without and with `n.x` as a grouping key;
+///               an ungrouped property next to a registered aggregate.
+/// Expectation: `AggregationMix` naming `n.x` where `n.x` is not a grouping
+///              key; success otherwise.
+#[test]
+fn analyze_reports_implicit_grouping_keys() {
+    use decypher::ErrorKind;
+    for query in [
+        "MATCH (n) RETURN n.x + count(n)",
+        "MATCH (n) WITH n.x + count(n) AS y RETURN y",
+        "CALL { MATCH (n) RETURN n.x + count(n) AS y } RETURN y",
+    ] {
+        let err = analyze(query).unwrap_err();
+        check!(
+            err.kind
+                == ErrorKind::AggregationMix {
+                    non_grouping: vec!["n.x".into()]
+                },
+            "query: {query}, got: {err}"
+        );
+    }
+    analyze("MATCH (n) RETURN n.x, n.x + count(n) AS y").unwrap();
+    analyze("MATCH (n) RETURN n, n.x + count(n) AS y").unwrap();
+    analyze("MATCH (n) WITH toUpper(n.name) AS k, count(*) AS c RETURN k, c").unwrap();
+
+    let query = "MATCH (n) RETURN n.x + apoc.agg.percentiles(n.score) AS p";
+    analyze(query).unwrap();
+    let mut config = LowerConfig::default();
+    config.aggregates.register("apoc.agg.percentiles");
+    let err = decypher::analyze_with_config(query, &config).unwrap_err();
+    check!(matches!(err.kind, ErrorKind::AggregationMix { .. }));
+}
+
+/// Variables passed through by `WITH *` / `RETURN *` are grouping keys of an
+/// aggregating projection: the `Aggregate` groups by them and a trailing
+/// `Project` still outputs them, and expressions over them are not implicit
+/// grouping keys (#102 review).
+///
+/// Unit: `analyze()`
+/// Precondition: `*` next to `count(*)`, `count(*) + 1` and `n.x + count(*)`.
+/// Expectation: Lowering succeeds; every `Aggregate` groups by `n`.
+#[test]
+fn analyze_star_variables_are_grouping_keys() {
+    for query in [
+        "MATCH (n) RETURN DISTINCT *, count(*) AS c",
+        "MATCH (n) RETURN *, count(*) + 1 AS c",
+        "MATCH (n) RETURN *, n.x + count(*) AS c",
+        "MATCH (n) WITH *, n.x + count(*) AS c RETURN n, c",
+        "MATCH (n) WITH *, count(*) AS c RETURN n, c",
+    ] {
+        let hir = analyze(query).unwrap_or_else(|e| panic!("query: {query}, got: {e}"));
+        let ops = &hir.parts[0].operations;
+        let aggregate = ops
+            .iter()
+            .find_map(|op| match op {
+                Operation::Aggregate(a) => Some(a),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("expected an Aggregate operation: {query}"));
+        let keys: Vec<_> = aggregate
+            .grouping_keys
+            .iter()
+            .map(|key| hir.arenas.bindings.get(key.alias).name.as_str())
+            .collect();
+        check!(keys == ["n"], "query: {query}");
+        if let Some(Operation::Project(project)) = ops
+            .iter()
+            .rev()
+            .find(|op| matches!(op, Operation::Project(_)))
+        {
+            check!(
+                project.items[0].alias == aggregate.grouping_keys[0].alias,
+                "query: {query}"
+            );
+        }
+    }
+}
+
+/// A clause that introduces a variable whose name is already visible
+/// reports a redeclaration (#102 review).
+///
+/// Unit: `analyze()`
+/// Precondition: `UNWIND`, `YIELD`, `LOAD CSV`, `FOREACH` and `CALL { … }`
+///               rebinding a visible name.
+/// Expectation: `analyze` fails with a redeclared variable; rebinding after a
+///              `WITH` that dropped the name is fine.
+#[test]
+fn analyze_reports_redeclared_clause_variables() {
+    for query in [
+        "UNWIND [1] AS x UNWIND [2] AS x RETURN x",
+        "MATCH (n) UNWIND [1] AS n RETURN n",
+        "MATCH (label) CALL db.labels() YIELD label RETURN label",
+        "MATCH (row) LOAD CSV FROM 'f' AS row RETURN row",
+        "MATCH (n) FOREACH (n IN [1] | CREATE (:A))",
+        "MATCH (n) CALL { RETURN 1 AS n } RETURN n",
+    ] {
+        let err = analyze(query).unwrap_err();
+        check!(
+            err.to_string().contains("redeclared"),
+            "query: {query}, got: {err}"
+        );
+    }
+    analyze("MATCH (n) WITH n.x AS x UNWIND [1] AS n RETURN n, x").unwrap();
+}

@@ -225,8 +225,9 @@ pub fn parse(source: &str) -> Result<JsValue, JsError> {
     to_js(&outcome)
 }
 
-/// Check a query for syntax errors and unresolved variables (including ones
-/// dropped from scope by `WITH`) without returning the tree.
+/// Check a query for syntax errors, unresolved variables (including ones
+/// dropped from scope by `WITH`) and invalid aggregations without returning
+/// the tree.
 #[wasm_bindgen(unchecked_return_type = "Result<{}>")]
 pub fn validate(source: &str) -> Result<JsValue, JsError> {
     #[derive(Serialize)]
@@ -237,17 +238,9 @@ pub fn validate(source: &str) -> Result<JsValue, JsError> {
         Err(errors) => return to_js(&Outcome::<Empty>::err(errors)),
     };
 
-    // Name resolution enforces scoping (e.g. variables dropped by `WITH`),
-    // which HIR lowering does not; lowering catches redeclarations and
-    // unsupported constructs. Both report unresolved variables, so lower only
-    // once names resolve to avoid duplicates. `sema::check_aggregation` is left
-    // out: it does not know user-defined aggregates and rejects valid queries.
-    let outcome = match decypher::sema::resolve_names(&query) {
+    let outcome = match decypher::hir::lower::lower(&query, &Default::default()) {
+        Ok(_) => Outcome::ok(Empty {}),
         Err(errors) => Outcome::err(diagnostics(errors.iter(), source)),
-        Ok(()) => match decypher::hir::lower::lower(&query, &Default::default()) {
-            Ok(_) => Outcome::ok(Empty {}),
-            Err(errors) => Outcome::err(diagnostics(errors.iter(), source)),
-        },
     };
     to_js(&outcome)
 }

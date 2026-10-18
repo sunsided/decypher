@@ -10,17 +10,23 @@
 //!    [`SemaError::UnresolvedVariable`] and [`SemaError::RedeclaredVariable`]
 //!    diagnostics.
 //!
-//! 2. **Aggregation validation** ([`check_aggregation`]) — checks that `WITH`
-//!    and `RETURN` projections do not mix aggregate and non-aggregate
-//!    (non-grouping) expressions, and that `DISTINCT` is used in valid
-//!    positions.
+//! 2. **Aggregation validation** ([`check_aggregation`]) — checks that the
+//!    aggregating items of `WITH` and `RETURN` projections use no variables or
+//!    properties outside their aggregates that are not grouping keys
+//!    (`RETURN n.a + count(*)`). [`check_aggregation_with`] and
+//!    [`analyze_with`] take an [`AggregateRegistry`] for user-defined
+//!    aggregates.
 
+mod aggregate_registry;
 mod aggregation;
 mod error;
 mod resolve;
 mod scope;
 
-pub use aggregation::{AggregationViolation, check_aggregation};
+pub use aggregate_registry::AggregateRegistry;
+#[cfg(feature = "hir")]
+pub(crate) use aggregation::implicit_grouping_keys;
+pub use aggregation::{AggregationViolation, check_aggregation, check_aggregation_with};
 pub use error::SemaError;
 pub use resolve::{ResolutionResult, resolve_names};
 pub use scope::{ScopeStack, SymbolKind};
@@ -46,6 +52,25 @@ use crate::error::Diagnostics;
 /// assert!(sema::analyze(&query).is_ok());
 /// ```
 pub fn analyze(query: &Query) -> Result<(), Diagnostics> {
+    analyze_with(query, &AggregateRegistry::default())
+}
+
+/// Perform full semantic analysis on `query`, treating the functions in
+/// `aggregates` as aggregates.
+///
+/// Identical to [`analyze`] except for user-defined or plugin aggregates.
+///
+/// # Example
+///
+/// ```
+/// use decypher::{parse, sema};
+///
+/// let query = parse("MATCH (n) RETURN n.k, apoc.agg.median(n.v) AS m").unwrap();
+/// let mut aggregates = sema::AggregateRegistry::default();
+/// aggregates.register("apoc.agg.median");
+/// assert!(sema::analyze_with(&query, &aggregates).is_ok());
+/// ```
+pub fn analyze_with(query: &Query, aggregates: &AggregateRegistry) -> Result<(), Diagnostics> {
     let mut diagnostics = Diagnostics { errors: Vec::new() };
 
     // Phase 1: Name resolution
@@ -54,7 +79,7 @@ pub fn analyze(query: &Query) -> Result<(), Diagnostics> {
     }
 
     // Phase 2: Aggregation rules
-    check_aggregation(query, &mut diagnostics);
+    check_aggregation_with(query, aggregates, &mut diagnostics);
 
     if diagnostics.is_empty() {
         Ok(())

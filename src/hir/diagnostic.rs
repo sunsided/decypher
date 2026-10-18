@@ -36,8 +36,11 @@ pub enum HirDiagnostic {
         /// Source location of the out-of-scope reference.
         span: Span,
     },
-    /// An aggregation was used in a context that does not allow it.
+    /// A projection item combines an aggregate with variables or properties
+    /// that are not grouping keys (`RETURN n.a + count(*)`).
     InvalidAggregation {
+        /// The offending references, as printed Cypher (`n.a`).
+        non_grouping: Vec<String>,
         /// Source location of the invalid aggregation expression.
         span: Span,
     },
@@ -100,8 +103,8 @@ impl HirDiagnostic {
                 name: name.clone(),
                 first_span: *first,
             },
-            HirDiagnostic::InvalidAggregation { .. } => ErrorKind::AggregationMix {
-                non_grouping: vec![],
+            HirDiagnostic::InvalidAggregation { non_grouping, .. } => ErrorKind::AggregationMix {
+                non_grouping: non_grouping.clone(),
             },
             HirDiagnostic::UnsupportedFeature { feature, .. } => ErrorKind::Unsupported {
                 production: std::borrow::Cow::Owned(feature.clone()),
@@ -118,7 +121,7 @@ impl HirDiagnostic {
             HirDiagnostic::UnknownVariable { span, .. } => *span,
             HirDiagnostic::DuplicateVariable { second: span, .. } => *span,
             HirDiagnostic::VariableOutOfScope { span, .. } => *span,
-            HirDiagnostic::InvalidAggregation { span } => *span,
+            HirDiagnostic::InvalidAggregation { span, .. } => *span,
             HirDiagnostic::InvalidDeleteTarget { span } => *span,
             HirDiagnostic::InvalidRelationshipPattern { span } => *span,
             HirDiagnostic::UnknownFunction { span, .. } => *span,

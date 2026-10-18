@@ -10,9 +10,10 @@
 
 use std::collections::HashMap;
 
+use crate::ast::ToCypher;
 use crate::ast::clause::{
-    Create, Delete, Foreach, ForeachUpdate, LoadCsv, Match, Merge, Remove, RemoveItem, Return, Set,
-    SetItem, SetOperator, Unwind, With,
+    Create, Delete, Foreach, ForeachUpdate, LoadCsv, Match, Merge, Order, Remove, RemoveItem,
+    Return, Set, SetItem, SetOperator, Unwind, With,
 };
 use crate::ast::expr::{
     BinaryOperator, ComparisonOperator, ExistsInner, Expression, FunctionInvocation, Literal,
@@ -102,6 +103,9 @@ struct LoweringContext<'cfg> {
     scope_stack: LoweringScopeStack,
     current_part_ops: Vec<Operation>,
     config: &'cfg LowerConfig,
+    /// While lowering the `ORDER BY` of a `DISTINCT` or aggregating
+    /// projection: each item's printed expression and its column.
+    projected_columns: Vec<(String, BindingId)>,
 }
 
 /// Tracks variable bindings in a stack of scope frames during lowering.
@@ -110,6 +114,16 @@ struct LoweringScopeStack {
     scopes: Vec<ScopeId>,
     /// Per-scope name→BindingId maps, parallel to `scopes`.
     bindings_by_name: Vec<HashMap<String, BindingId>>,
+    /// Index of the outermost visible frame. A `WITH` hides every frame
+    /// below the one holding its projected columns.
+    barrier: usize,
+}
+
+/// The extent of a [`LoweringScopeStack`], restored when leaving a query.
+#[derive(Clone, Copy)]
+struct ScopeMark {
+    depth: usize,
+    barrier: usize,
 }
 
 impl LoweringScopeStack {
@@ -118,7 +132,28 @@ impl LoweringScopeStack {
         Self {
             scopes: Vec::new(),
             bindings_by_name: Vec::new(),
+            barrier: 0,
         }
+    }
+
+    /// The current extent of the stack, for [`Self::reset`].
+    fn mark(&self) -> ScopeMark {
+        ScopeMark {
+            depth: self.scopes.len(),
+            barrier: self.barrier,
+        }
+    }
+
+    /// Drops every frame pushed since `mark` and restores its visibility.
+    fn reset(&mut self, mark: ScopeMark) {
+        self.scopes.truncate(mark.depth);
+        self.bindings_by_name.truncate(mark.depth);
+        self.barrier = mark.barrier;
+    }
+
+    /// Hides every frame below the innermost one.
+    fn hide_outer(&mut self) {
+        self.barrier = self.scopes.len().saturating_sub(1);
     }
 
     /// Allocate a new scope in the arena and push it onto the stack.
@@ -140,6 +175,18 @@ impl LoweringScopeStack {
     fn pop_scope(&mut self) {
         self.scopes.pop();
         self.bindings_by_name.pop();
+        self.barrier = self.barrier.min(self.scopes.len().saturating_sub(1));
+    }
+
+    /// Makes the existing binding `id` visible as `name` in the innermost
+    /// scope, as `WITH *` does for every column it passes through.
+    fn import(&mut self, arenas: &mut HirArenas, name: &str, id: BindingId) {
+        let scope_id = *self.scopes.last().unwrap();
+        arenas.scopes.get_mut(scope_id).bindings.push(id);
+        self.bindings_by_name
+            .last_mut()
+            .unwrap()
+            .insert(name.to_string(), id);
     }
 
     /// Bind `name` in the current innermost scope.
@@ -181,12 +228,31 @@ impl LoweringScopeStack {
     ///
     /// Returns `None` if the name is not bound in any visible scope.
     fn resolve(&self, name: &str) -> Option<BindingId> {
-        for map in self.bindings_by_name.iter().rev() {
-            if let Some(&id) = map.get(name) {
-                return Some(id);
+        self.visible_frames()
+            .rev()
+            .find_map(|map| map.get(name).copied())
+    }
+
+    /// The frames not hidden by a `WITH`, outermost first.
+    fn visible_frames(&self) -> impl DoubleEndedIterator<Item = &HashMap<String, BindingId>> {
+        self.bindings_by_name.iter().skip(self.barrier)
+    }
+
+    /// Every visible variable, sorted by name; the innermost binding wins for
+    /// shadowed names.
+    fn visible(&self) -> Vec<(String, BindingId)> {
+        let mut visible: HashMap<&str, BindingId> = HashMap::new();
+        for frame in self.visible_frames() {
+            for (name, &id) in frame {
+                visible.insert(name, id);
             }
         }
-        None
+        let mut visible: Vec<(String, BindingId)> = visible
+            .into_iter()
+            .map(|(name, id)| (name.to_string(), id))
+            .collect();
+        visible.sort_by(|a, b| a.0.cmp(&b.0));
+        visible
     }
 }
 
@@ -199,6 +265,7 @@ impl<'cfg> LoweringContext<'cfg> {
             scope_stack: LoweringScopeStack::new(),
             current_part_ops: Vec::new(),
             config,
+            projected_columns: Vec::new(),
         }
     }
 
@@ -250,46 +317,25 @@ impl<'cfg> LoweringContext<'cfg> {
     }
 
     fn lower_single_part_query(&mut self, sp: &SinglePartQuery) -> Vec<QueryPart> {
+        let mark = self.scope_stack.mark();
         let in_scope = self.scope_stack.push_scope(&mut self.arenas);
 
         for rc in &sp.reading_clauses {
             self.lower_reading_clause(rc);
         }
+        let out_scope = self.lower_single_part_body(&sp.body);
 
-        match &sp.body {
-            SinglePartBody::Return(ret) => {
-                self.lower_return(ret);
-            }
-            SinglePartBody::Updating {
-                updating,
-                return_clause,
-            } => {
-                for uc in updating {
-                    self.lower_updating_clause(uc);
-                }
-                if let Some(ret) = return_clause {
-                    self.lower_return(ret);
-                } else {
-                    self.current_part_ops.push(Operation::Finish);
-                }
-            }
-            SinglePartBody::Finish(_) => {
-                self.current_part_ops.push(Operation::Finish);
-            }
-        }
-
-        let out_scope = self.scope_stack.push_scope(&mut self.arenas);
         let part = QueryPart {
             input_scope: in_scope,
             operations: std::mem::take(&mut self.current_part_ops),
             output_scope: out_scope,
         };
-        self.scope_stack.pop_scope();
-        self.scope_stack.pop_scope();
+        self.scope_stack.reset(mark);
         vec![part]
     }
 
     fn lower_multi_part_query(&mut self, mp: &MultiPartQuery) -> Vec<QueryPart> {
+        let mark = self.scope_stack.mark();
         let mut parts = Vec::new();
         let mut in_scope = self.scope_stack.push_scope(&mut self.arenas);
 
@@ -300,28 +346,35 @@ impl<'cfg> LoweringContext<'cfg> {
             for uc in &part.updating_clauses {
                 self.lower_updating_clause(uc);
             }
-            self.lower_with(&part.with);
-
-            let out_scope = self.scope_stack.push_scope(&mut self.arenas);
+            // The next part sees only the columns of the WITH.
+            let out_scope = self.lower_with(&part.with);
             parts.push(QueryPart {
                 input_scope: in_scope,
                 operations: std::mem::take(&mut self.current_part_ops),
                 output_scope: out_scope,
             });
-            self.scope_stack.pop_scope();
-            // New scope for next part - WITH already pushed bindings
             in_scope = out_scope;
         }
 
-        // Final part
         for rc in &mp.final_part.reading_clauses {
             self.lower_reading_clause(rc);
         }
+        let out_scope = self.lower_single_part_body(&mp.final_part.body);
+        parts.push(QueryPart {
+            input_scope: in_scope,
+            operations: std::mem::take(&mut self.current_part_ops),
+            output_scope: out_scope,
+        });
+        self.scope_stack.reset(mark);
 
-        match &mp.final_part.body {
-            SinglePartBody::Return(ret) => {
-                self.lower_return(ret);
-            }
+        parts
+    }
+
+    /// Lowers the updating clauses and `RETURN` ending a query, returning the
+    /// scope of its result columns.
+    fn lower_single_part_body(&mut self, body: &SinglePartBody) -> ScopeId {
+        let ret = match body {
+            SinglePartBody::Return(ret) => Some(ret),
             SinglePartBody::Updating {
                 updating,
                 return_clause,
@@ -329,27 +382,17 @@ impl<'cfg> LoweringContext<'cfg> {
                 for uc in updating {
                     self.lower_updating_clause(uc);
                 }
-                if let Some(ret) = return_clause {
-                    self.lower_return(ret);
-                } else {
-                    self.current_part_ops.push(Operation::Finish);
-                }
+                return_clause.as_ref()
             }
-            SinglePartBody::Finish(_) => {
+            SinglePartBody::Finish(_) => None,
+        };
+        match ret {
+            Some(ret) => self.lower_return(ret),
+            None => {
                 self.current_part_ops.push(Operation::Finish);
+                self.scope_stack.push_scope(&mut self.arenas)
             }
         }
-
-        let out_scope = self.scope_stack.push_scope(&mut self.arenas);
-        parts.push(QueryPart {
-            input_scope: in_scope,
-            operations: std::mem::take(&mut self.current_part_ops),
-            output_scope: out_scope,
-        });
-        self.scope_stack.pop_scope();
-        self.scope_stack.pop_scope();
-
-        parts
     }
 
     fn lower_reading_clause(&mut self, rc: &ReadingClause) {
@@ -395,8 +438,7 @@ impl<'cfg> LoweringContext<'cfg> {
 
     fn lower_unwind(&mut self, u: &Unwind) {
         let expr = self.lower_expr(&u.expression);
-        let var = self.scope_stack.bind(
-            &mut self.arenas,
+        let var = self.bind_new(
             &u.variable.name.name,
             BindingKind::UnwindBound,
             u.variable.name.span,
@@ -417,9 +459,7 @@ impl<'cfg> LoweringContext<'cfg> {
                     Some(alias) => (&alias.name.name, alias.name.span),
                     None => (&item.procedure_field.name, item.procedure_field.span),
                 };
-                let alias =
-                    self.scope_stack
-                        .bind(&mut self.arenas, name, BindingKind::YieldAlias, span);
+                let alias = self.bind_new(name, BindingKind::YieldAlias, span);
                 proc_op.yields.push(ProcedureYield {
                     field: item.procedure_field.name.clone(),
                     alias,
@@ -446,15 +486,7 @@ impl<'cfg> LoweringContext<'cfg> {
     /// reported on the enclosing query instead of being dropped. Returns the
     /// lowered subquery and the outer bindings visible to it.
     fn lower_subquery(&mut self, query: &RegularQuery) -> (HirQuery, Vec<BindingId>) {
-        // Innermost binding wins for shadowed names.
-        let mut visible: HashMap<String, BindingId> = HashMap::new();
-        for frame in &self.scope_stack.bindings_by_name {
-            for (name, &id) in frame {
-                visible.insert(name.clone(), id);
-            }
-        }
-        let mut visible: Vec<(String, BindingId)> = visible.into_iter().collect();
-        visible.sort_by(|a, b| a.0.cmp(&b.0));
+        let visible = self.scope_stack.visible();
 
         let mut inner = LoweringContext::new(self.config);
         inner.scope_stack.push_scope(&mut inner.arenas);
@@ -480,10 +512,7 @@ impl<'cfg> LoweringContext<'cfg> {
             .query
             .returned_columns()
             .into_iter()
-            .map(|(name, span)| {
-                self.scope_stack
-                    .bind(&mut self.arenas, &name, BindingKind::Value, span)
-            })
+            .map(|(name, span)| self.bind_new(&name, BindingKind::Value, span))
             .collect();
         let in_transactions = c.in_transactions.as_ref().map(|it| HirInTransactions {
             of_rows: it.of_rows.as_ref().map(|e| self.lower_expr(e)),
@@ -505,8 +534,7 @@ impl<'cfg> LoweringContext<'cfg> {
 
     fn lower_load_csv(&mut self, l: &LoadCsv) {
         let source = self.lower_expr(&l.source);
-        let var = self.scope_stack.bind(
-            &mut self.arenas,
+        let var = self.bind_new(
             &l.variable.name.name,
             BindingKind::PatternBound,
             l.variable.name.span,
@@ -649,8 +677,7 @@ impl<'cfg> LoweringContext<'cfg> {
 
     fn lower_foreach(&mut self, f: &Foreach) {
         let list = self.lower_expr(&f.list);
-        let var = self.scope_stack.bind(
-            &mut self.arenas,
+        let var = self.bind_new(
             &f.variable.name.name,
             BindingKind::ForeachVar,
             f.variable.name.span,
@@ -718,124 +745,124 @@ impl<'cfg> LoweringContext<'cfg> {
         }));
     }
 
-    fn lower_with(&mut self, w: &With) {
-        // WITH acts as a scope boundary: expressions resolve to prior scope,
-        // aliases introduce bindings in the new scope.
-        if w.star {
-            // Pass-through all visible bindings
-        }
-
-        self.lower_projection(&w.items, w.distinct, BindingKind::WithAlias);
+    /// Lowers a `WITH`, returning the scope of its columns.
+    ///
+    /// The items are evaluated in the incoming scope. Afterwards only the
+    /// columns are visible, so the following clauses cannot see variables the
+    /// `WITH` did not project. Its own `WHERE` and `ORDER BY` still can (see
+    /// [`Self::lower_after_projection`]).
+    fn lower_with(&mut self, w: &With) -> ScopeId {
+        let passed_through = if w.star {
+            self.scope_stack.visible()
+        } else {
+            Vec::new()
+        };
+        let outer = self.scope_stack.mark();
+        let scope = self.scope_stack.push_scope(&mut self.arenas);
+        let columns =
+            self.lower_projection(passed_through, &w.items, w.distinct, BindingKind::WithAlias);
+        self.scope_stack.hide_outer();
 
         if let Some(where_expr) = &w.where_clause {
-            let pred = self.lower_expr(where_expr);
+            let aggregating = self.has_any_aggregate(&w.items);
+            let pred =
+                self.lower_after_projection(&w.items, &columns, aggregating, outer, |this| {
+                    this.lower_expr(where_expr)
+                });
             self.current_part_ops
                 .push(Operation::Filter(FilterOp { predicate: pred }));
         }
 
-        if let Some(order) = &w.order {
-            let sort_items = order
-                .items
-                .iter()
-                .map(|si| SortItem {
-                    expression: self.lower_expr(&si.expression),
-                    direction: match si.direction {
-                        Some(crate::ast::clause::SortDirection::Ascending) => {
-                            SortDirection::Ascending
-                        }
-                        Some(crate::ast::clause::SortDirection::Descending) => {
-                            SortDirection::Descending
-                        }
-                        None => SortDirection::Ascending,
-                    },
-                })
-                .collect();
-            self.current_part_ops
-                .push(Operation::Sort(SortOp { items: sort_items }));
-        }
-
-        if let Some(skip_expr) = &w.skip {
-            let count = self.lower_expr(skip_expr);
-            self.current_part_ops
-                .push(Operation::Skip(SkipOp { count }));
-        }
-
-        if let Some(limit_expr) = &w.limit {
-            let count = self.lower_expr(limit_expr);
-            self.current_part_ops
-                .push(Operation::Limit(LimitOp { count }));
-        }
+        self.lower_order_skip_limit(
+            &w.items,
+            &columns,
+            w.distinct,
+            w.order.as_ref(),
+            w.skip.as_ref(),
+            w.limit.as_ref(),
+            outer,
+        );
+        scope
     }
 
-    fn lower_return(&mut self, r: &Return) {
-        if r.star {
-            // Pass-through all visible bindings as projection items
-            let visible: Vec<(String, BindingId)> = self
-                .scope_stack
-                .bindings_by_name
-                .iter()
-                .rev()
-                .flat_map(|m| m.iter().map(|(k, &v)| (k.clone(), v)))
-                .collect();
-            let mut seen = std::collections::HashSet::new();
-            let mut items = Vec::new();
-            for (name, binding_id) in visible {
-                if seen.insert(name.clone()) {
-                    let expr_id = self.arenas.expressions.alloc(HirExpr {
-                        kind: ExprKind::Binding(binding_id),
-                        span: Span::new(0, 0),
-                    });
-                    items.push(ProjectionItem {
-                        expression: expr_id,
-                        alias: binding_id,
-                    });
-                }
-            }
-            self.current_part_ops.push(Operation::Project(ProjectOp {
-                items,
-                distinct: r.distinct,
-            }));
+    /// Lowers a `RETURN`, returning the scope of its columns.
+    fn lower_return(&mut self, r: &Return) -> ScopeId {
+        let visible = if r.star {
+            self.scope_stack.visible()
         } else {
-            self.lower_projection(&r.items, r.distinct, BindingKind::ReturnAlias);
-        }
+            Vec::new()
+        };
+        let outer = self.scope_stack.mark();
+        let scope = self.scope_stack.push_scope(&mut self.arenas);
+        let columns =
+            self.lower_projection(visible, &r.items, r.distinct, BindingKind::ReturnAlias);
+        self.scope_stack.hide_outer();
 
-        if let Some(order) = &r.order {
-            let sort_items = order
-                .items
-                .iter()
-                .map(|si| SortItem {
-                    expression: self.lower_expr(&si.expression),
-                    direction: match si.direction {
-                        Some(crate::ast::clause::SortDirection::Ascending) => {
-                            SortDirection::Ascending
-                        }
-                        Some(crate::ast::clause::SortDirection::Descending) => {
-                            SortDirection::Descending
-                        }
-                        None => SortDirection::Ascending,
-                    },
-                })
-                .collect();
-            self.current_part_ops
-                .push(Operation::Sort(SortOp { items: sort_items }));
-        }
-
-        if let Some(skip_expr) = &r.skip {
-            let count = self.lower_expr(skip_expr);
-            self.current_part_ops
-                .push(Operation::Skip(SkipOp { count }));
-        }
-
-        if let Some(limit_expr) = &r.limit {
-            let count = self.lower_expr(limit_expr);
-            self.current_part_ops
-                .push(Operation::Limit(LimitOp { count }));
-        }
+        self.lower_order_skip_limit(
+            &r.items,
+            &columns,
+            r.distinct,
+            r.order.as_ref(),
+            r.skip.as_ref(),
+            r.limit.as_ref(),
+            outer,
+        );
 
         self.current_part_ops.push(Operation::Return(ReturnOp {
             items: Vec::new(), // already in Project/Aggregate
             distinct: r.distinct,
         }));
+        scope
+    }
+
+    /// Lowers the `ORDER BY`, `SKIP` and `LIMIT` of a projection, once only
+    /// its `columns` (one per item of `items`) are visible.
+    #[allow(clippy::too_many_arguments)]
+    fn lower_order_skip_limit(
+        &mut self,
+        items: &[crate::ast::clause::ProjectionItem],
+        columns: &[BindingId],
+        distinct: bool,
+        order: Option<&Order>,
+        skip: Option<&Expression>,
+        limit: Option<&Expression>,
+        outer: ScopeMark,
+    ) {
+        if let Some(order) = order {
+            let narrow = distinct || self.has_any_aggregate(items);
+            let sort_items = self.lower_after_projection(items, columns, narrow, outer, |this| {
+                order
+                    .items
+                    .iter()
+                    .map(|si| SortItem {
+                        expression: this.lower_expr(&si.expression),
+                        direction: match si.direction {
+                            Some(crate::ast::clause::SortDirection::Ascending) => {
+                                SortDirection::Ascending
+                            }
+                            Some(crate::ast::clause::SortDirection::Descending) => {
+                                SortDirection::Descending
+                            }
+                            None => SortDirection::Ascending,
+                        },
+                    })
+                    .collect()
+            });
+            self.current_part_ops
+                .push(Operation::Sort(SortOp { items: sort_items }));
+        }
+
+        if let Some(skip_expr) = skip {
+            let count = self.lower_expr(skip_expr);
+            self.current_part_ops
+                .push(Operation::Skip(SkipOp { count }));
+        }
+
+        if let Some(limit_expr) = limit {
+            let count = self.lower_expr(limit_expr);
+            self.current_part_ops
+                .push(Operation::Limit(LimitOp { count }));
+        }
     }
 
     fn lower_standalone_call(&mut self, call: &crate::ast::procedure::StandaloneCall) -> Operation {
@@ -886,6 +913,17 @@ impl<'cfg> LoweringContext<'cfg> {
     // ── Expression lowering ──────────────────────────────────────────────
 
     fn lower_expr(&mut self, expr: &Expression) -> ExprId {
+        if !self.projected_columns.is_empty()
+            && !matches!(expr, Expression::Literal(_) | Expression::Parameter(_))
+        {
+            let text = expr.to_cypher();
+            if let Some(&(_, column)) = self.projected_columns.iter().find(|(t, _)| *t == text) {
+                return self.arenas.expressions.alloc(HirExpr {
+                    kind: ExprKind::Binding(column),
+                    span: expr_span(expr),
+                });
+            }
+        }
         let kind = match expr {
             Expression::Literal(lit) => match lit {
                 Literal::List(l) => {
@@ -1659,6 +1697,21 @@ impl<'cfg> LoweringContext<'cfg> {
         }
     }
 
+    /// Binds a variable that a clause introduces (`UNWIND … AS x`,
+    /// `YIELD x`, `LOAD CSV … AS row`, `FOREACH (x IN …)`, a column returned
+    /// by `CALL { … }`), reporting it when the name is already visible.
+    fn bind_new(&mut self, name: &str, kind: BindingKind, span: Span) -> BindingId {
+        if let Some(existing) = self.scope_stack.resolve(name) {
+            let first = self.arenas.bindings.get(existing).introduced_at;
+            self.diagnostics.push(HirDiagnostic::DuplicateVariable {
+                name: name.to_string(),
+                first,
+                second: span,
+            });
+        }
+        self.scope_stack.bind(&mut self.arenas, name, kind, span)
+    }
+
     fn resolve_or_create_binding(&mut self, var: &Variable) -> BindingId {
         self.resolve_or_bind_variable(var)
     }
@@ -1699,9 +1752,7 @@ impl<'cfg> LoweringContext<'cfg> {
     }
 
     fn is_aggregate_call(&self, fc: &crate::ast::expr::FunctionInvocation) -> bool {
-        self.config
-            .aggregates
-            .contains(&Self::qualified_function_name(fc))
+        self.config.aggregates.is_aggregate_call(fc)
     }
 
     fn has_aggregate(&self, expr: &Expression) -> bool {
@@ -1719,18 +1770,52 @@ impl<'cfg> LoweringContext<'cfg> {
     /// and applies `DISTINCT`.
     fn lower_projection(
         &mut self,
+        passed_through: Vec<(String, BindingId)>,
         items: &[crate::ast::clause::ProjectionItem],
         distinct: bool,
         kind: BindingKind,
-    ) {
+    ) -> Vec<BindingId> {
         self.report_duplicate_columns(items);
+        let star = !passed_through.is_empty();
+        let is_aggregate = |fc: &FunctionInvocation| self.is_aggregate_call(fc);
+        for (span, non_grouping) in crate::sema::implicit_grouping_keys(items, star, &is_aggregate)
+        {
+            self.diagnostics
+                .push(HirDiagnostic::InvalidAggregation { non_grouping, span });
+        }
 
         let alias_of = |this: &Self, pi: &crate::ast::clause::ProjectionItem| match &pi.alias {
             Some(a) => (a.name.name.clone(), a.name.span),
+            // `WITH n.name` does not bind `name`: later clauses can only
+            // refer to the column by an alias.
+            None if kind == BindingKind::WithAlias => pi.column(),
             None => (
                 this.infer_alias_name(&pi.expression),
                 expr_span(&pi.expression),
             ),
+        };
+
+        // `WITH *` / `RETURN *` pass every visible variable through, ahead
+        // of any further items (`RETURN *, n.x AS x`); they group an
+        // aggregating projection like any other non-aggregate item.
+        let passed_through: Vec<BindingId> = passed_through
+            .into_iter()
+            .map(|(name, id)| {
+                self.scope_stack.import(&mut self.arenas, &name, id);
+                id
+            })
+            .collect();
+        let pass_through = |this: &mut Self| -> Vec<ProjectionItem> {
+            passed_through
+                .iter()
+                .map(|&alias| ProjectionItem {
+                    expression: this.arenas.expressions.alloc(HirExpr {
+                        kind: ExprKind::Binding(alias),
+                        span: Span::new(0, 0),
+                    }),
+                    alias,
+                })
+                .collect()
         };
 
         if !items.iter().any(|pi| self.has_aggregate(&pi.expression)) {
@@ -1739,7 +1824,8 @@ impl<'cfg> LoweringContext<'cfg> {
                 .iter()
                 .map(|pi| self.lower_expr(&pi.expression))
                 .collect();
-            let items = items
+            let mut projected = pass_through(self);
+            let items: Vec<ProjectionItem> = items
                 .iter()
                 .zip(exprs)
                 .map(|(pi, expression)| {
@@ -1748,9 +1834,13 @@ impl<'cfg> LoweringContext<'cfg> {
                     ProjectionItem { expression, alias }
                 })
                 .collect();
-            self.current_part_ops
-                .push(Operation::Project(ProjectOp { items, distinct }));
-            return;
+            let aliases = items.iter().map(|item| item.alias).collect();
+            projected.extend(items);
+            self.current_part_ops.push(Operation::Project(ProjectOp {
+                items: projected,
+                distinct,
+            }));
+            return aliases;
         }
 
         enum Column {
@@ -1787,7 +1877,7 @@ impl<'cfg> LoweringContext<'cfg> {
             columns.push((column, alias_of(self, pi)));
         }
 
-        let mut grouping_keys = Vec::new();
+        let mut grouping_keys = pass_through(self);
         let mut aggregates = Vec::new();
         let mut computed = Vec::new();
         let mut outputs = Vec::new();
@@ -1842,11 +1932,12 @@ impl<'cfg> LoweringContext<'cfg> {
                 aggregates,
             }));
         if !needs_projection {
-            return;
+            return outputs.into_iter().flatten().collect();
         }
 
         let mut computed = computed.into_iter();
-        let items = outputs
+        let mut projected = pass_through(self);
+        let items: Vec<ProjectionItem> = outputs
             .into_iter()
             .map(|output| match output {
                 Some(alias) => ProjectionItem {
@@ -1864,8 +1955,50 @@ impl<'cfg> LoweringContext<'cfg> {
                 }
             })
             .collect();
-        self.current_part_ops
-            .push(Operation::Project(ProjectOp { items, distinct }));
+        let aliases = items.iter().map(|item| item.alias).collect();
+        projected.extend(items);
+        self.current_part_ops.push(Operation::Project(ProjectOp {
+            items: projected,
+            distinct,
+        }));
+        aliases
+    }
+
+    fn has_any_aggregate(&self, items: &[crate::ast::clause::ProjectionItem]) -> bool {
+        items.iter().any(|pi| self.has_aggregate(&pi.expression))
+    }
+
+    /// Runs `lower` on the `WHERE` or `ORDER BY` of a projection, once only
+    /// its `columns` (one per item of `items`) are visible.
+    ///
+    /// These may also refer to the variables the projection read, visible at
+    /// `outer` (`WITH a.name AS name WHERE a.age > 1`), unless the projection
+    /// `narrow`s its rows: aggregation for both, and `DISTINCT` for `ORDER BY`.
+    /// Then only the columns are visible, and an expression shared with an
+    /// item (`RETURN n.a, count(*) ORDER BY n.a`) stands for that item's
+    /// column.
+    fn lower_after_projection<T>(
+        &mut self,
+        items: &[crate::ast::clause::ProjectionItem],
+        columns: &[BindingId],
+        narrow: bool,
+        outer: ScopeMark,
+        lower: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let projected = self.scope_stack.mark();
+        if narrow {
+            self.projected_columns = items
+                .iter()
+                .zip(columns)
+                .map(|(pi, &id)| (pi.expression.to_cypher(), id))
+                .collect();
+        } else {
+            self.scope_stack.barrier = outer.barrier;
+        }
+        let lowered = lower(self);
+        self.projected_columns.clear();
+        self.scope_stack.barrier = projected.barrier;
+        lowered
     }
 
     /// Lowers `expr` if it is itself an aggregate call (`count(*)` or a
