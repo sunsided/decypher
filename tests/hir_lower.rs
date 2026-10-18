@@ -1211,3 +1211,29 @@ fn analyze_star_variables_are_grouping_keys() {
     }
 }
 
+/// A clause that introduces a variable whose name is already visible
+/// reports a redeclaration (#102 review).
+///
+/// Unit: `analyze()`
+/// Precondition: `UNWIND`, `YIELD`, `LOAD CSV`, `FOREACH` and `CALL { … }`
+///               rebinding a visible name.
+/// Expectation: `analyze` fails with a redeclared variable; rebinding after a
+///              `WITH` that dropped the name is fine.
+#[test]
+fn analyze_reports_redeclared_clause_variables() {
+    for query in [
+        "UNWIND [1] AS x UNWIND [2] AS x RETURN x",
+        "MATCH (n) UNWIND [1] AS n RETURN n",
+        "MATCH (label) CALL db.labels() YIELD label RETURN label",
+        "MATCH (row) LOAD CSV FROM 'f' AS row RETURN row",
+        "MATCH (n) FOREACH (n IN [1] | CREATE (:A))",
+        "MATCH (n) CALL { RETURN 1 AS n } RETURN n",
+    ] {
+        let err = analyze(query).unwrap_err();
+        check!(
+            err.to_string().contains("redeclared"),
+            "query: {query}, got: {err}"
+        );
+    }
+    analyze("MATCH (n) WITH n.x AS x UNWIND [1] AS n RETURN n, x").unwrap();
+}

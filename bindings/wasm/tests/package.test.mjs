@@ -72,6 +72,12 @@ describe("validate", () => {
     assert.match(result.errors[0].message, /unresolved variable `m`/);
   });
 
+  it("finds redeclared variables", () => {
+    const result = validate("UNWIND [1] AS x UNWIND [2] AS x RETURN x");
+    assert.equal(result.ok, false);
+    assert.match(result.errors[0].message, /variable `x` redeclared/);
+  });
+
   it("finds implicit grouping keys", () => {
     const result = validate("MATCH (n) RETURN n.x + count(n)");
     assert.equal(result.ok, false);

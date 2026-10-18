@@ -438,8 +438,7 @@ impl<'cfg> LoweringContext<'cfg> {
 
     fn lower_unwind(&mut self, u: &Unwind) {
         let expr = self.lower_expr(&u.expression);
-        let var = self.scope_stack.bind(
-            &mut self.arenas,
+        let var = self.bind_new(
             &u.variable.name.name,
             BindingKind::UnwindBound,
             u.variable.name.span,
@@ -460,9 +459,7 @@ impl<'cfg> LoweringContext<'cfg> {
                     Some(alias) => (&alias.name.name, alias.name.span),
                     None => (&item.procedure_field.name, item.procedure_field.span),
                 };
-                let alias =
-                    self.scope_stack
-                        .bind(&mut self.arenas, name, BindingKind::YieldAlias, span);
+                let alias = self.bind_new(name, BindingKind::YieldAlias, span);
                 proc_op.yields.push(ProcedureYield {
                     field: item.procedure_field.name.clone(),
                     alias,
@@ -515,10 +512,7 @@ impl<'cfg> LoweringContext<'cfg> {
             .query
             .returned_columns()
             .into_iter()
-            .map(|(name, span)| {
-                self.scope_stack
-                    .bind(&mut self.arenas, &name, BindingKind::Value, span)
-            })
+            .map(|(name, span)| self.bind_new(&name, BindingKind::Value, span))
             .collect();
         let in_transactions = c.in_transactions.as_ref().map(|it| HirInTransactions {
             of_rows: it.of_rows.as_ref().map(|e| self.lower_expr(e)),
@@ -540,8 +534,7 @@ impl<'cfg> LoweringContext<'cfg> {
 
     fn lower_load_csv(&mut self, l: &LoadCsv) {
         let source = self.lower_expr(&l.source);
-        let var = self.scope_stack.bind(
-            &mut self.arenas,
+        let var = self.bind_new(
             &l.variable.name.name,
             BindingKind::PatternBound,
             l.variable.name.span,
@@ -684,8 +677,7 @@ impl<'cfg> LoweringContext<'cfg> {
 
     fn lower_foreach(&mut self, f: &Foreach) {
         let list = self.lower_expr(&f.list);
-        let var = self.scope_stack.bind(
-            &mut self.arenas,
+        let var = self.bind_new(
             &f.variable.name.name,
             BindingKind::ForeachVar,
             f.variable.name.span,
@@ -1703,6 +1695,21 @@ impl<'cfg> LoweringContext<'cfg> {
                 )
             }
         }
+    }
+
+    /// Binds a variable that a clause introduces (`UNWIND … AS x`,
+    /// `YIELD x`, `LOAD CSV … AS row`, `FOREACH (x IN …)`, a column returned
+    /// by `CALL { … }`), reporting it when the name is already visible.
+    fn bind_new(&mut self, name: &str, kind: BindingKind, span: Span) -> BindingId {
+        if let Some(existing) = self.scope_stack.resolve(name) {
+            let first = self.arenas.bindings.get(existing).introduced_at;
+            self.diagnostics.push(HirDiagnostic::DuplicateVariable {
+                name: name.to_string(),
+                first,
+                second: span,
+            });
+        }
+        self.scope_stack.bind(&mut self.arenas, name, kind, span)
     }
 
     fn resolve_or_create_binding(&mut self, var: &Variable) -> BindingId {
