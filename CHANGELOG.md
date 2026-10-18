@@ -30,9 +30,32 @@ are marked **Breaking** below.
 - The TCK gate also checks that `sema::analyze` accepts every query the TCK
   expects to compile, and that both analyzers reject queries the TCK expects
   to fail with an undefined variable, an invalid, nested or ambiguous
-  aggregation, or a column name conflict.
+  aggregation, a column name conflict, a redeclared variable, or one of the
+  structural errors below.
+- The pattern form of `COUNT { … }`: `COUNT { (n)-->() WHERE … }`, as in
+  Neo4j 5 (#107).
+- Structural checks in both analyzers, with new `ErrorKind`s (#109):
+  `UnionColumnMismatch` (`RETURN 1 AS a UNION RETURN 2 AS b`),
+  `InvalidClauseComposition` (`UNION` mixed with `UNION ALL`, updates inside
+  `EXISTS` / `COUNT` / `COLLECT`), `InvalidRelationshipPattern` (relationships
+  created by `CREATE` / `MERGE` without exactly one type or with a variable
+  length, undirected ones in `CREATE`, a relationship matched twice),
+  `InvalidDeleteTarget` (`DELETE n:Person`), `MissingAlias`
+  (`WITH a, count(*)`) and `NoVariablesInScope` (`MATCH () RETURN *`).
 
 ### Changed
+
+- **Breaking:** `ast::CountSubqueryExpression` holds an
+  `inner: Box<ExistsInner>` instead of `query`, so it can carry the pattern
+  form (#107).
+- **Breaking:** `hir::HirDiagnostic::InvalidRelationshipPattern` gains a
+  `reason`; new variants `InvalidClauseComposition`, `MissingAlias` and
+  `NoVariablesInScope`; the never-reported `VariableOutOfScope` and
+  `InvalidMergePattern` are removed (#109).
+- Both analyzers report redeclared path variables (`WITH 1 AS p MATCH p =
+  …`, `MATCH p = (p)-->()`) and `CREATE` / `MERGE` patterns that re-create a
+  bound node or relationship (`MATCH (a) CREATE (a)`,
+  `MATCH ()-[r]->() CREATE ()-[r:T]->()`) (#108).
 
 - **Breaking:** `analyze` scopes variables per query part: after a `WITH`
   only its columns are visible (`MATCH (p)-->(m) WITH p RETURN m` is
@@ -74,6 +97,11 @@ are marked **Breaking** below.
   `Aggregate` of `RETURN DISTINCT *, count(*)` grouped by nothing, and
   `WITH *, n.x + count(*)` was rejected.
 - `task wasm:test` ran no Node.js tests (#106).
+- `UNION` chains inside subqueries: `CALL { … }` kept only the first and
+  last of three or more branches, and `EXISTS` / `COUNT` / `COLLECT` bodies
+  with `UNION` failed to parse. The printer no longer writes a double space
+  after a subquery part that ends without `RETURN`
+  (`EXISTS { MATCH (n)-->(m) }`).
 
 ## [0.2.0-alpha.8] - 2026-10-18
 

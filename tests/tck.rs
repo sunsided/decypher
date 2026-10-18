@@ -39,6 +39,16 @@ const SEMANTIC_ERRORS: &[&str] = &[
     "NestedAggregation",
     "AmbiguousAggregationExpression",
     "ColumnNameConflict",
+    "VariableAlreadyBound",
+    "DifferentColumnsInUnion",
+    "InvalidClauseComposition",
+    "CreatingVarLength",
+    "NoSingleRelationshipType",
+    "RequiresDirectedRelationship",
+    "InvalidDelete",
+    "RelationshipUniquenessViolation",
+    "NoExpressionAlias",
+    "NoVariablesInScope",
 ];
 
 struct TckQuery {

@@ -22,6 +22,7 @@ mod aggregation;
 mod error;
 mod resolve;
 mod scope;
+mod structure;
 
 pub use aggregate_registry::AggregateRegistry;
 pub use aggregation::{AggregationViolation, check_aggregation, check_aggregation_with};
@@ -32,6 +33,8 @@ pub(crate) use aggregation::{
 pub use error::SemaError;
 pub use resolve::{ResolutionResult, resolve_names, resolve_names_with};
 pub use scope::{ScopeStack, SymbolKind};
+#[cfg(feature = "hir")]
+pub(crate) use structure::{StructuralError, structural_errors};
 
 use crate::ast::query::Query;
 use crate::error::Diagnostics;
@@ -82,6 +85,17 @@ pub fn analyze_with(query: &Query, aggregates: &AggregateRegistry) -> Result<(),
 
     // Phase 2: Aggregation rules
     check_aggregation_with(query, aggregates, &mut diagnostics);
+
+    // Phase 3: Structural rules
+    for error in structure::structural_errors(query) {
+        diagnostics.errors.push(crate::error::CypherError {
+            kind: error.kind(),
+            span: error.span(),
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
+        });
+    }
 
     if diagnostics.is_empty() {
         Ok(())

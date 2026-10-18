@@ -77,6 +77,19 @@ impl NameResolver {
         }
     }
 
+    /// `RETURN *` without further items needs a variable in scope. (`WITH *`
+    /// may pass nothing on, as in `CREATE () WITH * CREATE ()`.)
+    fn check_star_scope_of(
+        &mut self,
+        scopes: &ScopeStack,
+        only_star: bool,
+        span: crate::error::Span,
+    ) {
+        if only_star && scopes.visible_bindings().is_empty() {
+            self.emit(SemaError::NoVariablesInScope { span });
+        }
+    }
+
     fn has_aggregate(&self, items: &[ProjectionItem]) -> bool {
         items.iter().any(|item| {
             item.expression
@@ -149,6 +162,7 @@ impl NameResolver {
                 SemaError::AggregationMix { span, .. } => *span,
                 SemaError::DistinctNotAllowed { span } => *span,
                 SemaError::AggregateNotAllowed { span, .. } => *span,
+                SemaError::NoVariablesInScope { span } => *span,
                 SemaError::InvalidReference { span, .. } => *span,
             },
             source_label: None,
@@ -233,6 +247,7 @@ impl<'ast> Visit<'ast> for NameResolver {
             &mut self.scopes,
             &node.pattern,
             SymbolKind::PatternBound,
+            false,
             &mut self.errors,
         );
         walk_match(self, node);
@@ -243,6 +258,7 @@ impl<'ast> Visit<'ast> for NameResolver {
             &mut self.scopes,
             &node.pattern,
             SymbolKind::PatternBound,
+            true,
             &mut self.errors,
         );
         walk_create(self, node);
@@ -253,6 +269,7 @@ impl<'ast> Visit<'ast> for NameResolver {
             &mut self.scopes,
             &node.pattern,
             SymbolKind::PatternBound,
+            true,
             &mut self.errors,
         );
         walk_merge(self, node);
@@ -350,6 +367,7 @@ impl<'ast> Visit<'ast> for NameResolver {
         // (`AS a` above).
         let before = std::mem::take(&mut self.scopes);
         if node.star {
+            self.check_star_scope_of(&before, node.items.is_empty(), node.span);
             for (name, entry) in before.visible_bindings() {
                 let _ = self.scopes.bind(&name, entry.kind, entry.span);
             }
@@ -477,6 +495,7 @@ impl<'ast> Visit<'ast> for NameResolver {
                     &mut self.scopes,
                     pattern,
                     SymbolKind::PatternBound,
+                    false,
                     &mut self.errors,
                 );
                 if let Some(w) = where_clause {
@@ -489,9 +508,7 @@ impl<'ast> Visit<'ast> for NameResolver {
     }
 
     fn visit_count_subquery_expression(&mut self, node: &'ast CountSubqueryExpression) {
-        let outer = self.scopes.clone();
-        self.visit_regular_query(&node.query);
-        self.scopes = outer;
+        self.visit_exists_inner(&node.inner);
     }
 
     fn visit_collect_subquery_expression(&mut self, node: &'ast CollectSubqueryExpression) {
@@ -626,47 +643,62 @@ impl<'ast> Visit<'ast> for NameResolver {
     }
 }
 
-/// Bind all variables found in a pattern to the current scope.
+/// Bind all variables found in a pattern to the current scope. With
+/// `creating` (`CREATE`, `MERGE`) the pattern must not re-create bound
+/// entities.
 fn bind_pattern(
     scopes: &mut ScopeStack,
     pattern: &Pattern,
     kind: SymbolKind,
+    creating: bool,
     errors: &mut Vec<CypherError>,
 ) {
     for part in &pattern.parts {
-        bind_pattern_part(scopes, part, kind, errors);
+        bind_pattern_part(scopes, part, kind, creating, errors);
     }
 }
 
-/// Binds a pattern part's path variable (`p = …`, which must be new) and its
-/// node and relationship variables.
+/// Binds a pattern part's node and relationship variables, then its path
+/// variable (`p = …`), which must be new: neither bound before nor used for a
+/// node or relationship of its own pattern (`MATCH p = (p)-->()`).
 fn bind_pattern_part(
     scopes: &mut ScopeStack,
     part: &PatternPart,
     kind: SymbolKind,
+    creating: bool,
     errors: &mut Vec<CypherError>,
 ) {
-    if let Some(var) = &part.variable
-        && let Err(first_span) = scopes.bind(&var.name.name, kind, var.name.span)
-    {
-        errors.push(
-            SemaError::RedeclaredVariable {
-                name: var.name.name.clone(),
-                first_span,
-                redecl_span: var.name.span,
-            }
-            .into_error(),
-        );
+    bind_node_pattern(scopes, &part.anonymous.element, kind, creating, errors);
+    if let Some(var) = &part.variable {
+        let first_span = match scopes.resolve(&var.name.name) {
+            Some((entry, _)) => Some(entry.span),
+            None => scopes.bind(&var.name.name, kind, var.name.span).err(),
+        };
+        if let Some(first_span) = first_span {
+            errors.push(redeclared(var, first_span));
+        }
     }
-    bind_node_pattern(scopes, &part.anonymous.element, kind);
 }
 
-fn bind_node_pattern(scopes: &mut ScopeStack, element: &PatternElement, kind: SymbolKind) {
+fn redeclared(var: &crate::ast::names::Variable, first_span: crate::error::Span) -> CypherError {
+    SemaError::RedeclaredVariable {
+        name: var.name.name.clone(),
+        first_span,
+        redecl_span: var.name.span,
+    }
+    .into_error()
+}
+
+fn bind_node_pattern(
+    scopes: &mut ScopeStack,
+    element: &PatternElement,
+    kind: SymbolKind,
+    creating: bool,
+    errors: &mut Vec<CypherError>,
+) {
     match element {
         PatternElement::Path { start, chains } => {
-            if let Some(var) = &start.variable {
-                bind_or_reuse(scopes, var, kind);
-            }
+            bind_node(scopes, start, chains.is_empty(), kind, creating, errors);
             for chain in chains {
                 if let Some(var) = chain
                     .relationship
@@ -674,20 +706,44 @@ fn bind_node_pattern(scopes: &mut ScopeStack, element: &PatternElement, kind: Sy
                     .as_ref()
                     .and_then(|d| d.variable.as_ref())
                 {
-                    bind_or_reuse(scopes, var, kind);
+                    // A created relationship is always new.
+                    match scopes.resolve(&var.name.name) {
+                        Some((entry, _)) if creating => errors.push(redeclared(var, entry.span)),
+                        _ => bind_or_reuse(scopes, var, kind),
+                    }
                 }
-                if let Some(var) = &chain.node.variable {
-                    bind_or_reuse(scopes, var, kind);
-                }
+                bind_node(scopes, &chain.node, false, kind, creating, errors);
             }
         }
         PatternElement::Parenthesized(inner) => {
-            bind_node_pattern(scopes, inner, kind);
+            bind_node_pattern(scopes, inner, kind, creating, errors);
         }
         PatternElement::Quantified { element, .. } => {
-            bind_node_pattern(scopes, element, kind);
+            bind_node_pattern(scopes, element, kind, creating, errors);
         }
     }
+}
+
+/// Binds a node variable of a pattern. In `CREATE` / `MERGE` a bound node
+/// can only be connected to: it may not stand alone (`MATCH (a) CREATE (a)`)
+/// or get labels or properties (`MATCH (a) CREATE (a:Foo)-[:R]->()`).
+fn bind_node(
+    scopes: &mut ScopeStack,
+    node: &NodePattern,
+    standalone: bool,
+    kind: SymbolKind,
+    creating: bool,
+    errors: &mut Vec<CypherError>,
+) {
+    let Some(var) = &node.variable else { return };
+    if creating
+        && (standalone || !node.labels.is_empty() || node.properties.is_some())
+        && let Some((entry, _)) = scopes.resolve(&var.name.name)
+    {
+        errors.push(redeclared(var, entry.span));
+        return;
+    }
+    bind_or_reuse(scopes, var, kind);
 }
 
 /// Binds a node or relationship variable of a pattern. A name that is

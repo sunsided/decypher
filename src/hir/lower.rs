@@ -73,6 +73,11 @@ pub fn lower(query: &Query, config: &LowerConfig) -> Result<HirQuery, Diagnostic
         ctx.diagnostics
             .push(HirDiagnostic::AggregateNotAllowed { function, span });
     }
+    ctx.diagnostics.extend(
+        crate::sema::structural_errors(query)
+            .into_iter()
+            .map(HirDiagnostic::from),
+    );
 
     for stmt in &query.statements {
         let stmt_parts = ctx.lower_query_body(stmt);
@@ -112,6 +117,11 @@ struct LoweringContext<'cfg> {
     /// While lowering the `ORDER BY` of a `DISTINCT` or aggregating
     /// projection: each item's printed expression and its column.
     projected_columns: Vec<(String, BindingId)>,
+    /// Bindings of `p = …` path variables, which no node or relationship
+    /// of a pattern may reuse.
+    path_variables: Vec<BindingId>,
+    /// Whether the pattern being lowered belongs to `CREATE` or `MERGE`.
+    creating: bool,
 }
 
 /// Tracks variable bindings in a stack of scope frames during lowering.
@@ -272,6 +282,8 @@ impl<'cfg> LoweringContext<'cfg> {
             current_part_ops: Vec::new(),
             config,
             projected_columns: Vec::new(),
+            path_variables: Vec::new(),
+            creating: false,
         }
     }
 
@@ -554,13 +566,14 @@ impl<'cfg> LoweringContext<'cfg> {
     }
 
     fn lower_create(&mut self, c: &Create) {
-        let pattern = self.lower_pattern(&c.pattern);
+        let pattern = self.lower_created_pattern(|this| this.lower_pattern(&c.pattern));
         self.current_part_ops
             .push(Operation::Create(CreateOp { pattern }));
     }
 
     fn lower_merge(&mut self, m: &Merge) {
-        let pattern = self.lower_pattern_part_as_graph(&m.pattern);
+        let pattern =
+            self.lower_created_pattern(|this| this.lower_pattern_part_as_graph(&m.pattern));
         let mut on_create = Vec::new();
         let mut on_match = Vec::new();
         for action in &m.actions {
@@ -692,11 +705,12 @@ impl<'cfg> LoweringContext<'cfg> {
         for update in &f.updates {
             match update {
                 ForeachUpdate::Create(c) => {
-                    let pattern = self.lower_pattern(&c.pattern);
+                    let pattern = self.lower_created_pattern(|this| this.lower_pattern(&c.pattern));
                     ops.push(Operation::Create(CreateOp { pattern }));
                 }
                 ForeachUpdate::Merge(m) => {
-                    let pattern = self.lower_pattern_part_as_graph(&m.pattern);
+                    let pattern = self
+                        .lower_created_pattern(|this| this.lower_pattern_part_as_graph(&m.pattern));
                     ops.push(Operation::Merge(MergeOp {
                         pattern,
                         on_create: Vec::new(),
@@ -792,10 +806,22 @@ impl<'cfg> LoweringContext<'cfg> {
         scope
     }
 
+    /// The variables `RETURN *` passes through; with no further items
+    /// (`only_star`) there must be at least one. (`WITH *` may pass nothing
+    /// on, as in `CREATE () WITH * CREATE ()`.)
+    fn visible_for_star(&mut self, only_star: bool, span: Span) -> Vec<(String, BindingId)> {
+        let visible = self.scope_stack.visible();
+        if visible.is_empty() && only_star {
+            self.diagnostics
+                .push(HirDiagnostic::NoVariablesInScope { span });
+        }
+        visible
+    }
+
     /// Lowers a `RETURN`, returning the scope of its columns.
     fn lower_return(&mut self, r: &Return) -> ScopeId {
         let visible = if r.star {
-            self.scope_stack.visible()
+            self.visible_for_star(r.items.is_empty(), r.span)
         } else {
             Vec::new()
         };
@@ -1248,7 +1274,7 @@ impl<'cfg> LoweringContext<'cfg> {
                 ExprKind::ExistsSubquery(inner)
             }
             Expression::CountSubquery(count) => {
-                let inner = self.lower_count_subquery(&count.query);
+                let inner = self.lower_count_subquery(&count.inner);
                 ExprKind::CountSubquery(inner)
             }
             Expression::CollectSubquery(collect) => {
@@ -1381,11 +1407,15 @@ impl<'cfg> LoweringContext<'cfg> {
         }
     }
 
-    fn lower_count_subquery(&mut self, query: &RegularQuery) -> CountSubquery {
-        let (q, imported) = self.lower_subquery(query);
+    fn lower_count_subquery(&mut self, inner: &ExistsInner) -> CountSubquery {
+        // The pattern form lowers to the same query as `EXISTS { pattern }`.
+        let ExistsSubquery {
+            query,
+            imported_bindings,
+        } = self.lower_exists_inner(inner);
         CountSubquery {
-            query: Box::new(q),
-            imported_bindings: imported,
+            query,
+            imported_bindings,
         }
     }
 
@@ -1411,12 +1441,9 @@ impl<'cfg> LoweringContext<'cfg> {
 
         for part in parts {
             let path_binding = part.variable.as_ref().map(|v| {
-                self.scope_stack.bind(
-                    &mut self.arenas,
-                    &v.name.name,
-                    BindingKind::PatternBound,
-                    v.name.span,
-                )
+                let id = self.bind_new(&v.name.name, BindingKind::PatternBound, v.name.span);
+                self.path_variables.push(id);
+                id
             });
 
             let (part_nodes, part_rels) = self.lower_pattern_element(&part.anonymous.element);
@@ -1453,15 +1480,18 @@ impl<'cfg> LoweringContext<'cfg> {
         match element {
             PatternElement::Path { start, chains } => {
                 let start_idx = nodes.len();
+                self.check_created_node(start, chains.is_empty());
                 let start_node = self.lower_node_pattern(start);
                 nodes.push(start_node);
                 let mut current = start_idx;
 
                 for chain in chains {
+                    self.check_created_node(&chain.node, false);
                     let end_node = self.lower_node_pattern(&chain.node);
                     let end_idx = nodes.len();
                     nodes.push(end_node);
 
+                    self.check_created_relationship(&chain.relationship);
                     let rel =
                         self.lower_relationship_pattern(&chain.relationship, current, end_idx);
                     relationships.push(rel);
@@ -1485,7 +1515,14 @@ impl<'cfg> LoweringContext<'cfg> {
     /// (n)-->(m)`), so its binding is reused; otherwise a new one is created.
     fn bind_pattern_variable(&mut self, v: &Variable) -> BindingId {
         match self.scope_stack.resolve(&v.name.name) {
-            Some(id) => id,
+            Some(id) => {
+                // A path variable names the whole path, never one of its
+                // nodes or relationships (`MATCH p = (p)-->()`).
+                if self.path_variables.contains(&id) {
+                    self.report_redeclared(&v.name.name, id, v.name.span);
+                }
+                id
+            }
             None => self.scope_stack.bind(
                 &mut self.arenas,
                 &v.name.name,
@@ -1741,14 +1778,56 @@ impl<'cfg> LoweringContext<'cfg> {
     /// by `CALL { … }`), reporting it when the name is already visible.
     fn bind_new(&mut self, name: &str, kind: BindingKind, span: Span) -> BindingId {
         if let Some(existing) = self.scope_stack.resolve(name) {
-            let first = self.arenas.bindings.get(existing).introduced_at;
-            self.diagnostics.push(HirDiagnostic::DuplicateVariable {
-                name: name.to_string(),
-                first,
-                second: span,
-            });
+            self.report_redeclared(name, existing, span);
         }
         self.scope_stack.bind(&mut self.arenas, name, kind, span)
+    }
+
+    fn report_redeclared(&mut self, name: &str, existing: BindingId, span: Span) {
+        let first = self.arenas.bindings.get(existing).introduced_at;
+        self.diagnostics.push(HirDiagnostic::DuplicateVariable {
+            name: name.to_string(),
+            first,
+            second: span,
+        });
+    }
+
+    /// Runs `lower` on the pattern of a `CREATE` or `MERGE`.
+    fn lower_created_pattern<T>(&mut self, lower: impl FnOnce(&mut Self) -> T) -> T {
+        let outer = std::mem::replace(&mut self.creating, true);
+        let lowered = lower(self);
+        self.creating = outer;
+        lowered
+    }
+
+    /// In `CREATE` / `MERGE`, a bound node can only be connected to, so it
+    /// may not stand alone (`MATCH (a) CREATE (a)`) or get labels or
+    /// properties (`CREATE (a:Foo) MERGE (a)-[:R]->(a:Bar)`).
+    fn check_created_node(&mut self, node: &NodePattern, standalone: bool) {
+        if !self.creating {
+            return;
+        }
+        let Some(v) = &node.variable else { return };
+        let Some(existing) = self.scope_stack.resolve(&v.name.name) else {
+            return;
+        };
+        if standalone || !node.labels.is_empty() || node.properties.is_some() {
+            self.report_redeclared(&v.name.name, existing, v.name.span);
+        }
+    }
+
+    /// In `CREATE` / `MERGE`, every relationship is new, so its variable
+    /// may not be bound already (`MATCH ()-[r]->() CREATE ()-[r]->()`).
+    fn check_created_relationship(&mut self, rel: &RelationshipPattern) {
+        if !self.creating {
+            return;
+        }
+        let Some(v) = rel.detail.as_ref().and_then(|d| d.variable.as_ref()) else {
+            return;
+        };
+        if let Some(existing) = self.scope_stack.resolve(&v.name.name) {
+            self.report_redeclared(&v.name.name, existing, v.name.span);
+        }
     }
 
     fn resolve_or_create_binding(&mut self, var: &Variable) -> BindingId {

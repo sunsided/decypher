@@ -1582,7 +1582,7 @@ pub fn walk_count_subquery_expression<'ast, V: Visit<'ast>>(
     v: &mut V,
     node: &'ast CountSubqueryExpression,
 ) {
-    v.visit_regular_query(&node.query);
+    v.visit_exists_inner(&node.inner);
 }
 
 pub fn walk_collect_subquery_expression<'ast, V: Visit<'ast>>(
@@ -2177,7 +2177,7 @@ pub fn walk_count_subquery_expression_mut<V: VisitMut>(
     v: &mut V,
     node: &mut CountSubqueryExpression,
 ) {
-    v.visit_regular_query(&mut node.query);
+    v.visit_exists_inner(&mut node.inner);
 }
 
 pub fn walk_collect_subquery_expression_mut<V: VisitMut>(

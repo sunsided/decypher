@@ -76,29 +76,27 @@ fn with_where_and_order_by_see_read_variables() {
     }
 }
 
-/// A property lookup without `AS alias` does not introduce a bound name.
+/// A property lookup without `AS alias` does not introduce a bound name, and
+/// is itself reported: expressions in `WITH` must be aliased (TCK `With4 [5]`).
 ///
 /// Unit: `sema::analyze()`
 /// Precondition: `MATCH (n) WITH n.name RETURN name` — `name` is never explicitly bound.
-/// Expectation: Analysis returns `Err` with one `UnresolvedVariable { name: "name" }`.
+/// Expectation: Analysis reports `UnresolvedVariable { name: "name" }` and
+///   `MissingAlias`.
 #[test]
 fn with_unaliased_property_projection_requires_alias() {
-    // MATCH (n) WITH n.name RETURN name — property lookups do not bind `name`
-    // unless they are explicitly aliased.
     let query = parse("MATCH (n) WITH n.name RETURN name").expect("should parse");
-    let result = analyze(&query);
-    assert!(result.is_err());
-    let errs = result.unwrap_err();
-    assert_eq!(errs.len(), 1);
-    match errs.errors[0].kind() {
-        ErrorKind::UnresolvedVariable { name } => {
-            assert_eq!(name, "name");
-        }
-        _ => panic!(
-            "expected UnresolvedVariable, got {:?}",
-            errs.errors[0].kind()
-        ),
-    }
+    let errs = analyze(&query).unwrap_err();
+    let kinds: Vec<_> = errs.errors.iter().map(|e| e.kind().clone()).collect();
+    assert_eq!(
+        kinds,
+        vec![
+            ErrorKind::UnresolvedVariable {
+                name: "name".into()
+            },
+            ErrorKind::MissingAlias
+        ]
+    );
 }
 
 /// `WITH n` (bare variable projection without alias) re-binds `n`.

@@ -30,6 +30,8 @@ pub enum SemaError {
     DistinctNotAllowed { span: Span },
     /// An aggregate called where aggregation is not allowed.
     AggregateNotAllowed { function: String, span: Span },
+    /// `RETURN *` with no variables in scope.
+    NoVariablesInScope { span: Span },
     /// Invalid reference (e.g. in ORDER BY after WITH referencing
     /// a variable not in the projection).
     InvalidReference {
@@ -59,6 +61,7 @@ impl SemaError {
             SemaError::AggregateNotAllowed { function, .. } => ErrorKind::AggregateNotAllowed {
                 function: function.clone(),
             },
+            SemaError::NoVariablesInScope { .. } => ErrorKind::NoVariablesInScope,
             SemaError::InvalidReference { name, reason, .. } => ErrorKind::InvalidReference {
                 name: name.clone(),
                 reason,
@@ -76,6 +79,7 @@ impl SemaError {
                 SemaError::AggregationMix { span, .. } => *span,
                 SemaError::DistinctNotAllowed { span } => *span,
                 SemaError::AggregateNotAllowed { span, .. } => *span,
+                SemaError::NoVariablesInScope { span } => *span,
                 SemaError::InvalidReference { span, .. } => *span,
             },
             source_label: None,
