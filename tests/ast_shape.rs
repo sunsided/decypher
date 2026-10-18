@@ -694,6 +694,10 @@ fn test_gql_union_distinct_and_is_label() {
             "MATCH (n) WHERE n.x IS NOT NULL AND n:A IS NULL RETURN n",
             "MATCH (n) WHERE n.x IS NOT NULL AND n:A IS NULL RETURN n;",
         ),
+        (
+            "MATCH (n) WHERE n IS $($l) RETURN n",
+            "MATCH (n) WHERE n:$($l) RETURN n;",
+        ),
     ] {
         check_roundtrip(input, printed);
     }

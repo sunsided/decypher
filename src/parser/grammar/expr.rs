@@ -289,10 +289,11 @@ fn is_label_predicate_after_is(p: &Parser) -> bool {
     match tok.kind {
         SyntaxKind::NULL_KW | SyntaxKind::KW_NOT | SyntaxKind::COLON => false,
         SyntaxKind::IDENT => !text.eq_ignore_ascii_case("NORMALIZED"),
-        SyntaxKind::ESCAPED_IDENT
-        | SyntaxKind::L_PAREN
-        | SyntaxKind::BANG
-        | SyntaxKind::PERCENT => true,
+        // A quoted name, a parenthesised or negated label expression, or a
+        // dynamic label `$(expr)`.
+        SyntaxKind::ESCAPED_IDENT | SyntaxKind::L_PAREN | SyntaxKind::BANG | SyntaxKind::DOLLAR => {
+            true
+        }
         kind => keyword_can_be_name(kind),
     }
 }

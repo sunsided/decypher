@@ -41,12 +41,12 @@ pub struct Lexer<'a> {
 }
 
 impl<'a> Lexer<'a> {
-    /// Create a new lexer for the given `input` string.
     /// Byte offset just past the most recently returned token.
     pub(crate) fn position(&self) -> usize {
         self.pos
     }
 
+    /// Create a new lexer for the given `input` string.
     pub fn new(input: &'a str) -> Self {
         Self {
             input,
