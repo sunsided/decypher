@@ -781,3 +781,26 @@ fn analyze_pattern_comprehension_binds_pattern_variables() {
     analyze("MATCH (n) RETURN [(n)-[:T]->(b) | b.name] AS list").unwrap();
     analyze("MATCH (n) RETURN [(n)-[r:T]->() WHERE r.x > 1 | r.name] AS list").unwrap();
 }
+
+/// Variables introduced by a pattern comprehension do not leak into the
+/// enclosing query (#61).
+///
+/// Unit: `analyze()`
+/// Precondition: Projections referencing `b`/`p` next to a pattern
+///               comprehension that binds them.
+/// Expectation: `analyze` fails with an unresolved variable.
+#[test]
+fn analyze_pattern_comprehension_variables_do_not_leak() {
+    for (query, var) in [
+        ("MATCH (n) RETURN [(n)-->(b) | b] AS l, b", "b"),
+        ("MATCH (n) WITH [(n)-->(b) | b] AS l RETURN b", "b"),
+        ("MATCH (n) RETURN [p = (n)-->() | p] AS l, p", "p"),
+    ] {
+        let err = analyze(query).unwrap_err();
+        check!(
+            err.to_string()
+                .contains(&format!("unresolved variable `{var}`")),
+            "query: {query}, got: {err}"
+        );
+    }
+}
