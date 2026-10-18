@@ -186,8 +186,8 @@ tasks:
       - wasm:build
     cmds:
       - "{{.CARGO}} test -p decypher-wasm"
-      - cmd: node --test tests/*.test.mjs
-        dir: bindings/wasm
+      # Task ignores `dir` on a single command, so name the path from the root.
+      - node --test bindings/wasm/tests/*.test.mjs
 
   wasm:pack:
     desc: Build, test and pack the npm package into bindings/wasm/dist/*.tgz
