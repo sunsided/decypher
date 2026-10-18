@@ -141,8 +141,12 @@ fn significant_tokens(source: &str) -> BTreeMap<String, usize> {
         .filter_map(|el| el.into_token())
     {
         let text = match token.kind() {
-            SyntaxKind::IDENT => token.text().to_owned(),
-            SyntaxKind::ESCAPED_IDENT => token.text().trim_matches('`').replace("``", "`"),
+            SyntaxKind::IDENT => literal_word(token.text().to_owned()),
+            // A keyword used as a name (`{null: 1}`) prints as an escaped
+            // identifier, so names spelling a literal compare like literals.
+            SyntaxKind::ESCAPED_IDENT => {
+                literal_word(token.text().trim_matches('`').replace("``", "`"))
+            }
             // The printer normalises number syntax (`0x1F` → `31`, `1e9` →
             // `1000000000.0`), so compare numbers by value.
             SyntaxKind::INTEGER | SyntaxKind::FLOAT => number_value(token.text()),
@@ -162,6 +166,17 @@ fn significant_tokens(source: &str) -> BTreeMap<String, usize> {
         *counts.entry(text).or_insert(0) += 1;
     }
     counts
+}
+
+/// Lower-cases names that spell `null`, `true` or `false`, matching how the
+/// literal tokens are normalised.
+fn literal_word(name: String) -> String {
+    let lower = name.to_ascii_lowercase();
+    if matches!(lower.as_str(), "null" | "true" | "false") {
+        lower
+    } else {
+        name
+    }
 }
 
 /// Decodes backslash escapes so that `'it\'s'` and `"it's"` compare equal.
