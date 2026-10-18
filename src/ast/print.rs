@@ -861,6 +861,35 @@ impl ToCypher for Expression {
                 write!(w, " IN ")?;
                 rhs.write_cypher(w)
             }
+            Expression::IsNormalized {
+                operand,
+                negated,
+                form,
+                ..
+            } => {
+                operand.write_cypher(w)?;
+                write!(w, " IS ")?;
+                if *negated {
+                    write!(w, "NOT ")?;
+                }
+                if let Some(form) = form {
+                    write!(w, "{} ", form.as_str())?;
+                }
+                write!(w, "NORMALIZED")
+            }
+            Expression::IsTyped {
+                operand,
+                negated,
+                type_name,
+                ..
+            } => {
+                operand.write_cypher(w)?;
+                write!(w, " IS ")?;
+                if *negated {
+                    write!(w, "NOT ")?;
+                }
+                write!(w, ":: {type_name}")
+            }
             Expression::IsNull {
                 operand, negated, ..
             } => {

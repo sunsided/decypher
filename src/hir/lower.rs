@@ -1010,6 +1010,26 @@ impl<'cfg> LoweringContext<'cfg> {
                     negated: *negated,
                 }
             }
+            Expression::IsNormalized {
+                operand,
+                negated,
+                form,
+                ..
+            } => ExprKind::IsNormalized {
+                operand: self.lower_expr(operand),
+                negated: *negated,
+                form: *form,
+            },
+            Expression::IsTyped {
+                operand,
+                negated,
+                type_name,
+                ..
+            } => ExprKind::IsTyped {
+                operand: self.lower_expr(operand),
+                negated: *negated,
+                type_name: type_name.clone(),
+            },
             Expression::FunctionCall(fc) => {
                 let key = Self::qualified_function_key(fc);
                 let display = Self::qualified_function_name(fc);

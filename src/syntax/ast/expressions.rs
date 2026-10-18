@@ -66,6 +66,8 @@ impl AstNode for BinaryExpr {
                 | SyntaxKind::LIST_OP_EXPR
                 | SyntaxKind::STRING_OP_EXPR
                 | SyntaxKind::NULL_OP_EXPR
+                | SyntaxKind::NORMALIZED_PREDICATE_EXPR
+                | SyntaxKind::TYPE_PREDICATE_EXPR
                 | SyntaxKind::PROPERTY_OR_LABELS_EXPR
         )
     }
@@ -158,6 +160,8 @@ impl BinaryExpr {
                     Some(BinOp::IsNull)
                 }
             }
+            SyntaxKind::NORMALIZED_PREDICATE_EXPR => Some(BinOp::IsNormalized),
+            SyntaxKind::TYPE_PREDICATE_EXPR => Some(BinOp::IsTyped),
             SyntaxKind::PROPERTY_OR_LABELS_EXPR => {
                 if child_token(&self.0, SyntaxKind::DOT).is_some() {
                     Some(BinOp::PropertyLookup)
@@ -224,6 +228,10 @@ pub enum BinOp {
     In,
     IsNull,
     IsNotNull,
+    /// `IS [NOT] [NFC|NFD|NFKC|NFKD] NORMALIZED`
+    IsNormalized,
+    /// `IS [NOT] :: <type>` / `IS [NOT] TYPED <type>`
+    IsTyped,
     Index,
     PropertyLookup,
     HasLabel,

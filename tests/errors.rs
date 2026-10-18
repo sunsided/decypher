@@ -436,3 +436,20 @@ fn test_parenthesised_set_target_requires_property() {
         );
     }
 }
+
+/// A type predicate needs a type, and a normal form needs `NORMALIZED`.
+///
+/// Unit: `parse()`
+/// Precondition: `RETURN 1 IS ::` and `RETURN 'a' IS NFC`.
+/// Expectation: Both are syntax errors.
+#[test]
+fn test_incomplete_gql_predicates() {
+    for input in ["RETURN 1 IS ::", "RETURN 'a' IS NFC"] {
+        let err = parse(input).unwrap_err();
+        check!(
+            matches!(err.kind, ErrorKind::UnexpectedToken { .. }),
+            "input: {input}, got: {:?}",
+            err.kind
+        );
+    }
+}
