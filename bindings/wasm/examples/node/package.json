@@ -1,0 +1,15 @@
+{
+  "name": "decypher-node-example",
+  "private": true,
+  "type": "module",
+  "description": "Lint and summarise Cypher files with the decypher WebAssembly package.",
+  "bin": {
+    "cypher-lint": "./lint.js"
+  },
+  "scripts": {
+    "start": "node lint.js queries/*.cypher"
+  },
+  "dependencies": {
+    "@sunsided/decypher": "file:../../pkg"
+  }
+}

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>decypher playground</title>
+    <!--
+      Maps the package name to the built files so this page runs without a
+      bundler. With Vite, webpack, esbuild & co. install the package and drop
+      the import map; `import ... from "@sunsided/decypher"` works unchanged.
+    -->
+    <script type="importmap">
+      { "imports": { "@sunsided/decypher": "../../pkg/web/decypher.js" } }
+    </script>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>decypher playground</h1>
+      <span id="version"></span>
+    </header>
+
+    <main>
+      <section class="editor-pane">
+        <div class="editor">
+          <pre id="highlight" aria-hidden="true"></pre>
+          <textarea id="source" spellcheck="false" autocapitalize="off" autocomplete="off">
+// Edit me: highlighting, diagnostics and the trees update as you type.
+MATCH (a:Person {name: $name})-[:KNOWS*1..2]->(b:Person)
+WHERE b.age >= $minAge AND NOT (b)-[:BLOCKED]->(a)
+WITH b, count(*) AS paths
+RETURN b.name AS friend, paths
+ORDER BY paths DESC
+LIMIT 10;</textarea
+          >
+        </div>
+        <ul id="diagnostics"></ul>
+      </section>
+
+      <section class="output-pane">
+        <nav role="tablist">
+          <button role="tab" data-view="ast" aria-selected="true">AST</button>
+          <button role="tab" data-view="cst" aria-selected="false">CST</button>
+          <button role="tab" data-view="format" aria-selected="false">Formatted</button>
+        </nav>
+        <pre id="output"></pre>
+      </section>
+    </main>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

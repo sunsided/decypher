@@ -173,3 +173,42 @@ tasks:
     desc: Remove Cargo build artifacts
     cmds:
       - "{{.CARGO}} clean"
+
+  wasm:build:
+    desc: Build the WebAssembly npm package into bindings/wasm/pkg
+    dir: bindings/wasm
+    cmds:
+      - node scripts/build.mjs {{.CLI_ARGS}}
+
+  wasm:test:
+    desc: Run the Rust unit tests and the Node.js tests of the npm package
+    deps:
+      - wasm:build
+    cmds:
+      - "{{.CARGO}} test -p decypher-wasm"
+      - cmd: node --test tests/*.test.mjs
+        dir: bindings/wasm
+
+  wasm:pack:
+    desc: Build, test and pack the npm package into bindings/wasm/dist/*.tgz
+    deps:
+      - wasm:test
+    dir: bindings/wasm
+    cmds:
+      - mkdir -p dist
+      - npm pack ./pkg --pack-destination dist
+
+  wasm:site:
+    desc: Assemble the browser playground for static hosting in bindings/wasm/site
+    deps:
+      - wasm:build
+    dir: bindings/wasm
+    cmds:
+      - node scripts/site.mjs
+
+  wasm:serve:
+    desc: Serve the browser playground at http://localhost:8000
+    deps:
+      - wasm:site
+    cmds:
+      - python3 -m http.server --directory bindings/wasm/site 8000

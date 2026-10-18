@@ -13,7 +13,14 @@ license = "EUPL-1.2 OR MIT OR Apache-2.0"
 keywords = ["sql", "cypher", "graph", "parser", "opencypher"]
 categories = ["parser-implementations"]
 # The vendored openCypher TCK corpus (Apache-2.0, ~5 MB) is test-only.
-exclude = ["tests/tck/", "tests/tck.rs"]
+exclude = ["tests/tck/", "tests/tck.rs", "bindings/"]
+
+[workspace]
+members = [".", "bindings/wasm"]
+# Plain `cargo` invocations at the root keep targeting the parser crate only;
+# the wasm bindings are built through wasm-pack (see bindings/wasm/README.md).
+default-members = ["."]
+exclude = ["fuzz"]
 
 [dependencies]
 thiserror = "2"
