@@ -170,7 +170,10 @@ impl<'a> Parser<'a> {
                 .start_node(CypherLang::kind_to_raw(SyntaxKind::UNION));
             self.bump(); // UNION
             self.skip_trivia();
-            self.eat(SyntaxKind::KW_ALL);
+            // `UNION DISTINCT` (GQL) spells out the default `UNION`.
+            if !self.eat(SyntaxKind::KW_ALL) {
+                self.eat(SyntaxKind::KW_DISTINCT);
+            }
             self.skip_trivia();
             self.parse_query_body();
             self.builder.finish_node();

@@ -657,3 +657,44 @@ fn test_misc_valid_forms() {
         check_roundtrip(input, printed);
     }
 }
+
+/// GQL / Neo4j 5 forms: `UNION DISTINCT` and `IS Label` label predicates in
+/// expressions and patterns (#69). They print in the equivalent openCypher
+/// form.
+///
+/// Unit: `parse()`
+/// Precondition: `UNION DISTINCT` at top level and in a subquery; `IS` label
+///               predicates in WHERE and RETURN, in node patterns and in
+///               relationship details; existing `IS NULL` forms.
+/// Expectation: Each parses and prints the equivalent openCypher query.
+#[test]
+fn test_gql_union_distinct_and_is_label() {
+    for (input, printed) in [
+        (
+            "RETURN 1 UNION DISTINCT RETURN 2",
+            "RETURN 1 UNION RETURN 2;",
+        ),
+        (
+            "CALL { RETURN 1 AS a UNION DISTINCT RETURN 2 AS a } RETURN a",
+            "CALL { RETURN 1 AS a UNION RETURN 2 AS a } RETURN a;",
+        ),
+        (
+            "MATCH (n) WHERE n IS Person RETURN n",
+            "MATCH (n) WHERE n:Person RETURN n;",
+        ),
+        (
+            "MATCH (n) RETURN n IS Person AS p",
+            "MATCH (n) RETURN n:Person AS p;",
+        ),
+        (
+            "MATCH (n IS Person)-[r IS KNOWS]->(m) RETURN r",
+            "MATCH (n:Person)-[r:KNOWS]->(m) RETURN r;",
+        ),
+        (
+            "MATCH (n) WHERE n.x IS NOT NULL AND n:A IS NULL RETURN n",
+            "MATCH (n) WHERE n.x IS NOT NULL AND n:A IS NULL RETURN n;",
+        ),
+    ] {
+        check_roundtrip(input, printed);
+    }
+}
