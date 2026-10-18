@@ -898,6 +898,23 @@ fn build_node_pattern(np: NodePattern) -> Result<ast_c::NodePattern> {
     })
 }
 
+/// Builds a relationship pattern from its first node and the following
+/// relationship/node chains, as used by pattern expressions and pattern
+/// comprehensions.
+fn build_relationships_pattern(
+    start: NodePattern,
+    chains: impl Iterator<Item = PatternElementChain>,
+    span: Span,
+) -> Result<ast_c::RelationshipsPattern> {
+    Ok(ast_c::RelationshipsPattern {
+        start: build_node_pattern(start)?,
+        chains: chains
+            .map(build_pattern_element_chain)
+            .collect::<Result<_>>()?,
+        span,
+    })
+}
+
 fn build_pattern_element_chain(pec: PatternElementChain) -> Result<ast_c::PatternElementChain> {
     let sp = span_of(pec.syntax());
     let rel = pec
@@ -1487,6 +1504,17 @@ fn build_atom(a: Atom) -> Result<ast_c::Expression> {
         Atom::MapLiteral(ml) => build_map_literal(ml),
         Atom::ListComprehension(lc) => build_list_comprehension(lc),
         Atom::PatternComprehension(pc) => build_pattern_comprehension(pc),
+        Atom::RelationshipsPattern(rp) => {
+            let sp = span_of(rp.syntax());
+            let start = rp
+                .node_pattern()
+                .ok_or_else(|| internal("missing node pattern", sp))?;
+            Ok(ast_c::Expression::Pattern(build_relationships_pattern(
+                start,
+                rp.chains(),
+                sp,
+            )?))
+        }
         Atom::FilterExpression(fe) => build_filter_expression(fe),
         Atom::ExistsSubquery(es) => build_exists_subquery(es),
         Atom::CountSubquery(cs) => build_count_subquery(cs),
@@ -1758,7 +1786,10 @@ fn build_list_comprehension(lc: ListComprehension) -> Result<ast_c::Expression> 
 fn build_pattern_comprehension(pc: PatternComprehension) -> Result<ast_c::Expression> {
     let sp = span_of(pc.syntax());
     let variable = pc.variable().map(build_variable);
-    let _pat = pc.pattern();
+    let start = pc
+        .node_pattern()
+        .ok_or_else(|| internal("missing pattern in pattern comp", sp))?;
+    let pattern = build_relationships_pattern(start, pc.chains(), sp)?;
     let where_clause = pc
         .where_clause()
         .and_then(|w| w.expr())
@@ -1769,20 +1800,10 @@ fn build_pattern_comprehension(pc: PatternComprehension) -> Result<ast_c::Expres
         .map(build_expression)
         .transpose()?
         .ok_or_else(|| internal("missing body in pattern comp", sp))?;
-    let placeholder = ast_c::RelationshipsPattern {
-        start: ast_c::NodePattern {
-            variable: variable.clone(),
-            labels: Vec::new(),
-            properties: None,
-            span: sp,
-        },
-        chains: Vec::new(),
-        span: sp,
-    };
     Ok(ast_c::Expression::PatternComprehension(Box::new(
         ast_c::PatternComprehension {
             variable,
-            pattern: placeholder,
+            pattern,
             where_clause,
             map,
             span: sp,

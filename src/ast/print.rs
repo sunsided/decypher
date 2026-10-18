@@ -1095,13 +1095,12 @@ impl ToCypher for ListComprehension {
 
 impl ToCypher for PatternComprehension {
     fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
-        write!(w, "[(")?;
+        write!(w, "[")?;
         if let Some(var) = &self.variable {
             var.write_cypher(w)?;
             write!(w, " = ")?;
         }
         self.pattern.write_cypher(w)?;
-        write!(w, ")")?;
         if let Some(wc) = &self.where_clause {
             write!(w, " WHERE ")?;
             wc.write_cypher(w)?;

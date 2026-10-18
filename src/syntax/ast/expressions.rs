@@ -301,6 +301,9 @@ pub enum Atom {
     MapLiteral(MapLiteral),
     ListComprehension(ListComprehension),
     PatternComprehension(PatternComprehension),
+    /// A relationship pattern used as an expression, e.g. `(a)-->(b)` in a
+    /// `WHERE` predicate or `size((a)-->())`.
+    RelationshipsPattern(super::patterns::RelationshipsPattern),
     FilterExpression(FilterExpression),
     ExistsSubquery(ExistsSubquery),
     CountSubquery(CountSubquery),
@@ -329,6 +332,7 @@ impl AstNode for Atom {
                 | SyntaxKind::MAP_LITERAL
                 | SyntaxKind::LIST_COMPREHENSION
                 | SyntaxKind::PATTERN_COMPREHENSION
+                | SyntaxKind::RELATIONSHIPS_PATTERN
                 | SyntaxKind::FILTER_EXPRESSION
                 | SyntaxKind::EXISTS_SUBQUERY
                 | SyntaxKind::COUNT_SUBQUERY
@@ -363,6 +367,9 @@ impl AstNode for Atom {
             SyntaxKind::PATTERN_COMPREHENSION => {
                 PatternComprehension::cast(syntax).map(Atom::PatternComprehension)
             }
+            SyntaxKind::RELATIONSHIPS_PATTERN => {
+                super::patterns::RelationshipsPattern::cast(syntax).map(Atom::RelationshipsPattern)
+            }
             SyntaxKind::FILTER_EXPRESSION => {
                 FilterExpression::cast(syntax).map(Atom::FilterExpression)
             }
@@ -392,6 +399,7 @@ impl AstNode for Atom {
             Atom::MapLiteral(it) => it.syntax(),
             Atom::ListComprehension(it) => it.syntax(),
             Atom::PatternComprehension(it) => it.syntax(),
+            Atom::RelationshipsPattern(it) => it.syntax(),
             Atom::FilterExpression(it) => it.syntax(),
             Atom::ExistsSubquery(it) => it.syntax(),
             Atom::CountSubquery(it) => it.syntax(),
@@ -1231,12 +1239,28 @@ impl PatternComprehension {
         })
     }
 
+    /// The first node pattern of the comprehension's pattern.
+    pub fn node_pattern(&self) -> Option<super::patterns::NodePattern> {
+        child(&self.0)
+    }
+
+    /// The relationship/node pairs following the first node pattern.
+    pub fn chains(&self) -> AstChildren<super::patterns::PatternElementChain> {
+        children(&self.0)
+    }
+
     pub fn where_clause(&self) -> Option<super::clauses::WhereClause> {
         child(&self.0)
     }
 
+    /// The map expression after `|`.
     pub fn body(&self) -> Option<Expression> {
-        self.0.children().filter_map(Expression::cast).last()
+        self.0
+            .children_with_tokens()
+            .skip_while(|c| c.kind() != SyntaxKind::PIPE)
+            .filter_map(|c| c.into_node())
+            .filter_map(Expression::cast)
+            .last()
     }
 }
 

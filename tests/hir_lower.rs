@@ -769,3 +769,15 @@ fn analyze_in_query_call_binds_yields() {
     check!(fields == ["x", "y"]);
     check!(ops.iter().any(|op| matches!(op, Operation::Filter(_))));
 }
+
+/// Variables introduced by a pattern comprehension's pattern are visible in
+/// its `WHERE` and map expression (#61).
+///
+/// Unit: `analyze()`
+/// Precondition: Pattern comprehensions that use pattern-bound `b` and `r`.
+/// Expectation: `analyze` succeeds.
+#[test]
+fn analyze_pattern_comprehension_binds_pattern_variables() {
+    analyze("MATCH (n) RETURN [(n)-[:T]->(b) | b.name] AS list").unwrap();
+    analyze("MATCH (n) RETURN [(n)-[r:T]->() WHERE r.x > 1 | r.name] AS list").unwrap();
+}

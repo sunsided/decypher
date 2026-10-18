@@ -435,3 +435,43 @@ fn test_procedure_calls_round_trip() {
         check_roundtrip(q, &format!("{q};"));
     }
 }
+
+/// Relationship patterns used as expressions and pattern comprehensions keep
+/// their full pattern, predicate and projection (#61, #62).
+///
+/// Unit: `parse()` / pattern expressions and pattern comprehensions
+/// Precondition: Patterns as `WHERE` predicates, function arguments and
+///               projections, and pattern comprehensions with a path variable,
+///               labels, properties, `WHERE` and a composed map expression.
+/// Expectation: Each query round-trips with the pattern intact.
+#[test]
+fn test_pattern_expressions_and_comprehensions_round_trip() {
+    for (input, printed) in [
+        (
+            "MATCH (a) WHERE (a)-[:T]->(:L) RETURN a",
+            "MATCH (a) WHERE (a)-[:T]->(:L) RETURN a;",
+        ),
+        (
+            "MATCH (n) WHERE NOT (n)-->() RETURN n",
+            "MATCH (n) WHERE NOT (n)-[]->() RETURN n;",
+        ),
+        (
+            "MATCH (n) WHERE (n)-[r:REL*0..2]->(m {num: 5}) RETURN n",
+            "MATCH (n) WHERE (n)-[r:REL*0..2]->(m {num: 5}) RETURN n;",
+        ),
+        (
+            "MATCH (a) RETURN size((a)-->()) AS n",
+            "MATCH (a) RETURN size((a)-[]->()) AS n;",
+        ),
+        (
+            "MATCH (a) RETURN [(a)-->(b) | b] AS x",
+            "MATCH (a) RETURN [(a)-[]->(b) | b] AS x;",
+        ),
+        (
+            "MATCH (a) RETURN [p = (a:L {x: 1})-[r:T]->(b) WHERE b.x > 1 | b.name + 'x'] AS x",
+            "MATCH (a) RETURN [p = (a:L {x: 1})-[r:T]->(b) WHERE b.x > 1 | b.name + 'x'] AS x;",
+        ),
+    ] {
+        check_roundtrip(input, printed);
+    }
+}
