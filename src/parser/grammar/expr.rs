@@ -61,6 +61,11 @@ fn expr_bp(p: &mut Parser, min_bp: Prec) {
                 break;
             }
             parse_list_index(p);
+        } else if p.at(SyntaxKind::KW_IS) && is_label_predicate_after_is(p) {
+            if Prec::POSTFIX < min_bp {
+                break;
+            }
+            parse_is_label(p);
         } else if p.at(SyntaxKind::KW_IS) {
             if Prec::POSTFIX < min_bp {
                 break;
@@ -263,6 +268,51 @@ fn is_label_check_follow(p: &Parser) -> bool {
         Some(kind) => keyword_can_be_name(kind) && kind != SyntaxKind::KW_WHERE,
         None => false,
     }
+}
+
+/// Whether `IS` at the current position starts a GQL label predicate
+/// (`n IS Person`) rather than `IS [NOT] NULL`, `IS [NOT] NORMALIZED` or the
+/// type predicate `IS :: <type>`.
+fn is_label_predicate_after_is(p: &Parser) -> bool {
+    let mut lx = p.lexer.clone();
+    let next = loop {
+        match lx.advance() {
+            Some(tok) if matches!(tok.kind, SyntaxKind::WHITESPACE | SyntaxKind::COMMENT) => {}
+            other => break other,
+        }
+    };
+    let Some(tok) = next else {
+        return false;
+    };
+    let end = lx.position();
+    let text = p.input.get(end - tok.text_len..end).unwrap_or_default();
+    match tok.kind {
+        SyntaxKind::NULL_KW | SyntaxKind::KW_NOT | SyntaxKind::COLON => false,
+        SyntaxKind::IDENT => !text.eq_ignore_ascii_case("NORMALIZED"),
+        // A quoted name, a parenthesised or negated label expression, or a
+        // dynamic label `$(expr)`.
+        SyntaxKind::ESCAPED_IDENT | SyntaxKind::L_PAREN | SyntaxKind::BANG | SyntaxKind::DOLLAR => {
+            true
+        }
+        kind => keyword_can_be_name(kind),
+    }
+}
+
+/// `n IS Person` (GQL): a label predicate, equivalent to `n:Person`.
+fn parse_is_label(p: &mut Parser) {
+    p.start_node(SyntaxKind::PROPERTY_OR_LABELS_EXPR);
+    p.start_node(SyntaxKind::NODE_LABELS);
+    p.bump(); // IS
+    p.skip_trivia();
+    parse_label_expression(
+        p,
+        SyntaxKind::NODE_LABEL,
+        SyntaxKind::LABEL_NAME,
+        SyntaxKind::DYNAMIC_LABEL,
+    );
+    p.builder.finish_node();
+    p.builder.finish_node();
+    p.skip_trivia();
 }
 
 fn parse_postfix_node_labels(p: &mut Parser) {
@@ -1131,7 +1181,8 @@ fn parse_node_pattern_for_atom(p: &mut Parser) {
         p.builder.finish_node();
         p.skip_trivia();
     }
-    while p.at(SyntaxKind::COLON) {
+    // `(n IS Person)` (GQL) is `(n:Person)`.
+    while p.at(SyntaxKind::COLON) || p.at(SyntaxKind::KW_IS) {
         p.start_node(SyntaxKind::NODE_LABELS);
         p.bump();
         p.skip_trivia();
@@ -1978,9 +2029,10 @@ fn parse_relationship_detail(p: &mut Parser) {
         p.builder.finish_node();
         p.skip_trivia();
     }
-    if p.at(SyntaxKind::COLON) {
+    // `[r IS KNOWS]` (GQL) is `[r:KNOWS]`.
+    if p.at(SyntaxKind::COLON) || p.at(SyntaxKind::KW_IS) {
         p.start_node(SyntaxKind::RELATIONSHIP_TYPES);
-        p.eat(SyntaxKind::COLON);
+        p.bump();
         p.skip_trivia();
         parse_label_expression(
             p,
@@ -2058,7 +2110,8 @@ fn parse_node_pattern(p: &mut Parser) {
         p.builder.finish_node();
         p.skip_trivia();
     }
-    while p.at(SyntaxKind::COLON) {
+    // `(n IS Person)` (GQL) is `(n:Person)`.
+    while p.at(SyntaxKind::COLON) || p.at(SyntaxKind::KW_IS) {
         p.start_node(SyntaxKind::NODE_LABELS);
         p.bump();
         p.skip_trivia();
@@ -2507,7 +2560,10 @@ fn parse_regular_query_body(p: &mut Parser) {
         p.start_node(SyntaxKind::UNION);
         p.bump();
         p.skip_trivia();
-        p.eat(SyntaxKind::KW_ALL);
+        // `UNION DISTINCT` (GQL) spells out the default `UNION`.
+        if !p.eat(SyntaxKind::KW_ALL) {
+            p.eat(SyntaxKind::KW_DISTINCT);
+        }
         p.skip_trivia();
         // Parse next query body
         parse_regular_query_body(p);
