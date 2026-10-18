@@ -1345,3 +1345,20 @@ fn analyze_pattern_predicates_need_bound_variables() {
     analyze("MATCH (n), (m) WHERE (n)-->(m) RETURN n").unwrap();
     analyze("MATCH (n)-[r]->(m) WHERE NOT (m)-[r]->(n) RETURN size((n)-->()) AS d").unwrap();
 }
+
+/// `COUNT { pattern }` lowers like `EXISTS { pattern }`: its new variables
+/// are local, and it sees the enclosing ones (#107).
+///
+/// Unit: `analyze()` / `sema::analyze()`
+/// Precondition: `COUNT { (n)-->(m) WHERE m.x > 1 }` over a bound `n`, and a
+///               query using `m` outside it.
+/// Expectation: The first passes both analyzers; the second reports `m`.
+#[test]
+fn analyze_count_pattern_subquery() {
+    let query = "MATCH (n) WHERE COUNT { (n)-->(m) WHERE m.x > 1 } > 2 RETURN n";
+    analyze(query).unwrap();
+    decypher::sema::analyze(&decypher::parse(query).unwrap()).unwrap();
+
+    let err = analyze("MATCH (n) RETURN COUNT { (n)-->(m) } AS c, m").unwrap_err();
+    check!(err.to_string().contains("unresolved variable `m`"), "{err}");
+}

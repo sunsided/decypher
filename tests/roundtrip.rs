@@ -847,3 +847,24 @@ fn rt_set_multiple_dynamic_property_keys() {
 fn rt_set_dynamic_property_literal_key() {
     roundtrip("MATCH (n) SET n[\"propName\"] = $v RETURN n;");
 }
+
+/// Round-trip the pattern form of `COUNT { … }` (#107).
+///
+/// Unit: `ToCypher::to_cypher` / `parse`
+/// Precondition: `COUNT { pattern }` with and without `WHERE`, next to the
+///   subquery form.
+/// Expectation: Re-parsed AST equals the original parsed AST, and the pattern
+///   form prints as a pattern.
+#[test]
+fn rt_count_pattern_subquery() {
+    roundtrip("MATCH (n) WHERE COUNT { (n)-[:R]->() } > 1 RETURN n;");
+    roundtrip("MATCH (n) RETURN COUNT { (n)-[:KNOWS]->(m) WHERE m.age > 3 } AS c;");
+    roundtrip("MATCH (n) RETURN COUNT { MATCH (n)-[:R]->(m) RETURN m } AS c;");
+    let printed = parse("MATCH (n) RETURN COUNT { (n)-[:R]->(m) WHERE m.x = 1 } AS c")
+        .unwrap()
+        .to_cypher();
+    check!(
+        printed.contains("COUNT { (n)-[:R]->(m) WHERE m.x = 1 }"),
+        "{printed}"
+    );
+}

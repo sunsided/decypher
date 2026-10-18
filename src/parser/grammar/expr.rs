@@ -651,6 +651,35 @@ fn parse_relationship_quantifier(p: &mut Parser) {
     p.builder.finish_node();
 }
 
+/// Parses the body of `EXISTS { … }` or `COUNT { … }`: either a full
+/// subquery, or a pattern with an optional `WHERE` (`COUNT { (n)-->() }`).
+fn parse_pattern_or_subquery_body(p: &mut Parser) {
+    // Anything but a node pattern is a subquery; an empty or malformed body
+    // gets the subquery hint.
+    if is_clause_start_for_exists(p) || !p.at(SyntaxKind::L_PAREN) {
+        parse_subquery_body(p);
+        return;
+    }
+    parse_node_pattern_for_atom(p);
+    p.skip_trivia();
+    while is_relationship_chain_start(p) {
+        p.start_node(SyntaxKind::PATTERN_ELEMENT_CHAIN);
+        parse_relationship_pattern(p);
+        p.skip_trivia();
+        parse_node_pattern_for_atom(p);
+        p.builder.finish_node();
+        p.skip_trivia();
+    }
+    if p.at(SyntaxKind::KW_WHERE) {
+        p.start_node(SyntaxKind::WHERE_CLAUSE);
+        p.bump();
+        p.skip_trivia();
+        expr_bp(p, Prec::MIN);
+        p.builder.finish_node();
+        p.skip_trivia();
+    }
+}
+
 fn parse_subquery_body(p: &mut Parser) {
     let mut saw_clause = false;
     while !p.at(SyntaxKind::R_BRACE) && p.current_len() > 0 {
@@ -744,7 +773,7 @@ fn parse_atom(p: &mut Parser) {
             p.skip_trivia();
             p.bump(); // {
             p.skip_trivia();
-            parse_subquery_body(p);
+            parse_pattern_or_subquery_body(p);
             p.expect(SyntaxKind::R_BRACE);
             p.builder.finish_node();
         }
@@ -1049,41 +1078,7 @@ fn parse_atom(p: &mut Parser) {
                 p.skip_trivia();
                 p.bump(); // {
                 p.skip_trivia();
-                // Try RegularQuery first (clauses like MATCH, RETURN, etc.)
-                if is_clause_start_for_exists(p) {
-                    // It's a RegularQuery body
-                    while !p.at(SyntaxKind::R_BRACE) && p.current_len() > 0 {
-                        if is_clause_start_for_subquery(p) {
-                            parse_clause(p);
-                        } else {
-                            p.start_node(SyntaxKind::ERROR);
-                            p.bump();
-                            p.builder.finish_node();
-                        }
-                        p.skip_trivia();
-                    }
-                } else {
-                    // Pattern (WHERE)?
-                    parse_node_pattern_for_atom(p);
-                    p.skip_trivia();
-                    while is_relationship_chain_start(p) {
-                        p.start_node(SyntaxKind::PATTERN_ELEMENT_CHAIN);
-                        parse_relationship_pattern(p);
-                        p.skip_trivia();
-                        parse_node_pattern_for_atom(p);
-                        p.builder.finish_node();
-                        p.skip_trivia();
-                    }
-                    p.skip_trivia();
-                    if p.at(SyntaxKind::KW_WHERE) {
-                        p.start_node(SyntaxKind::WHERE_CLAUSE);
-                        p.bump();
-                        p.skip_trivia();
-                        expr_bp(p, Prec::MIN);
-                        p.builder.finish_node();
-                        p.skip_trivia();
-                    }
-                }
+                parse_pattern_or_subquery_body(p);
                 p.expect(SyntaxKind::R_BRACE);
                 p.builder.finish_node();
             } else if p.peek_next_non_trivia() == Some(SyntaxKind::L_PAREN) {

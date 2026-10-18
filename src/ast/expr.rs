@@ -457,12 +457,13 @@ pub struct ExistsExpression {
     pub span: Span,
 }
 
-/// `COUNT { subquery }` expression — returns the number of matching rows.
+/// `COUNT { … }` expression — returns the number of matching rows of a
+/// pattern (`COUNT { (n)-->() WHERE … }`) or a subquery.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct CountSubqueryExpression {
-    /// The inner subquery.
-    pub query: Box<super::query::RegularQuery>,
+    /// The inner pattern or subquery.
+    pub inner: Box<ExistsInner>,
     /// Byte-offset span of the `COUNT { … }` expression.
     pub span: Span,
 }
@@ -477,7 +478,7 @@ pub struct CollectSubqueryExpression {
     pub span: Span,
 }
 
-/// The inner content of an `EXISTS { … }` expression.
+/// The inner content of an `EXISTS { … }` or `COUNT { … }` expression.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum ExistsInner {

@@ -1248,7 +1248,7 @@ impl<'cfg> LoweringContext<'cfg> {
                 ExprKind::ExistsSubquery(inner)
             }
             Expression::CountSubquery(count) => {
-                let inner = self.lower_count_subquery(&count.query);
+                let inner = self.lower_count_subquery(&count.inner);
                 ExprKind::CountSubquery(inner)
             }
             Expression::CollectSubquery(collect) => {
@@ -1381,11 +1381,15 @@ impl<'cfg> LoweringContext<'cfg> {
         }
     }
 
-    fn lower_count_subquery(&mut self, query: &RegularQuery) -> CountSubquery {
-        let (q, imported) = self.lower_subquery(query);
+    fn lower_count_subquery(&mut self, inner: &ExistsInner) -> CountSubquery {
+        // The pattern form lowers to the same query as `EXISTS { pattern }`.
+        let ExistsSubquery {
+            query,
+            imported_bindings,
+        } = self.lower_exists_inner(inner);
         CountSubquery {
-            query: Box::new(q),
-            imported_bindings: imported,
+            query,
+            imported_bindings,
         }
     }
 

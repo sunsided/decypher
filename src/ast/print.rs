@@ -1183,9 +1183,8 @@ impl ToCypher for ExistsExpression {
 
 impl ToCypher for CountSubqueryExpression {
     fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
-        write!(w, "COUNT {{ ")?;
-        self.query.write_cypher(w)?;
-        write!(w, " }}")
+        write!(w, "COUNT ")?;
+        self.inner.write_cypher(w)
     }
 }
 

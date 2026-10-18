@@ -489,9 +489,7 @@ impl<'ast> Visit<'ast> for NameResolver {
     }
 
     fn visit_count_subquery_expression(&mut self, node: &'ast CountSubqueryExpression) {
-        let outer = self.scopes.clone();
-        self.visit_regular_query(&node.query);
-        self.scopes = outer;
+        self.visit_exists_inner(&node.inner);
     }
 
     fn visit_collect_subquery_expression(&mut self, node: &'ast CollectSubqueryExpression) {

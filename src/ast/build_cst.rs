@@ -1986,29 +1986,35 @@ fn build_filter_parts(fe: &FilterExpression, sp: Span) -> Result<ast_c::FilterEx
 }
 
 fn build_exists_subquery(es: ExistsSubquery) -> Result<ast_c::Expression> {
-    let sp = span_of(es.syntax());
+    Ok(ast_c::Expression::Exists(Box::new(
+        ast_c::ExistsExpression {
+            inner: Box::new(build_pattern_or_subquery(es.syntax())?),
+            span: span_of(es.syntax()),
+        },
+    )))
+}
+
+/// Builds the body of `EXISTS { … }` or `COUNT { … }`.
+fn build_pattern_or_subquery(
+    syntax: &rowan::SyntaxNode<crate::syntax::CypherLang>,
+) -> Result<ast_c::ExistsInner> {
+    let sp = span_of(syntax);
     // `EXISTS { (a)-->(b) WHERE … }` has a top-level node pattern; anything
     // else is a full subquery. (A pattern's WHERE_CLAUSE also casts to
     // `Clause`, so the presence of clauses alone doesn't decide it.)
-    let is_pattern_form = es
-        .syntax()
+    let is_pattern_form = syntax
         .children()
         .any(|n| n.kind() == SyntaxKind::NODE_PATTERN);
     if !is_pattern_form {
-        return Ok(ast_c::Expression::Exists(Box::new(
-            ast_c::ExistsExpression {
-                inner: Box::new(ast_c::ExistsInner::RegularQuery(Box::new(
-                    build_regular_query_from_syntax(es.syntax())?,
-                ))),
-                span: sp,
-            },
+        return Ok(ast_c::ExistsInner::RegularQuery(Box::new(
+            build_regular_query_from_syntax(syntax)?,
         )));
     }
 
     let mut parts = Vec::new();
-    if let Some(node) = es.syntax().children().find_map(NodePattern::cast) {
+    if let Some(node) = syntax.children().find_map(NodePattern::cast) {
         let mut text_children: Vec<rowan::SyntaxNode<crate::syntax::CypherLang>> =
-            es.syntax().children().collect();
+            syntax.children().collect();
         if let Some(first) = text_children.first()
             && first.kind() == SyntaxKind::NODE_PATTERN
         {
@@ -2031,26 +2037,22 @@ fn build_exists_subquery(es: ExistsSubquery) -> Result<ast_c::Expression> {
             span: sp,
         });
     }
-    let where_clause = es
-        .where_clause()
+    let where_clause = syntax
+        .children()
+        .find_map(crate::syntax::ast::clauses::WhereClause::cast)
         .and_then(|w| w.expr())
         .map(build_expression)
         .transpose()?;
-    Ok(ast_c::Expression::Exists(Box::new(
-        ast_c::ExistsExpression {
-            inner: Box::new(ast_c::ExistsInner::Pattern(
-                ast_c::Pattern { parts, span: sp },
-                where_clause.map(Box::new),
-            )),
-            span: sp,
-        },
-    )))
+    Ok(ast_c::ExistsInner::Pattern(
+        ast_c::Pattern { parts, span: sp },
+        where_clause.map(Box::new),
+    ))
 }
 
 fn build_count_subquery(cs: CountSubquery) -> Result<ast_c::Expression> {
     Ok(ast_c::Expression::CountSubquery(Box::new(
         ast_c::CountSubqueryExpression {
-            query: Box::new(build_regular_query_from_syntax(cs.syntax())?),
+            inner: Box::new(build_pattern_or_subquery(cs.syntax())?),
             span: span_of(cs.syntax()),
         },
     )))
