@@ -17,6 +17,10 @@ The TCK content is licensed under the Apache License 2.0 by Neo4j Sweden AB;
 see `LICENSE` and `NOTICE` in this directory. These files are not covered by
 the crate's own licenses and are excluded from the published crate.
 
+The pinned release and projection source are recorded in `UPSTREAM.toml`;
+the `Upstream openCypher release` workflow checks monthly whether a newer
+openCypher release exists and fails if so.
+
 `tests/tck.rs` runs every query through `parse`, a print/re-parse round trip,
 and `analyze`. `known_failures.txt` lists the current gaps; regenerate it with
 `TCK_BLESS=1 cargo test --test tck`.
