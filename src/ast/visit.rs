@@ -1374,6 +1374,7 @@ pub fn walk_quantifier<'ast, V: Visit<'ast>>(_v: &mut V, _node: &'ast Quantifier
 pub fn walk_label_expression<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast LabelExpression) {
     match node {
         LabelExpression::Static(sym) => v.visit_symbolic_name(sym),
+        LabelExpression::Wildcard { .. } => {}
         LabelExpression::Dynamic { expression, .. } => v.visit_expression(expression),
         LabelExpression::Or { lhs, rhs, .. } | LabelExpression::And { lhs, rhs, .. } => {
             v.visit_label_expression(lhs);
@@ -1982,6 +1983,7 @@ pub fn walk_quantifier_mut<V: VisitMut>(_v: &mut V, _node: &mut Quantifier) {}
 pub fn walk_label_expression_mut<V: VisitMut>(v: &mut V, node: &mut LabelExpression) {
     match node {
         LabelExpression::Static(sym) => v.visit_symbolic_name(sym),
+        LabelExpression::Wildcard { .. } => {}
         LabelExpression::Dynamic { expression, .. } => v.visit_expression(expression),
         LabelExpression::Or { lhs, rhs, .. } | LabelExpression::And { lhs, rhs, .. } => {
             v.visit_label_expression(lhs);

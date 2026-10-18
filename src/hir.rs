@@ -44,7 +44,8 @@ pub use diagnostic::HirDiagnostic;
 pub use expr::{ExprKind, HirExpr};
 pub use ops::{Operation, QueryPart};
 pub use pattern::{
-    GraphPattern, NodePattern, RelationshipDirection, RelationshipLength, RelationshipPattern,
+    GraphPattern, LabelExpr, NodePattern, RelationshipDirection, RelationshipLength,
+    RelationshipPattern,
 };
 
 /// A fully lowered and scope-resolved HIR query.

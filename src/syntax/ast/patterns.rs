@@ -446,6 +446,11 @@ impl LabelParen {
 }
 
 impl LabelAtom {
+    /// Whether this atom is the wildcard `%` (any label or type).
+    pub fn is_wildcard(&self) -> bool {
+        child_token(&self.0, SyntaxKind::PERCENT).is_some()
+    }
+
     pub fn node_label(&self) -> Option<NodeLabel> {
         child(&self.0)
     }

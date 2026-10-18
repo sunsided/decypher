@@ -1066,6 +1066,9 @@ fn build_label_expr_node(node: LabelExprNode) -> Result<ast_c::LabelExpression> 
             span: sp,
         }),
         LabelExprNode::Atom(atom) => {
+            if atom.is_wildcard() {
+                return Ok(ast_c::LabelExpression::Wildcard { span: sp });
+            }
             if let Some(label) = atom.node_label() {
                 let sym = label
                     .name()

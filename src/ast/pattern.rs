@@ -190,6 +190,11 @@ pub enum Properties {
 pub enum LabelExpression {
     /// A plain static label/type name.
     Static(SymbolicName),
+    /// `%` (GQL) — any label or relationship type; `!%` matches none.
+    Wildcard {
+        /// Byte-offset span of the `%`.
+        span: Span,
+    },
     /// A dynamic label expression `$(expr)`.
     Dynamic {
         /// The expression that evaluates to a label string at runtime.

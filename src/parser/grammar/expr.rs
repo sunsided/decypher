@@ -373,7 +373,8 @@ fn is_label_check_follow(p: &Parser) -> bool {
             | SyntaxKind::COLON
             | SyntaxKind::L_PAREN
             | SyntaxKind::DOLLAR
-            | SyntaxKind::BANG,
+            | SyntaxKind::BANG
+            | SyntaxKind::PERCENT,
         ) => true,
         // A keyword label such as `m:TYPE`.
         Some(kind) => keyword_can_be_name(kind) && kind != SyntaxKind::KW_WHERE,
@@ -404,11 +405,13 @@ fn is_label_predicate_after_is(p: &Parser) -> bool {
         SyntaxKind::IDENT => !["NORMALIZED", "NFC", "NFD", "NFKC", "NFKD", "TYPED"]
             .iter()
             .any(|word| text.eq_ignore_ascii_case(word)),
-        // A quoted name, a parenthesised or negated label expression, or a
-        // dynamic label `$(expr)`.
-        SyntaxKind::ESCAPED_IDENT | SyntaxKind::L_PAREN | SyntaxKind::BANG | SyntaxKind::DOLLAR => {
-            true
-        }
+        // A quoted name, a parenthesised or negated label expression, a
+        // dynamic label `$(expr)` or the wildcard `%`.
+        SyntaxKind::ESCAPED_IDENT
+        | SyntaxKind::L_PAREN
+        | SyntaxKind::BANG
+        | SyntaxKind::DOLLAR
+        | SyntaxKind::PERCENT => true,
         kind => keyword_can_be_name(kind),
     }
 }
@@ -542,7 +545,10 @@ fn parse_label_atom(
     dynamic_kind: SyntaxKind,
 ) {
     p.start_node(SyntaxKind::LABEL_ATOM);
-    if p.at(SyntaxKind::DOLLAR) {
+    if p.at(SyntaxKind::PERCENT) {
+        // `%` (GQL): any label / relationship type.
+        p.bump();
+    } else if p.at(SyntaxKind::DOLLAR) {
         p.start_node(dynamic_kind);
         p.bump();
         p.skip_trivia();

@@ -1004,3 +1004,59 @@ fn analyze_aliases_are_not_visible_within_their_projection() {
     let err = analyze("WITH 1 AS a, a + 1 AS b RETURN b").unwrap_err();
     check!(err.to_string().contains("unresolved variable `a`"));
 }
+
+/// Label expressions beyond plain static labels lower to `LabelExpr` instead
+/// of an "unsupported" error (#89, #91); static conjunctions and alternations
+/// keep the label/type lists.
+///
+/// Unit: `analyze()`
+/// Precondition: Label predicates with `|`, `%` and dynamic labels; node
+///               patterns with `:A&B`, `:%`, `:!%`; relationships with
+///               `:A|B` and `:!A`.
+/// Expectation: `LabelCheck` / `label_expression` / `type_expression` for the
+///              rich forms, `NodeLabels` / `labels` / `types` for static ones.
+#[test]
+fn analyze_label_expressions() {
+    use decypher::hir::LabelExpr;
+    for query in [
+        "MATCH (n) WHERE n:Person|Movie RETURN n",
+        "MATCH (n) WHERE n IS % RETURN n",
+        "MATCH (n) WHERE n:$('L') RETURN n",
+    ] {
+        let hir = analyze(query).unwrap();
+        check!(
+            hir.arenas
+                .expressions
+                .iter()
+                .any(|(_, e)| matches!(e.kind, ExprKind::LabelCheck { .. })),
+            "query: {query}"
+        );
+    }
+
+    let first_match = |query: &str| {
+        let hir = analyze(query).unwrap();
+        find_match_operation(&hir.parts[0].operations)
+            .pattern
+            .clone()
+    };
+    let pattern = first_match("MATCH (n:A&B) RETURN n");
+    check!(pattern.nodes[0].labels.len() == 2);
+    check!(pattern.nodes[0].label_expression.is_none());
+
+    let pattern = first_match("MATCH (n:!%) RETURN n");
+    check!(pattern.nodes[0].labels.is_empty());
+    check!(
+        pattern.nodes[0].label_expression == Some(LabelExpr::Not(Box::new(LabelExpr::Wildcard)))
+    );
+
+    let pattern = first_match("MATCH ()-[r:A|B]->() RETURN r");
+    check!(pattern.relationships[0].types.len() == 2);
+    check!(pattern.relationships[0].type_expression.is_none());
+
+    let pattern = first_match("MATCH ()-[r:!A]->() RETURN r");
+    check!(pattern.relationships[0].types.is_empty());
+    check!(matches!(
+        pattern.relationships[0].type_expression,
+        Some(LabelExpr::Not(_))
+    ));
+}

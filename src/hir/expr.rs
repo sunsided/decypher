@@ -113,12 +113,21 @@ pub enum ExprKind {
         expression: ExprId,
     },
 
-    /// Node labels check/assignment: `base:Label`.
+    /// Node labels check/assignment: `base:Label` / `base:A:B` with static
+    /// labels.
     NodeLabels {
         /// The base expression (typically a node variable).
         base: ExprId,
         /// The labels to check.
         labels: Vec<LabelId>,
+    },
+    /// A label check with a richer label expression: `n:A|B`, `n:!A`,
+    /// `n IS %`, `n:$(x)`.
+    LabelCheck {
+        /// The base expression (typically a node variable).
+        base: ExprId,
+        /// The label expression to match.
+        expression: super::pattern::LabelExpr,
     },
 
     /// List index access: `list[i]`.
