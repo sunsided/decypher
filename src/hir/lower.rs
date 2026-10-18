@@ -1762,15 +1762,24 @@ impl<'cfg> LoweringContext<'cfg> {
 
     // ── Helpers ──────────────────────────────────────────────────────────
 
+    /// Resolves the target of an update or projection (`SET n:L`,
+    /// `SET n = …`, `n {.a}`), which must already be bound. An unknown name is
+    /// reported, then bound so that lowering can continue.
     fn resolve_or_bind_variable(&mut self, var: &Variable) -> BindingId {
         match self.scope_stack.resolve(&var.name.name) {
             Some(id) => id,
-            None => self.scope_stack.bind(
-                &mut self.arenas,
-                &var.name.name,
-                BindingKind::Value,
-                var.name.span,
-            ),
+            None => {
+                self.diagnostics.push(HirDiagnostic::UnknownVariable {
+                    name: var.name.name.clone(),
+                    span: var.name.span,
+                });
+                self.scope_stack.bind(
+                    &mut self.arenas,
+                    &var.name.name,
+                    BindingKind::Value,
+                    var.name.span,
+                )
+            }
         }
     }
 

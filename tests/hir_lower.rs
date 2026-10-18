@@ -804,3 +804,26 @@ fn analyze_pattern_comprehension_variables_do_not_leak() {
         );
     }
 }
+
+/// Update and projection targets must already be bound (#77).
+///
+/// Unit: `analyze()`
+/// Precondition: `SET`/`REMOVE` label items, `SET x = …` and a map
+///               projection on a variable that was never bound.
+/// Expectation: `analyze` fails with an unresolved variable.
+#[test]
+fn analyze_unbound_update_targets_are_reported() {
+    for query in [
+        "MATCH (n) SET zz:Foo RETURN n",
+        "MATCH (n) REMOVE zz:Foo RETURN n",
+        "MATCH (n) SET zz = {a: 1} RETURN n",
+        "MATCH (n) RETURN zz {.a} AS m",
+    ] {
+        let err = analyze(query).unwrap_err();
+        check!(
+            err.to_string().contains("unresolved variable `zz`"),
+            "query: {query}, got: {err}"
+        );
+    }
+    analyze("MATCH (n) SET n:Foo, n = {a: 1} RETURN n {.a}").unwrap();
+}

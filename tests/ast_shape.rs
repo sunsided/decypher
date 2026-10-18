@@ -475,3 +475,22 @@ fn test_pattern_expressions_and_comprehensions_round_trip() {
         check_roundtrip(input, printed);
     }
 }
+
+/// Label items in `SET`/`REMOVE` keep their variable and every label (#77).
+///
+/// Unit: `parse()` / `SetItem::Labels`, `RemoveItem::Labels`
+/// Precondition: Single and multiple labels, mixed with property items, in
+///               `SET`, `REMOVE` and `MERGE … ON MATCH/ON CREATE SET`.
+/// Expectation: Each query round-trips unchanged.
+#[test]
+fn test_label_items_keep_variable_and_labels() {
+    for q in [
+        "MATCH (n) SET n:Foo RETURN n",
+        "MATCH (n) SET n:Foo:Bar, n.x = 1 RETURN n",
+        "MATCH (n) REMOVE n:A:B RETURN n",
+        "MATCH (n) REMOVE n:`My Label`, n.x RETURN n",
+        "MERGE (a) ON MATCH SET a:M1 ON CREATE SET a:M2",
+    ] {
+        check_roundtrip(q, &format!("{q};"));
+    }
+}

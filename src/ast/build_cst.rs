@@ -487,31 +487,9 @@ fn build_set(c: SetClause) -> Result<ast_c::Set> {
 fn build_set_item(item: SetItem) -> Result<ast_c::SetItem> {
     let sp = span_of(item.syntax());
 
-    if let Some(labels) = item.node_labels()
-        && let Some(_prop_expr) = item.property_expr()
-    {
-        let ast_labels: Result<Vec<_>> = labels
-            .labels()
-            .map(|l| {
-                l.name()
-                    .and_then(|ln| ln.symbolic_name())
-                    .map(|s| ast_c::SymbolicName {
-                        name: symbolic_name_text(&s),
-                        span: span_of(s.syntax()),
-                    })
-                    .ok_or_else(|| internal("missing label name", sp))
-            })
-            .collect();
-        let v = ast_c::Variable {
-            name: ast_c::SymbolicName {
-                name: String::new(),
-                span: sp,
-            },
-        };
-        return Ok(ast_c::SetItem::Labels {
-            variable: v,
-            labels: ast_labels?,
-        });
+    if item.node_labels().is_some() {
+        let (variable, labels) = build_label_item(item.syntax(), sp)?;
+        return Ok(ast_c::SetItem::Labels { variable, labels });
     }
 
     let property = item
@@ -554,6 +532,34 @@ fn build_set_item(item: SetItem) -> Result<ast_c::SetItem> {
     }
 }
 
+/// Builds the `n:A:B` form of a `SET` or `REMOVE` item: the target variable
+/// and every label of every `:Label` group.
+fn build_label_item(
+    item: &rowan::SyntaxNode<crate::syntax::CypherLang>,
+    sp: Span,
+) -> Result<(ast_c::Variable, Vec<ast_c::SymbolicName>)> {
+    let variable = item
+        .children()
+        .find_map(Variable::cast)
+        .map(build_variable)
+        .ok_or_else(|| internal("missing variable in label item", sp))?;
+    let labels = item
+        .children()
+        .filter_map(NodeLabels::cast)
+        .flat_map(|group| group.labels().collect::<Vec<_>>())
+        .map(|l| {
+            l.name()
+                .and_then(|ln| ln.symbolic_name())
+                .map(|s| ast_c::SymbolicName {
+                    name: symbolic_name_text(&s),
+                    span: span_of(s.syntax()),
+                })
+                .ok_or_else(|| internal("missing label name", sp))
+        })
+        .collect::<Result<_>>()?;
+    Ok((variable, labels))
+}
+
 fn build_delete(c: DeleteClause) -> Result<ast_c::Delete> {
     let sp = span_of(c.syntax());
     let detach = c.detach_token().is_some();
@@ -576,31 +582,9 @@ fn build_remove(c: RemoveClause) -> Result<ast_c::Remove> {
 
 fn build_remove_item(item: RemoveItem) -> Result<ast_c::RemoveItem> {
     let sp = span_of(item.syntax());
-    if let Some(labels) = item.node_labels()
-        && let Some(_prop_expr) = item.property_expr()
-    {
-        let ast_labels: Result<Vec<_>> = labels
-            .labels()
-            .map(|l| {
-                l.name()
-                    .and_then(|ln| ln.symbolic_name())
-                    .map(|s| ast_c::SymbolicName {
-                        name: symbolic_name_text(&s),
-                        span: span_of(s.syntax()),
-                    })
-                    .ok_or_else(|| internal("missing label name", sp))
-            })
-            .collect();
-        let v = ast_c::Variable {
-            name: ast_c::SymbolicName {
-                name: String::new(),
-                span: sp,
-            },
-        };
-        return Ok(ast_c::RemoveItem::Labels {
-            variable: v,
-            labels: ast_labels?,
-        });
+    if item.node_labels().is_some() {
+        let (variable, labels) = build_label_item(item.syntax(), sp)?;
+        return Ok(ast_c::RemoveItem::Labels { variable, labels });
     }
     let prop = item
         .property_expr()
