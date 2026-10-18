@@ -190,12 +190,13 @@ impl<'ast> Visit<'ast> for KindChecker {
         let start = std::mem::take(&mut self.next_start);
         let outer = std::mem::replace(&mut self.kinds, start.clone());
         self.visit_single_query(&node.single_query);
-        let columns = std::mem::replace(&mut self.kinds, outer);
+        // The columns of the first branch, for `CALL { … }`.
+        let columns = std::mem::take(&mut self.kinds);
         for union in &node.unions {
             self.kinds = start.clone();
             self.visit_single_query(&union.single_query);
         }
-        // The columns of the first branch, for `CALL { … }`.
+        self.kinds = outer;
         self.next_start = columns;
     }
 

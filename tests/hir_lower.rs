@@ -1542,6 +1542,10 @@ fn analyze_reports_constant_and_variable_kind_errors() {
             &conflict,
         ),
         ("MATCH (r) WITH r AS x MATCH ()-[x]-() RETURN x", &conflict),
+        (
+            "MATCH (x) CALL { RETURN 1 AS y UNION RETURN 2 AS y } MATCH ()-[x]-() RETURN x",
+            &conflict,
+        ),
     ];
     let same =
         |a: &ErrorKind, b: &ErrorKind| std::mem::discriminant(a) == std::mem::discriminant(b);
@@ -1590,6 +1594,7 @@ fn analyze_pattern_expressions_are_predicates() {
         "MATCH (n) WITH (n)-[]->() AS x RETURN x",
         "MATCH (n) SET n.prop = head(nodes(head((n)-[:REL]->()))).foo",
         "MATCH (n) WHERE (n)-->() = true RETURN n",
+        "MATCH (n) RETURN CASE 1 WHEN (n)-->() THEN 2 ELSE 3 END AS c",
     ] {
         let err = analyze(query).unwrap_err();
         check!(

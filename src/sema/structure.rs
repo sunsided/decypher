@@ -416,9 +416,24 @@ impl<'ast> Visit<'ast> for StructureChecker<'_> {
         }
     }
 
-    fn visit_case_alternative(&mut self, node: &'ast CaseAlternative) {
-        self.visit_predicate(&node.when);
-        self.visit_expression(&node.then);
+    fn visit_case_expression(&mut self, node: &'ast CaseExpression) {
+        // `WHEN` is a predicate only in the searched form (`CASE WHEN p`);
+        // in `CASE x WHEN v` it is a value compared with `x`.
+        let searched = node.scrutinee.is_none();
+        if let Some(scrutinee) = &node.scrutinee {
+            self.visit_expression(scrutinee);
+        }
+        for alternative in &node.alternatives {
+            if searched {
+                self.visit_predicate(&alternative.when);
+            } else {
+                self.visit_expression(&alternative.when);
+            }
+            self.visit_expression(&alternative.then);
+        }
+        if let Some(default) = &node.default {
+            self.visit_expression(default);
+        }
     }
 
     fn visit_list_comprehension(&mut self, node: &'ast ListComprehension) {
