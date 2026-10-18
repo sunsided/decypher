@@ -35,7 +35,7 @@ println!("{:#?}", query);
 - **Source spans** — Every AST node carries a `Span { start, end }` (byte offsets into the input) for diagnostics.
 - **Ergonomic errors** — `CypherError` with syntax, AST build, and unsupported-production variants via `thiserror`.
 - **Cypher emission** — The `ToCypher` trait renders any AST node back into valid openCypher text, enabling round-trips (`parse → ast → to_cypher → parse`).
-- **`serde` support** — Optional `serde` feature for `Serialize`/`Deserialize` derives on all AST nodes.
+- **`serde` support** — Optional `serde` feature for `Serialize` derives on all AST nodes and spans.
 - **Typed CST (unstable)** — A rust-analyzer-style typed wrapper layer over a lossless rowan CST, available under `decypher::cst`. Each CST node (`SourceFile`, `MatchClause`, `Expression`, …) exposes typed accessor methods instead of raw `SyntaxKind` matches. This is what the public `parse()` function uses internally.
 
 ### Typed CST example
@@ -72,6 +72,20 @@ The AST is **unstable** until 0.2.0. Grammar completeness is tracked against the
 
 The `ToCypher` trait and round-trip guarantees are also **unstable** — formatting output may change between releases until 0.2.0.
 
+## JavaScript / WebAssembly
+
+The parser is also available as an npm package for Node.js and browsers,
+built from [`bindings/wasm`](bindings/wasm/README.md). Try it in the
+[online playground](https://sunsided.github.io/decypher/).
+
+```js
+import init, { parse, validate } from "@sunsided/decypher";
+
+await init(); // needed in browsers; a no-op in Node.js
+const result = validate("MATCH (n) RETURN m");
+if (!result.ok) console.error(result.errors[0].rendered);
+```
+
 ## Project Structure
 
 - `src/parser/` — Hand-written error-resilient rowan parser (grammar + lexer).
@@ -79,6 +93,7 @@ The `ToCypher` trait and round-trip guarantees are also **unstable** — formatt
 - `src/ast/` — Typed AST node definitions and the CST → AST lowering logic (`src/ast/build_cst/`).
 - `src/error.rs` — `CypherError` and `Span` types.
 - `src/lib.rs` — Public API (`parse`, `Query`, `CypherError`).
+- `bindings/wasm/` — WebAssembly bindings and the npm package build.
 - `assets/cypher.ebnf` — OpenCypher grammar definition from the openCypher site.
 
 ## Contributing

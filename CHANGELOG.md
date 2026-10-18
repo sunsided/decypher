@@ -8,6 +8,16 @@ are marked **Breaking** below.
 
 ## [Unreleased]
 
+### Added
+
+- WebAssembly bindings in `bindings/wasm`, packaged as the npm package
+  `@sunsided/decypher` for Node.js and browsers: `parse` (typed AST as JSON),
+  `validate` (syntax errors and unresolved or out-of-scope variables),
+  `format`, and `cst` (lossless syntax tree), with TypeScript types and
+  runnable Node.js and browser examples.
+- The `serde` feature now derives `Serialize` for every AST node and for
+  `Span` / `Spanned`; previously it was declared but had no effect.
+
 ## [0.2.0-alpha.8] - 2026-10-18
 
 ### Added

@@ -11,6 +11,7 @@ use crate::error::Span;
 
 /// A literal value in a Cypher expression.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Literal {
     /// Integer or float numeric literal.
     Number(NumberLiteral),
@@ -28,6 +29,7 @@ pub enum Literal {
 
 /// A numeric literal: either an integer or a floating-point value.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum NumberLiteral {
     /// A 64-bit signed integer.
     Integer(i64),
@@ -37,6 +39,7 @@ pub enum NumberLiteral {
 
 /// A string literal with its source span and optional raw form.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct StringLiteral {
     /// The decoded string value (surrounding quotes and escape sequences
     /// processed).
@@ -49,6 +52,7 @@ pub struct StringLiteral {
 
 /// `[e1, e2, …]` — a list literal expression.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ListLiteral {
     /// The element expressions, in order.
     pub elements: Vec<Expression>,
@@ -58,6 +62,7 @@ pub struct ListLiteral {
 
 /// `{key: value, …}` — a map literal expression.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct MapLiteral {
     /// The key–value pairs, in source order.
     pub entries: Vec<(PropertyKeyName, Expression)>,
@@ -67,6 +72,7 @@ pub struct MapLiteral {
 
 /// A query parameter reference, e.g. `$name` or `$0`.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Parameter {
     /// The parameter name (without the leading `$`).
     pub name: SymbolicName,
@@ -80,6 +86,7 @@ pub struct Parameter {
 /// (`BinaryOp`, `UnaryOp`, etc.) use `Box<Expression>` to avoid infinite
 /// size.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Expression {
     /// A literal value (`42`, `'hello'`, `true`, `null`, `[1,2]`, `{k:v}`).
     Literal(Literal),
@@ -240,6 +247,7 @@ pub enum Expression {
 
 /// A Unicode normal form for `IS [NOT] <form> NORMALIZED`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum NormalForm {
     /// `NFC` (the default).
     Nfc,
@@ -265,6 +273,7 @@ impl NormalForm {
 
 /// Binary infix operators.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum BinaryOperator {
     /// `+`
     Add,
@@ -288,6 +297,7 @@ pub enum BinaryOperator {
 
 /// Unary prefix operators.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum UnaryOperator {
     /// Arithmetic negation (`-expr`).
     Negate,
@@ -299,6 +309,7 @@ pub enum UnaryOperator {
 
 /// Comparison / string / list operators used in chained comparisons.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum ComparisonOperator {
     /// `=`
     Eq,
@@ -324,6 +335,7 @@ pub enum ComparisonOperator {
 
 /// A function or procedure invocation: `[namespace.]name(args)`.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct FunctionInvocation {
     /// The qualified function name parts, e.g. `["apoc", "text", "join"]`.
     pub name: Vec<SymbolicName>,
@@ -341,6 +353,7 @@ pub struct FunctionInvocation {
 /// tested expression; in *searched* form (`CASE WHEN predicate THEN …`) the
 /// `scrutinee` is `None`.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct CaseExpression {
     /// The expression tested in a generic `CASE expr WHEN …` form, or `None`
     /// for a searched `CASE WHEN predicate …` form.
@@ -355,6 +368,7 @@ pub struct CaseExpression {
 
 /// One `WHEN condition THEN result` branch of a [`CaseExpression`].
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct CaseAlternative {
     /// The `WHEN` condition (or equality test in generic `CASE`).
     pub when: Expression,
@@ -366,6 +380,7 @@ pub struct CaseAlternative {
 ///
 /// Creates a new list by mapping (and optionally filtering) an existing one.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ListComprehension {
     /// The element variable bound to each item in the source list.
     pub variable: Variable,
@@ -383,6 +398,7 @@ pub struct ListComprehension {
 ///
 /// Builds a list of values by matching a path pattern and mapping each match.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PatternComprehension {
     /// Optional path variable that captures the matched path.
     pub variable: Option<Variable>,
@@ -398,6 +414,7 @@ pub struct PatternComprehension {
 
 /// A filter predicate used by `ALL`, `ANY`, `NONE`, and `SINGLE`.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct FilterExpression {
     /// The element variable bound to each item in the collection.
     pub variable: Variable,
@@ -414,6 +431,7 @@ pub struct FilterExpression {
 /// Folds `list` into a single value: `accumulator` starts at `init` and is
 /// replaced by `expression` for every element bound to `variable`.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ReduceExpression {
     /// The accumulator variable.
     pub accumulator: Variable,
@@ -431,6 +449,7 @@ pub struct ReduceExpression {
 
 /// `EXISTS { pattern | subquery }` expression.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ExistsExpression {
     /// The inner pattern or subquery.
     pub inner: Box<ExistsInner>,
@@ -440,6 +459,7 @@ pub struct ExistsExpression {
 
 /// `COUNT { subquery }` expression — returns the number of matching rows.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct CountSubqueryExpression {
     /// The inner subquery.
     pub query: Box<super::query::RegularQuery>,
@@ -449,6 +469,7 @@ pub struct CountSubqueryExpression {
 
 /// `COLLECT { subquery }` expression — collects matching rows into a list.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct CollectSubqueryExpression {
     /// The inner subquery.
     pub query: Box<super::query::RegularQuery>,
@@ -458,6 +479,7 @@ pub struct CollectSubqueryExpression {
 
 /// The inner content of an `EXISTS { … }` expression.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum ExistsInner {
     /// A graph pattern with an optional `WHERE` predicate.
     Pattern(super::pattern::Pattern, Option<Box<Expression>>),
@@ -470,6 +492,7 @@ pub enum ExistsInner {
 /// Creates a map from selected properties or literal entries of an existing
 /// entity.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct MapProjection {
     /// The base variable (an existing node or map).
     pub base: Variable,
@@ -481,6 +504,7 @@ pub struct MapProjection {
 
 /// A single item in a [`MapProjection`].
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum MapProjectionItem {
     /// `.*` — include all properties of the base entity.
     AllProperties {

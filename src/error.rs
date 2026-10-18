@@ -30,6 +30,7 @@ use std::sync::Arc;
 /// `start` and `end` are zero-based byte offsets (not character offsets).
 /// The span covers the half-open range `[start, end)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Span {
     pub start: usize,
     pub end: usize,
@@ -77,6 +78,7 @@ impl Span {
 
 /// A value annotated with its source [`Span`].
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Spanned<T> {
     pub value: T,
     pub span: Span,

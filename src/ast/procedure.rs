@@ -13,6 +13,7 @@ use crate::error::Span;
 ///
 /// Appears as a standalone statement, not embedded in a data query.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct StandaloneCall {
     /// The procedure being called.
     pub call: ProcedureInvocation,
@@ -27,6 +28,7 @@ pub struct StandaloneCall {
 /// Embedded inside a reading part of a query to call a procedure and
 /// project its result columns into the query scope.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct InQueryCall {
     /// The procedure being called.
     pub call: ProcedureInvocation,
@@ -40,6 +42,7 @@ pub struct InQueryCall {
 ///
 /// Reuses [`FunctionInvocation`] for the qualified name and argument list.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ProcedureInvocation {
     /// The qualified procedure name and arguments.
     pub name: FunctionInvocation,
@@ -52,6 +55,7 @@ pub struct ProcedureInvocation {
 
 /// The `YIELD` specification of a [`StandaloneCall`].
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum YieldSpec {
     /// `YIELD *` — yield all result columns.
     Star {
@@ -65,6 +69,7 @@ pub enum YieldSpec {
 /// A list of explicitly yielded procedure result columns with an optional
 /// `WHERE` filter.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct YieldItems {
     /// The yielded column items.
     pub items: Vec<YieldItem>,
@@ -74,6 +79,7 @@ pub struct YieldItems {
 
 /// A single yielded column from a procedure call.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct YieldItem {
     /// The name of the procedure result field.
     pub procedure_field: crate::ast::names::SymbolicName,

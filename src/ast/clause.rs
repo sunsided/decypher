@@ -10,6 +10,7 @@ use crate::error::Span;
 
 /// `MATCH [OPTIONAL] pattern [WHERE predicate]`
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Match {
     /// `true` when the clause is `OPTIONAL MATCH`.
     pub optional: bool,
@@ -23,6 +24,7 @@ pub struct Match {
 
 /// `CREATE pattern`
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Create {
     /// The graph pattern describing the nodes and relationships to create.
     pub pattern: Pattern,
@@ -32,6 +34,7 @@ pub struct Create {
 
 /// `MERGE pattern [ON MATCH SET …] [ON CREATE SET …]`
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Merge {
     /// The pattern to merge (create if absent, match if present).
     pub pattern: PatternPart,
@@ -43,6 +46,7 @@ pub struct Merge {
 
 /// A single `ON MATCH SET …` or `ON CREATE SET …` action inside a `MERGE`.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct MergeAction {
     /// `true` for `ON MATCH`; `false` for `ON CREATE`.
     pub on_match: bool,
@@ -54,6 +58,7 @@ pub struct MergeAction {
 
 /// `[DETACH] DELETE targets`
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Delete {
     /// `true` when `DETACH DELETE` (also removes all incident relationships).
     pub detach: bool,
@@ -65,6 +70,7 @@ pub struct Delete {
 
 /// `SET item, …`
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Set {
     /// The set items to apply.
     pub items: Vec<SetItem>,
@@ -74,6 +80,7 @@ pub struct Set {
 
 /// A single item inside a `SET` clause.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum SetItem {
     /// `property = value` or `property += value`
     Property {
@@ -119,6 +126,7 @@ pub enum SetItem {
 
 /// The operator used in a [`SetItem`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum SetOperator {
     /// `=` — overwrite the property or variable.
     Assign,
@@ -128,6 +136,7 @@ pub enum SetOperator {
 
 /// `REMOVE item, …`
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Remove {
     /// The items to remove (labels or properties).
     pub items: Vec<RemoveItem>,
@@ -137,6 +146,7 @@ pub struct Remove {
 
 /// A single item inside a `REMOVE` clause.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum RemoveItem {
     /// `variable:Label1:Label2` — remove labels from a node.
     Labels {
@@ -154,6 +164,7 @@ pub enum RemoveItem {
 /// Pipes results from one query part to the next, optionally transforming and
 /// filtering the visible scope.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct With {
     /// `true` when `WITH DISTINCT`.
     pub distinct: bool,
@@ -175,6 +186,7 @@ pub struct With {
 
 /// `RETURN [DISTINCT] [*] items [ORDER BY …] [SKIP …] [LIMIT …]`
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Return {
     /// `true` when `RETURN DISTINCT`.
     pub distinct: bool,
@@ -194,6 +206,7 @@ pub struct Return {
 
 /// A single item in a `RETURN` or `WITH` projection.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ProjectionItem {
     /// The expression to project.
     pub expression: Expression,
@@ -216,6 +229,7 @@ impl ProjectionItem {
 
 /// `ORDER BY item, …`
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Order {
     /// The ordered list of sort criteria.
     pub items: Vec<SortItem>,
@@ -223,6 +237,7 @@ pub struct Order {
 
 /// A single sort criterion inside `ORDER BY`.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct SortItem {
     /// The expression to sort by.
     pub expression: Expression,
@@ -232,6 +247,7 @@ pub struct SortItem {
 
 /// Sort direction for an `ORDER BY` item.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum SortDirection {
     /// `ASC` / `ASCENDING`
     Ascending,
@@ -244,6 +260,7 @@ pub enum SortDirection {
 /// Expands a list expression into individual rows, binding each element to
 /// `variable`.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Unwind {
     /// The list expression to expand.
     pub expression: Expression,
@@ -258,6 +275,7 @@ pub struct Unwind {
 /// Iterates over a list expression and applies updating clauses for each
 /// element.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Foreach {
     /// The loop variable bound to each list element.
     pub variable: Variable,
@@ -271,6 +289,7 @@ pub struct Foreach {
 
 /// An updating clause that may appear inside a [`Foreach`] body.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum ForeachUpdate {
     /// `CREATE` inside a foreach.
     Create(Create),
@@ -290,6 +309,7 @@ pub enum ForeachUpdate {
 ///
 /// Reads a CSV file and binds each row (as a map or list) to `variable`.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct LoadCsv {
     /// `true` when `WITH HEADERS` (rows are bound as string→string maps).
     pub with_headers: bool,
@@ -307,6 +327,7 @@ pub struct LoadCsv {
 ///
 /// GQL extension: terminates a query without returning any results.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Finish {
     /// Byte-offset span of the clause.
     pub span: Span,

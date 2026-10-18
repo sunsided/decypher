@@ -10,6 +10,7 @@ use crate::error::Span;
 /// Covers node/relationship variables, function names, label names, property
 /// key names, and any other identifier-shaped token.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct SymbolicName {
     /// The resolved identifier text (backtick quotes and escape sequences
     /// have already been stripped).
@@ -23,6 +24,7 @@ pub struct SymbolicName {
 /// Variables are always backed by a [`SymbolicName`] that carries the source
 /// location.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Variable {
     /// The underlying symbolic name.
     pub name: SymbolicName,
@@ -30,6 +32,7 @@ pub struct Variable {
 
 /// A node label name, e.g. `Person` in `(n:Person)`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct LabelName {
     /// The underlying symbolic name.
     pub name: SymbolicName,
@@ -37,6 +40,7 @@ pub struct LabelName {
 
 /// A relationship type name, e.g. `KNOWS` in `-[:KNOWS]->`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct RelTypeName {
     /// The underlying symbolic name.
     pub name: SymbolicName,
@@ -44,6 +48,7 @@ pub struct RelTypeName {
 
 /// A property key name, e.g. `name` in `n.name`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PropertyKeyName {
     /// The underlying symbolic name.
     pub name: SymbolicName,

@@ -10,6 +10,7 @@ use crate::error::Span;
 
 /// A DDL schema command.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum SchemaCommand {
     /// `CREATE … INDEX …`
     CreateIndex(CreateIndex),
@@ -23,6 +24,7 @@ pub enum SchemaCommand {
 
 /// `CREATE [kind] INDEX [name] FOR (n:Label) ON (n.prop) [OPTIONS …]`
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct CreateIndex {
     /// Optional index kind (`RANGE`, `TEXT`, `POINT`, `LOOKUP`, `FULLTEXT`).
     pub kind: Option<IndexKind>,
@@ -40,6 +42,7 @@ pub struct CreateIndex {
 
 /// The type of index to create.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum IndexKind {
     /// A range (B-tree) index — the default.
     Range,
@@ -55,6 +58,7 @@ pub enum IndexKind {
 
 /// `DROP INDEX name [IF EXISTS]`
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct DropIndex {
     /// `true` when `IF EXISTS` was specified (no error if the index is absent).
     pub if_exists: bool,
@@ -66,6 +70,7 @@ pub struct DropIndex {
 
 /// `CREATE CONSTRAINT [name] FOR (n:Label) REQUIRE … [IF NOT EXISTS]`
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct CreateConstraint {
     /// Optional constraint name.
     pub name: Option<SymbolicName>,
@@ -79,6 +84,7 @@ pub struct CreateConstraint {
 
 /// The semantic kind of a `CREATE CONSTRAINT` command.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum ConstraintKind {
     /// `IS UNIQUE` — property uniqueness constraint.
     Unique,
@@ -98,6 +104,7 @@ pub enum ConstraintKind {
 
 /// `DROP CONSTRAINT name [IF EXISTS]`
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct DropConstraint {
     /// `true` when `IF EXISTS` was specified.
     pub if_exists: bool,
@@ -109,6 +116,7 @@ pub struct DropConstraint {
 
 /// `SHOW kind [YIELD …] [WHERE …] [RETURN …]`
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Show {
     /// What to show (indexes, constraints, functions, …).
     pub kind: ShowKind,
@@ -124,6 +132,7 @@ pub struct Show {
 
 /// The category shown by a `SHOW` command.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum ShowKind {
     /// `SHOW INDEXES`
     Indexes,
@@ -141,6 +150,7 @@ pub enum ShowKind {
 
 /// An inline `RETURN` body inside a `SHOW` command.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ReturnBody {
     /// `true` when `RETURN DISTINCT`.
     pub distinct: bool,
@@ -158,6 +168,7 @@ pub struct ReturnBody {
 ///
 /// Selects the target graph for subsequent clauses.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Use {
     /// The symbolic graph name targeted by this clause.
     ///
@@ -170,6 +181,7 @@ pub struct Use {
 
 /// The `YIELD` specification of a `SHOW` command.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum ShowYieldSpec {
     /// `YIELD *` — yield all available columns.
     Star {
@@ -182,6 +194,7 @@ pub enum ShowYieldSpec {
 
 /// A single yielded column from a `SHOW` command.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct ShowYieldItem {
     /// The procedure/show result field name.
     pub procedure_field: SymbolicName,

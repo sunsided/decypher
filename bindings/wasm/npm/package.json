@@ -1,0 +1,28 @@
+{
+  "name": "@sunsided/decypher",
+  "version": "0.0.0",
+  "description": "openCypher / Neo4j / GQL parser compiled to WebAssembly, for Node.js and browsers.",
+  "license": "EUPL-1.2 OR MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sunsided/decypher.git",
+    "directory": "bindings/wasm"
+  },
+  "keywords": ["cypher", "opencypher", "neo4j", "gql", "parser", "wasm"],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./web/decypher.d.ts",
+      "node": "./node.js",
+      "default": "./web/decypher.js"
+    },
+    "./decypher_bg.wasm": "./web/decypher_bg.wasm",
+    "./package.json": "./package.json"
+  },
+  "types": "./web/decypher.d.ts",
+  "files": ["node.js", "web/decypher.js", "web/decypher.d.ts", "web/decypher_bg.wasm", "web/decypher_bg.wasm.d.ts"],
+  "sideEffects": ["./node.js"],
+  "engines": {
+    "node": ">=18"
+  }
+}

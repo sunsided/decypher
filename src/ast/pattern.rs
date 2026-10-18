@@ -13,6 +13,7 @@ use crate::error::Span;
 ///
 /// Appears after `MATCH`, `CREATE`, `MERGE`, etc.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Pattern {
     /// The individual pattern parts, in order.
     pub parts: Vec<PatternPart>,
@@ -24,6 +25,7 @@ pub struct Pattern {
 ///
 /// For example, `p = (a)-[:KNOWS]->(b)` binds the matched path to `p`.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PatternPart {
     /// Optional path variable (`p = ...`).
     pub variable: Option<Variable>,
@@ -35,6 +37,7 @@ pub struct PatternPart {
 
 /// An anonymous pattern part (the path without an optional path variable).
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct AnonymousPatternPart {
     /// The root pattern element.
     pub element: PatternElement,
@@ -43,6 +46,7 @@ pub struct AnonymousPatternPart {
 /// A pattern element: a node-anchored path, a parenthesized group, or a
 /// quantified subpattern.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum PatternElement {
     /// A concrete path: a start node followed by relationship/node chains.
     Path {
@@ -66,6 +70,7 @@ pub enum PatternElement {
 
 /// A node pattern: `(variable:Label {properties})`.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct NodePattern {
     /// Optional binding variable for this node.
     pub variable: Option<Variable>,
@@ -79,6 +84,7 @@ pub struct NodePattern {
 
 /// A relationship/node extension in a path: one relationship followed by a node.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct PatternElementChain {
     /// The relationship traversal.
     pub relationship: RelationshipPattern,
@@ -88,6 +94,7 @@ pub struct PatternElementChain {
 
 /// A relationship pattern: `[variable:TYPE*range {properties}]` with direction.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct RelationshipPattern {
     /// The traversal direction.
     pub direction: RelationshipDirection,
@@ -102,6 +109,7 @@ pub struct RelationshipPattern {
 
 /// Traversal direction for a [`RelationshipPattern`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum RelationshipDirection {
     /// `<--` or `<-[…]-`
     Left,
@@ -115,6 +123,7 @@ pub enum RelationshipDirection {
 
 /// The inner detail of a relationship pattern: variable, types, range, props.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct RelationshipDetail {
     /// Optional binding variable for this relationship.
     pub variable: Option<Variable>,
@@ -133,6 +142,7 @@ pub struct RelationshipDetail {
 /// Either bound may be `None` to represent an unbounded range (`*`, `*..5`,
 /// `*2..`).
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct RangeLiteral {
     /// Minimum number of hops (inclusive), or `None` for 0/unspecified.
     pub start: Option<i64>,
@@ -146,6 +156,7 @@ pub struct RangeLiteral {
 ///
 /// Either bound may be `None` for an unspecified / unbounded value.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Quantifier {
     /// Minimum number of repetitions, or `None`.
     pub start: Option<i64>,
@@ -160,6 +171,7 @@ pub struct Quantifier {
 /// Unlike the top-level [`Pattern`], this form must start from a node and
 /// include at least one relationship chain.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct RelationshipsPattern {
     /// The starting node pattern.
     pub start: NodePattern,
@@ -171,6 +183,7 @@ pub struct RelationshipsPattern {
 
 /// Property constraints on a node or relationship pattern.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Properties {
     /// A literal map `{key: value, …}`.
     Map(crate::ast::expr::MapLiteral),
@@ -187,6 +200,7 @@ pub enum Properties {
 /// - `Person&!Deleted` (and / not)
 /// - `(Person|Company)` (parenthesised group)
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum LabelExpression {
     /// A plain static label/type name.
     Static(SymbolicName),
