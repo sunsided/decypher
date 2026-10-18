@@ -485,6 +485,7 @@ impl<'cfg> LoweringContext<'cfg> {
             source,
             variable: var,
             with_headers: l.with_headers,
+            field_terminator: l.field_terminator.as_ref().map(|t| t.value.clone()),
         }));
     }
 
@@ -1333,6 +1334,12 @@ impl<'cfg> LoweringContext<'cfg> {
                         MapProjectionItem::Literal { key, value } => {
                             let k = self.arenas.property_keys.intern(&key.name.name, Id);
                             let v = self.lower_expr(value);
+                            HirMapProjectionItem::Literal { key: k, value: v }
+                        }
+                        // `{c}` is `{c: c}`.
+                        MapProjectionItem::Variable { variable } => {
+                            let k = self.arenas.property_keys.intern(&variable.name.name, Id);
+                            let v = self.lower_expr(&Expression::Variable(variable.clone()));
                             HirMapProjectionItem::Literal { key: k, value: v }
                         }
                     })

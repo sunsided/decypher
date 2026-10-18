@@ -2208,6 +2208,12 @@ fn build_map_projection_item(mi: MapProjectionItem) -> Result<ast_c::MapProjecti
                 value: expr_ast,
             });
         }
+        if !mi.has_dot() {
+            // `n {c}` selects the variable `c`.
+            return Ok(ast_c::MapProjectionItem::Variable {
+                variable: ast_c::Variable { name: pk.name },
+            });
+        }
         return Ok(ast_c::MapProjectionItem::PropertyLookup { property: pk });
     }
     Err(internal("unrecognized map proj item", sp))
@@ -2834,10 +2840,12 @@ fn build_load_csv(c: LoadCsvClause) -> Result<ast_c::LoadCsv> {
         .variable()
         .map(build_top_variable)
         .ok_or_else(|| internal("missing variable in LOAD CSV", sp))?;
+    let field_terminator = c.field_terminator().map(build_string_literal).transpose()?;
     Ok(ast_c::LoadCsv {
         with_headers,
         source,
         variable,
+        field_terminator,
         span: sp,
     })
 }

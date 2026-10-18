@@ -521,3 +521,21 @@ fn test_exists_patterns_and_names_round_trip() {
         check_roundtrip(q, &format!("{q};"));
     }
 }
+
+/// Map projection variable selectors stay variable selectors, and
+/// `FIELDTERMINATOR` is kept (#74).
+///
+/// Unit: `parse()` / `MapProjectionItem::Variable`, `LoadCsv::field_terminator`
+/// Precondition: A map projection mixing `.prop`, a variable selector and
+///               `.*`; `LOAD CSV` with and without `FIELDTERMINATOR`.
+/// Expectation: Each query round-trips unchanged.
+#[test]
+fn test_map_projection_variables_and_field_terminator() {
+    for q in [
+        "MATCH (n) WITH n, 1 AS c RETURN n{.a, c, .*} AS m",
+        "LOAD CSV WITH HEADERS FROM 'f' AS line FIELDTERMINATOR ';' RETURN line",
+        "LOAD CSV FROM 'f' AS line RETURN line",
+    ] {
+        check_roundtrip(q, &format!("{q};"));
+    }
+}

@@ -244,7 +244,12 @@ impl ToCypher for LoadCsv {
         write!(w, " FROM ")?;
         self.source.write_cypher(w)?;
         write!(w, " AS ")?;
-        self.variable.write_cypher(w)
+        self.variable.write_cypher(w)?;
+        if let Some(terminator) = &self.field_terminator {
+            write!(w, " FIELDTERMINATOR ")?;
+            terminator.write_cypher(w)?;
+        }
+        Ok(())
     }
 }
 
@@ -1691,6 +1696,7 @@ impl ToCypher for MapProjectionItem {
                 write!(w, ": ")?;
                 value.write_cypher(w)
             }
+            MapProjectionItem::Variable { variable } => variable.write_cypher(w),
         }
     }
 }

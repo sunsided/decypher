@@ -1548,6 +1548,12 @@ impl AstNode for MapProjectionItem {
 }
 
 impl MapProjectionItem {
+    /// Whether the item starts with `.` (`.prop`, `.*`); a bare name is a
+    /// variable selector instead.
+    pub fn has_dot(&self) -> bool {
+        child_token(&self.0, SyntaxKind::DOT).is_some()
+    }
+
     pub fn is_star(&self) -> bool {
         child_token(&self.0, SyntaxKind::STAR).is_some()
     }
