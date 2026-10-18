@@ -5,8 +5,8 @@
 
 mod shared;
 
-use self::shared::{decode_string_content, parse_double, parse_integer};
-use crate::error::{CypherError, ErrorKind, Expected, Result, Span};
+use self::shared::{decode_string_content, parse_double, parse_integer, parse_integer_magnitude};
+use crate::error::{CypherError, ErrorKind, Expected, NumberReason, Result, Span};
 use crate::syntax::SyntaxKind;
 use crate::syntax::ast::AstNode;
 
@@ -1451,6 +1451,19 @@ fn extract_property_key(e: &ast_c::Expression) -> Result<ast_c::PropertyKeyName>
 
 fn build_unary_expr(u: UnaryExpr) -> Result<ast_c::Expression> {
     let sp = span_of(u.syntax());
+    // `-9223372036854775808` (`i64::MIN`): the magnitude alone doesn't fit an
+    // i64, so fold the sign into the literal instead of negating it.
+    if matches!(u.op(), Some(UnOp::Neg))
+        && let Some(operand) = u.operand()
+        && operand.syntax().kind() == SyntaxKind::NUMBER_LITERAL
+        && let Some(tok) = operand.syntax().first_token()
+        && tok.kind() == SyntaxKind::INTEGER
+        && parse_integer_magnitude(tok.text()) == Ok(1 << 63)
+    {
+        return Ok(ast_c::Expression::Literal(ast_c::Literal::Number(
+            ast_c::NumberLiteral::Integer(i64::MIN),
+        )));
+    }
     let operand = u
         .operand()
         .map(build_expression)
@@ -1553,19 +1566,34 @@ fn build_literal(l: Literal) -> Result<ast_c::Expression> {
 
 fn build_number_literal(n: NumberLiteral) -> Result<ast_c::NumberLiteral> {
     let sp = span_of(n.syntax());
-    if let Some(tok) = n.token() {
-        let text = tok.text();
-        if tok.kind() == SyntaxKind::INTEGER {
-            if let Some(val) = parse_integer(text) {
-                return Ok(ast_c::NumberLiteral::Integer(val));
-            }
-        } else if tok.kind() == SyntaxKind::FLOAT
-            && let Some(val) = parse_double(text)
-        {
-            return Ok(ast_c::NumberLiteral::Float(val));
+    let tok = n
+        .token()
+        .ok_or_else(|| internal("missing number token", sp))?;
+    let text = tok.text();
+    let invalid = |reason| CypherError {
+        kind: ErrorKind::InvalidNumber {
+            raw: text.to_owned(),
+            reason,
+        },
+        span: sp,
+        source_label: None,
+        notes: Vec::new(),
+        source: None,
+    };
+    match tok.kind() {
+        SyntaxKind::INTEGER => {
+            let magnitude = parse_integer_magnitude(text).map_err(invalid)?;
+            i64::try_from(magnitude)
+                .map(ast_c::NumberLiteral::Integer)
+                .map_err(|_| invalid(NumberReason::Overflow))
         }
+        SyntaxKind::FLOAT => match text.trim().parse::<f64>() {
+            Ok(v) if v.is_finite() => Ok(ast_c::NumberLiteral::Float(v)),
+            Ok(_) => Err(invalid(NumberReason::Overflow)),
+            Err(_) => Err(invalid(NumberReason::Other)),
+        },
+        _ => Err(internal("invalid number token", sp)),
     }
-    Err(internal("invalid number", sp))
 }
 
 fn build_string_literal(s: StringLiteral) -> Result<ast_c::StringLiteral> {

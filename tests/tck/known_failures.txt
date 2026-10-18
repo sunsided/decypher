@@ -4,72 +4,43 @@
 analyze 166fc9f64b76c642  # unresolved variable `p` | MERGE (a {num: 1}) MERGE (b {num: 2}) MERGE p = (a)-[:R]->(b) RETURN p
 analyze de784694bbe18e0e  # unresolved variable `p` | MERGE p = (a {num: 1}) RETURN p
 parse 020463e6a8601b85  # unexpected token `:`, expected `(`, dynamic label expression, label name | MATCH (a)-[:T|:T]->(b) RETURN b
-parse 049f299e707fb552  # unexpected token `.`, expected `)` | RETURN [-.1e-5] AS literal
-parse 091f33f759daddfc  # internal error: invalid number | RETURN -0o0 AS literal
-parse 0a6a8589e2739879  # unexpected token `.`, expected expression | RETURN .00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000…
 parse 0eaaa987b71e557c  # unexpected token `false`, expected `}` | RETURN NOT {false: false}
-parse 0eb9a12b7df8d183  # unexpected token `.`, expected expression | RETURN .1e-5 AS literal
-parse 0ee38dcd79e41bb1  # unexpected token `.`, expected expression | RETURN .3405892687 AS literal
 parse 0ffd094c93323c24  # unexpected token `|`, expected `]` | MATCH ()-[r:TYPE]->() RETURN [key IN keys(r) | key + '->' + r[key]] AS keyValue
 parse 18541d3f527a8cb2  # unexpected token `types`, expected expression | MATCH p = (n)-[r]->() WITH [n, r, p, '', 1, 3.14, true, null, [], {}] AS types UNWIND range(0, size(…
 parse 1d6524f8388eb36c  # unexpected token `types`, expected expression | MATCH p = (n)-[r]->() WITH [n, r, p, '', 1, 3.14, true, null, [], {}] AS types UNWIND range(0, size(…
-parse 1d974dbfc9d5194e  # internal error: invalid number | RETURN 0o777777777777777777777 AS literal
 parse 2c022d24f2ca532f  # unexpected token `property`, expected expression | MATCH (a:Begin) WITH a.num AS property LIMIT 1 MATCH (b) WHERE b.id = property RETURN b
-parse 3b3cdf5aae3027bf  # unexpected token `.`, expected expression | RETURN -.1E-5 AS literal
-parse 3e7b775b8a788ab5  # unexpected token `.`, expected expression | RETURN -.0 AS literal
-parse 3ee92f7d543cfaa5  # unexpected token `0x162CD4F6`, expected `)` | RETURN [-0x162CD4F6] AS literal
-parse 427a6e2c87eac40f  # internal error: invalid number | RETURN -9223372036854775809 AS literal
+parse 427a6e2c87eac40f  # invalid number `9223372036854775809`: number too large | RETURN -9223372036854775809 AS literal
 parse 46667d7c91c96e7d  # unexpected token `$`, expected `)` | MATCH (n $param) RETURN n
 parse 469f6d2a4523d6a2  # unexpected token `types`, expected expression | MATCH p = (n:N)-[r:REL]->() UNWIND [n, r, p, 1.5, ['list'], 'text', null, false, 0.0 / 0.0, {a: 'map…
-parse 54d785d23696a791  # unexpected token `.`, expected expression | RETURN .0 AS literal
 parse 595361521a4b0472  # unexpected token `:`, expected `(`, dynamic label expression, label name | CREATE (a), (b) MERGE (a)-[:A|:B]->(b)
-parse 598eee8074d4fe43  # internal error: invalid number | RETURN -0o2613152366 AS literal
-parse 5c1e4c72310b4498  # internal error: invalid number | RETURN 1.34E999
-parse 5d05d522911443fa  # unexpected token `.`, expected expression | RETURN .1e9 AS literal
-parse 5e955a0e31ebf061  # unexpected token `.`, expected expression | RETURN .1E-5 AS literal
+parse 5c1e4c72310b4498  # invalid number `1.34E999`: number too large | RETURN 1.34E999
 parse 5ef573b805304647  # unexpected token `property`, expected expression | MATCH (a:Begin) WITH a.num AS property MATCH (b) WHERE b.id = property RETURN b
 parse 5f3cafee2710fdaa  # unexpected token `null`, expected `}` | WITH {null: 'Mats', NULL: 'Pontus'} AS map RETURN map.`null` AS result
-parse 66a561e06b5a3457  # internal error: invalid number | RETURN [1, -2, 0o77, 0xA4C, 71034856] AS literal
-parse 713228c3807659f3  # internal error: invalid number | RETURN -0x8000000000000000 AS literal
 parse 72cccef337a3c795  # unexpected token `node`, expected expression | CREATE (node :Foo:Bar) RETURN labels(node)
-parse 745044e03c9713b4  # internal error: invalid number | RETURN -0o1 AS literal
-parse 76f4db859357cd09  # internal error: invalid number | RETURN -9223372036854775808 AS literal
-parse 787e2795229b3d34  # internal error: invalid number | RETURN -0o1000000000000000000000 AS literal
-parse 7b8cfd73b50097cd  # internal error: invalid number | RETURN 0o0 AS literal
 parse 7cd1074425153277  # unexpected token `null`, expected `}` | WITH {null: 'Mats', NULL: 'Pontus'} AS map RETURN map['NULL'] AS result
 parse 80874570668d72f8  # unexpected token `types`, expected expression | MATCH p = (n:N)-[r:REL]->() UNWIND [n, r, p, 1.5, ['list'], 'text', null, false, 0.0 / 0.0, {a: 'map…
 parse 8eaacd3dfa749204  # unexpected token `rows`, expected expression | UNWIND RANGE(1, 2) AS row WITH collect(row) AS rows UNWIND rows AS x RETURN x
-parse 8f21bf0aa5a400f2  # unexpected token `.`, expected expression | RETURN -.0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000…
-parse 8f3aa1dda734a9f9  # internal error: invalid number | RETURN 0o1000000000000000000000 AS literal
+parse 8f3aa1dda734a9f9  # invalid number `0o1000000000000000000000`: number too large | RETURN 0o1000000000000000000000 AS literal
 parse 92441898e11f1dc9  # unexpected token `property`, expected expression | MATCH (a) WITH a.name AS property, a.num AS idToUse ORDER BY property SKIP 1 MATCH (b) WHERE b.id = …
-parse 99b94dc9793bc089  # unexpected token `.`, expected expression | RETURN {k: -.1e-5} AS literal
 parse 9a56e9dcbe3c5c46  # unexpected token `node`, expected expression | CREATE (node) RETURN labels(node)
-parse 9b5de9619d2d73b5  # internal error: invalid number | RETURN {k: 0o2613152366} AS literal
-parse 9c584b27106d1677  # internal error: invalid number | RETURN 0x8000000000000000 AS literal
+parse 9c584b27106d1677  # invalid number `0x8000000000000000`: number too large | RETURN 0x8000000000000000 AS literal
 parse 9dc882674701a6c1  # unexpected token `$`, expected `]` | MERGE (a) MERGE (b) MERGE (a)-[r:FOO $param]->(b) RETURN r
-parse 9e34d9a0b935554d  # internal error: invalid number | RETURN 0o2613152366 AS literal
 parse a1d394032f71ab01  # unexpected token `(`, expected clause | MATCH (n:A) SET (n).name = 'neo4j' RETURN n
-parse a62a69c4cc0d0e1e  # internal error: invalid number | RETURN -0o1000000000000000000001 AS literal
+parse a62a69c4cc0d0e1e  # invalid number `0o1000000000000000000001`: number too large | RETURN -0o1000000000000000000001 AS literal
 parse a76ccbf276f16867  # unexpected token `types`, expected expression | MATCH p = (n:N)-[r:REL]->() UNWIND [n, r, p, 1.5, ['list'], 'text', null, false, 0.0 / 0.0, {a: 'map…
 parse aaf59eedc72dbf92  # unexpected token `$`, expected `]` | MATCH ()-[r:FOO $param]->() RETURN r
 parse b05aa8c51c5f4e81  # unexpected token `types`, expected expression | MATCH p = (n)-[r]->() WITH [n, r, p, '', 1, 3.14, true, null, [], {}] AS types UNWIND range(0, size(…
 parse b3c6b73186fe93a4  # unexpected token `node`, expected expression | CREATE (node:Foo:Bar {name: 'Mattias'}) RETURN labels(node)
 parse b72f7c34b68bce20  # unexpected token `$`, expected `)` | MERGE (n $param) RETURN n
-parse c12f99222ba6d6b3  # unexpected token `.`, expected expression | RETURN -.1e9 AS literal
-parse cabf59829bb320c4  # internal error: invalid number | RETURN [0o2613152366] AS literal
 parse cbd549f90e7abaae  # unexpected token `types`, expected expression | MATCH p = (n:N)-[r:REL]->() UNWIND [n, r, p, 1.5, ['list'], 'text', null, false, 0.0 / 0.0, {a: 'map…
 parse d3f6ad936856b40e  # unexpected token `null`, expected `}` | WITH {null: 'Mats', NULL: 'Pontus'} AS map RETURN map['null'] AS result
 parse d46611ecf2901d36  # unexpected token `rows`, expected expression | MATCH (row) WITH collect(row) AS rows UNWIND rows AS node RETURN node.id
 parse d77787fe6bf013f3  # unexpected token `true`, expected `}` | RETURN NOT {true: true}
 parse d8c0b421800896cc  # unexpected token `null`, expected `}` | WITH {null: 'Mats', NULL: 'Pontus'} AS map RETURN map.`NULL` AS result
-parse d919922d7310256c  # unexpected token `.`, expected expression | RETURN .1 AS literal
-parse dcf6b35b10aed523  # unexpected token `.`, expected expression | RETURN -.1e-5 AS literal
 parse e83f2e6832dca976  # unexpected token `(`, expected clause | MATCH ()-[r:REL]->() SET (r).name = 'neo4j' RETURN r
-parse e8c93df621ac42a4  # internal error: invalid number | RETURN 9223372036854775808 AS literal
+parse e8c93df621ac42a4  # invalid number `9223372036854775808`: number too large | RETURN 9223372036854775808 AS literal
 parse ece69e9293a9dddf  # unexpected token `:`, expected clause | MATCH (n:Single) OPTIONAL MATCH (n)-[r:TYPE]-(m) RETURN m:TYPE
 parse f160df25ca07dad6  # unexpected token `property`, expected expression | MATCH (a:Begin) WITH a.num AS property MATCH (b:End) WHERE property = b.num RETURN b
-parse f7ecda252efa5e05  # unexpected token `1000`, expected `)` | WITH 0 AS start, [1, 2, 500, 1000, 1500] AS stopList, [-1000, -3, -2, -1, 1, 2, 3, 1000] AS stepList…
 parse f905e568447774e3  # unexpected token `:`, expected `(`, dynamic label expression, label name | CREATE ()-[:A|:B]->()
-parse fc31c9f028ae2ca1  # internal error: invalid number | RETURN 0o1 AS literal
-parse fedb5781849639db  # internal error: invalid number | RETURN -0x8000000000000001 AS literal
+parse fedb5781849639db  # invalid number `0x8000000000000001`: number too large | RETURN -0x8000000000000001 AS literal
 parse ff5dc59fdb9fd015  # unexpected token `types`, expected expression | MATCH p = (n)-[r]->() WITH [n, r, p, '', 1, 3.14, true, null, [], {}] AS types UNWIND range(0, size(…

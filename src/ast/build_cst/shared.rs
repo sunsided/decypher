@@ -1,4 +1,4 @@
-use crate::error::{CypherError, ErrorKind, Span};
+use crate::error::{CypherError, ErrorKind, NumberReason, Span};
 
 /// Decode escape sequences from a string literal's content (already stripped of quotes).
 pub fn decode_string_content(content: &str, span: Span) -> (String, Option<CypherError>) {
@@ -78,16 +78,35 @@ pub fn decode_string_content(content: &str, span: Span) -> (String, Option<Cyphe
     (result, None)
 }
 
-/// Parse an integer from a string, handling 0x hex and 0-prefixed octal.
-pub fn parse_integer(s: &str) -> Option<i64> {
+/// Parse the magnitude of an integer literal: decimal, `0x` hexadecimal,
+/// `0o` octal, or legacy leading-zero octal (`017`).
+///
+/// The magnitude may exceed `i64::MAX` by one so that `-9223372036854775808`
+/// can be represented once the sign is applied.
+pub fn parse_integer_magnitude(s: &str) -> Result<u64, NumberReason> {
+    use std::num::IntErrorKind;
     let s = s.trim();
-    if s.starts_with("0x") || s.starts_with("0X") {
-        i64::from_str_radix(&s[2..], 16).ok()
+    let (digits, radix) = if let Some(hex) = s.strip_prefix("0x").or(s.strip_prefix("0X")) {
+        (hex, 16)
+    } else if let Some(oct) = s.strip_prefix("0o").or(s.strip_prefix("0O")) {
+        (oct, 8)
     } else if s.starts_with('0') && s.len() > 1 && s.chars().all(|c| c.is_ascii_digit()) {
-        i64::from_str_radix(s, 8).ok()
+        (&s[1..], 8)
     } else {
-        s.parse::<i64>().ok()
-    }
+        (s, 10)
+    };
+    u64::from_str_radix(digits, radix).map_err(|e| match e.kind() {
+        IntErrorKind::Empty => NumberReason::Empty,
+        IntErrorKind::PosOverflow => NumberReason::Overflow,
+        _ => NumberReason::InvalidDigit,
+    })
+}
+
+/// Parse an integer literal that fits an `i64`.
+pub fn parse_integer(s: &str) -> Option<i64> {
+    parse_integer_magnitude(s)
+        .ok()
+        .and_then(|m| i64::try_from(m).ok())
 }
 
 /// Parse a floating-point number from a string.

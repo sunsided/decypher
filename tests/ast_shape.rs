@@ -539,3 +539,54 @@ fn test_map_projection_variables_and_field_terminator() {
         check_roundtrip(q, &format!("{q};"));
     }
 }
+
+/// A list starting with `(` or `-` is only a pattern comprehension when a
+/// relationship pattern follows; otherwise it is a list literal.
+///
+/// Unit: `parse()` / bracket disambiguation
+/// Precondition: Lists starting with a negative number, a negated variable,
+///               a parenthesised expression, or a comparison `x = 1`, next to
+///               real pattern comprehensions.
+/// Expectation: Each query round-trips unchanged.
+#[test]
+fn test_bracket_list_vs_pattern_comprehension() {
+    for q in [
+        "RETURN [-1000, -3]",
+        "WITH 1 AS x RETURN [-x]",
+        "RETURN [(1), 2]",
+        "RETURN [(1 + 2) * 3]",
+        "WITH 1 AS x RETURN [x = 1]",
+    ] {
+        check_roundtrip(q, &format!("{q};"));
+    }
+    check_roundtrip(
+        "MATCH (a) RETURN [p = (a)-->(b) | p] AS x",
+        "MATCH (a) RETURN [p = (a)-[]->(b) | p] AS x;",
+    );
+}
+
+/// Number literals: octal, leading-dot floats and `i64::MIN` parse (#63).
+///
+/// Unit: `parse()` / number literals
+/// Precondition: `0o` and legacy octal, floats without a leading zero, and
+///               the minimum 64-bit integer in decimal and hex.
+/// Expectation: Each parses to the expected value.
+#[test]
+fn test_number_literals() {
+    for (input, printed) in [
+        ("RETURN 0o17, -0o17, 017", "RETURN 15, -15, 15;"),
+        ("RETURN .5, -.5e-3", "RETURN 0.5, -0.0005;"),
+        ("RETURN [-.1e-5]", "RETURN [-1e-6];"),
+        (
+            "RETURN -9223372036854775808",
+            "RETURN -9223372036854775808;",
+        ),
+        ("RETURN -0x8000000000000000", "RETURN -9223372036854775808;"),
+        (
+            "WITH [1, 2, 3] AS l RETURN l[1..2]",
+            "WITH [1, 2, 3] AS l RETURN l[1..2];",
+        ),
+    ] {
+        check_roundtrip(input, printed);
+    }
+}
