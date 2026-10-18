@@ -245,6 +245,9 @@ pub enum ErrorKind {
     /// A non-deterministic function inside an aggregate, such as
     /// `count(rand())` (semantic).
     NonDeterministicAggregate,
+    /// A pattern expression used as a value rather than a predicate, such
+    /// as `RETURN size((n)-->())` (semantic).
+    PatternExpressionOutsidePredicate,
     /// A variable used as two kinds of entity, such as a node and a
     /// relationship in `MATCH (r) MATCH ()-[r]-()` (semantic).
     VariableTypeConflict {
@@ -323,6 +326,10 @@ impl fmt::Display for ErrorKind {
             ErrorKind::InvalidParameterUse => write!(
                 f,
                 "parameter maps cannot be used in MATCH or MERGE patterns; use a literal map such as {{key: $value}}"
+            ),
+            ErrorKind::PatternExpressionOutsidePredicate => write!(
+                f,
+                "a pattern expression can only be used as a predicate; use COUNT {{ … }} to count matches or a pattern comprehension to collect them"
             ),
             ErrorKind::NonDeterministicAggregate => {
                 write!(

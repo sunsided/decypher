@@ -53,6 +53,7 @@ const SEMANTIC_ERRORS: &[&str] = &[
     "NegativeIntegerArgument",
     "InvalidParameterUse",
     "VariableTypeConflict",
+    "UnexpectedSyntax",
 ];
 
 struct TckQuery {

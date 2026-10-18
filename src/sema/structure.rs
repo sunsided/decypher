@@ -12,6 +12,9 @@
 //! - `MATCH` and `MERGE` patterns use literal property maps, not parameters
 //!   (`MATCH (n $param)`).
 //! - Aggregates do not call `rand()`.
+//! - Pattern expressions are predicates: they appear in `WHERE`, under
+//!   `NOT` / `AND` / `OR` / `XOR`, in `exists(…)` and as `CASE WHEN`
+//!   conditions, not as values (`RETURN size((n)-->())`).
 //! - A variable is used as one kind of entity only (see
 //!   [`super::variable_types`]).
 //!
@@ -24,9 +27,9 @@ use crate::ast::pattern::*;
 use crate::ast::query::*;
 use crate::ast::visit::{
     Visit, walk_collect_subquery_expression, walk_count_subquery_expression, walk_create,
-    walk_delete, walk_exists_expression, walk_function_invocation_expr, walk_match, walk_merge,
-    walk_node_pattern, walk_regular_query, walk_relationship_detail, walk_remove, walk_return,
-    walk_set, walk_with,
+    walk_delete, walk_exists_expression, walk_expression, walk_function_invocation_expr,
+    walk_merge, walk_node_pattern, walk_regular_query, walk_relationship_detail, walk_remove,
+    walk_return, walk_set,
 };
 use crate::error::{ErrorKind, Span, VariableKind};
 
@@ -52,6 +55,8 @@ pub(crate) enum StructuralError {
     /// A non-deterministic function called inside an aggregate
     /// (`count(rand())`).
     NonDeterministicAggregate { span: Span },
+    /// A pattern expression used as a value (`RETURN (n)-->()`).
+    PatternExpressionOutsidePredicate { span: Span },
     /// A variable used as two kinds of entity (`MATCH (r) MATCH ()-[r]-()`).
     VariableTypeConflict {
         name: String,
@@ -77,6 +82,9 @@ impl StructuralError {
             Self::InvalidSkipLimit { reason, .. } => ErrorKind::InvalidSkipLimit { reason },
             Self::InvalidParameterUse { .. } => ErrorKind::InvalidParameterUse,
             Self::NonDeterministicAggregate { .. } => ErrorKind::NonDeterministicAggregate,
+            Self::PatternExpressionOutsidePredicate { .. } => {
+                ErrorKind::PatternExpressionOutsidePredicate
+            }
             Self::VariableTypeConflict {
                 name,
                 bound_as,
@@ -101,6 +109,7 @@ impl StructuralError {
             | Self::InvalidSkipLimit { span, .. }
             | Self::InvalidParameterUse { span }
             | Self::NonDeterministicAggregate { span }
+            | Self::PatternExpressionOutsidePredicate { span }
             | Self::VariableTypeConflict { span, .. } => *span,
         }
     }
@@ -117,6 +126,7 @@ pub(crate) fn structural_errors(
         read_only: false,
         creating: false,
         in_aggregate: false,
+        predicate: false,
         errors: Vec::new(),
     };
     checker.visit_query(query);
@@ -135,6 +145,9 @@ struct StructureChecker<'a> {
     creating: bool,
     /// Whether the expressions being visited are arguments of an aggregate.
     in_aggregate: bool,
+    /// Whether the expression being visited is a predicate, where a pattern
+    /// expression may appear.
+    predicate: bool,
     errors: Vec<StructuralError>,
 }
 
@@ -185,6 +198,12 @@ impl StructureChecker<'_> {
             self.errors
                 .push(StructuralError::InvalidParameterUse { span: param.span });
         }
+    }
+
+    fn visit_predicate(&mut self, expr: &Expression) {
+        let outer = std::mem::replace(&mut self.predicate, true);
+        self.visit_expression(expr);
+        self.predicate = outer;
     }
 
     fn visit_read_only(&mut self, visit: impl FnOnce(&mut Self)) {
@@ -262,7 +281,10 @@ impl<'ast> Visit<'ast> for StructureChecker<'_> {
                 }
             }
         }
-        walk_match(self, node);
+        self.visit_pattern(&node.pattern);
+        if let Some(predicate) = &node.where_clause {
+            self.visit_predicate(predicate);
+        }
     }
 
     fn visit_create(&mut self, node: &'ast Create) {
@@ -341,7 +363,87 @@ impl<'ast> Visit<'ast> for StructureChecker<'_> {
                 });
             }
         }
-        walk_with(self, node);
+        for item in &node.items {
+            self.visit_projection_item(item);
+        }
+        if let Some(order) = &node.order {
+            self.visit_order(order);
+        }
+        for expr in [&node.skip, &node.limit].into_iter().flatten() {
+            self.visit_expression(expr);
+        }
+        if let Some(predicate) = &node.where_clause {
+            self.visit_predicate(predicate);
+        }
+    }
+
+    fn visit_expression(&mut self, node: &'ast Expression) {
+        let outer = self.predicate;
+        if let Expression::Pattern(pattern) = node
+            && !outer
+        {
+            self.errors
+                .push(StructuralError::PatternExpressionOutsidePredicate { span: pattern.span });
+        }
+        self.predicate = match node {
+            Expression::BinaryOp {
+                op: BinaryOperator::And | BinaryOperator::Or | BinaryOperator::Xor,
+                ..
+            }
+            | Expression::UnaryOp {
+                op: UnaryOperator::Not,
+                ..
+            }
+            | Expression::Parenthesized(_) => outer,
+            Expression::FunctionCall(call) => {
+                matches!(call.name.as_slice(), [name] if name.name.eq_ignore_ascii_case("exists"))
+            }
+            _ => false,
+        };
+        walk_expression(self, node);
+        self.predicate = outer;
+    }
+
+    fn visit_exists_inner(&mut self, node: &'ast ExistsInner) {
+        match node {
+            ExistsInner::Pattern(pattern, predicate) => {
+                self.visit_pattern(pattern);
+                if let Some(predicate) = predicate {
+                    self.visit_predicate(predicate);
+                }
+            }
+            ExistsInner::RegularQuery(query) => self.visit_regular_query(query),
+        }
+    }
+
+    fn visit_case_alternative(&mut self, node: &'ast CaseAlternative) {
+        self.visit_predicate(&node.when);
+        self.visit_expression(&node.then);
+    }
+
+    fn visit_list_comprehension(&mut self, node: &'ast ListComprehension) {
+        self.visit_expression(&node.collection);
+        if let Some(predicate) = &node.filter {
+            self.visit_predicate(predicate);
+        }
+        if let Some(map) = &node.map {
+            self.visit_expression(map);
+        }
+    }
+
+    fn visit_pattern_comprehension(&mut self, node: &'ast PatternComprehension) {
+        self.visit_relationships_pattern(&node.pattern);
+        if let Some(predicate) = &node.where_clause {
+            self.visit_predicate(predicate);
+        }
+        self.visit_expression(&node.map);
+    }
+
+    fn visit_filter_expression(&mut self, node: &'ast FilterExpression) {
+        self.visit_expression(&node.collection);
+        if let Some(predicate) = &node.predicate {
+            self.visit_predicate(predicate);
+        }
     }
 
     fn visit_exists_expression(&mut self, node: &'ast ExistsExpression) {

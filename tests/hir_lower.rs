@@ -1342,7 +1342,7 @@ fn analyze_pattern_predicates_need_bound_variables() {
         );
     }
     analyze("MATCH (n), (m) WHERE (n)-->(m) RETURN n").unwrap();
-    analyze("MATCH (n)-[r]->(m) WHERE NOT (m)-[r]->(n) RETURN size((n)-->()) AS d").unwrap();
+    analyze("MATCH (n)-[r]->(m) WHERE NOT (m)-[r]->(n) RETURN COUNT { (n)-->() } AS d").unwrap();
 }
 
 /// `COUNT { pattern }` lowers like `EXISTS { pattern }`: its new variables
@@ -1566,6 +1566,56 @@ fn analyze_reports_constant_and_variable_kind_errors() {
         "MATCH (r) CALL { MATCH ()-[r]-() RETURN r AS x } RETURN x",
         "MATCH (n) RETURN [n IN [1, 2] | n] AS l",
         "MATCH (n) RETURN n; MATCH ()-[n]-() RETURN n",
+    ] {
+        analyze(query).unwrap_or_else(|e| panic!("query: {query}, got: {e}"));
+        decypher::sema::analyze(&decypher::parse(query).unwrap())
+            .unwrap_or_else(|e| panic!("query: {query}, sema got: {:?}", e.errors));
+    }
+}
+
+/// Pattern expressions are predicates (#111): Neo4j 5 and the openCypher
+/// TCK reject them as values, where `COUNT { … }` or a pattern
+/// comprehension takes their place.
+///
+/// Unit: `analyze()` / `sema::analyze()`
+/// Precondition: Pattern expressions as values (TCK `List6`, `Return2`) and
+///               as predicates.
+/// Expectation: Both analyzers reject the values and accept the predicates.
+#[test]
+fn analyze_pattern_expressions_are_predicates() {
+    use decypher::ErrorKind;
+    for query in [
+        "MATCH (a) RETURN size((a)-->())",
+        "MATCH (n) RETURN (n)-[]->()",
+        "MATCH (n) WITH (n)-[]->() AS x RETURN x",
+        "MATCH (n) SET n.prop = head(nodes(head((n)-[:REL]->()))).foo",
+        "MATCH (n) WHERE (n)-->() = true RETURN n",
+    ] {
+        let err = analyze(query).unwrap_err();
+        check!(
+            err.kind == ErrorKind::PatternExpressionOutsidePredicate,
+            "query: {query}, got: {err}"
+        );
+        let sema = decypher::sema::analyze(&decypher::parse(query).unwrap()).unwrap_err();
+        check!(
+            sema.errors
+                .iter()
+                .any(|e| e.kind == ErrorKind::PatternExpressionOutsidePredicate),
+            "query: {query}, sema got: {:?}",
+            sema.errors
+        );
+    }
+    for query in [
+        "MATCH (n) WHERE (n)-->() RETURN n",
+        "MATCH (n) WHERE NOT ((n)-->() AND (n)<--()) OR (n)--() XOR true RETURN n",
+        "MATCH (n) WITH n WHERE (n)-->() RETURN n",
+        "MATCH (n) RETURN exists((n)-->()) AS e",
+        "MATCH (n) RETURN CASE WHEN (n)-->() THEN 1 ELSE 0 END AS c",
+        "MATCH (n) RETURN [m IN [n] WHERE (m)-->() | m] AS l",
+        "MATCH (n) RETURN any(m IN [n] WHERE (m)-->()) AS a",
+        "MATCH (n) RETURN [(n)-->(m) WHERE (m)-->() | m] AS l",
+        "MATCH (n) WHERE EXISTS { (n)-->(m) WHERE (m)-->() } RETURN n",
+        "MATCH (n) RETURN COUNT { (n)-->() } AS c",
     ] {
         analyze(query).unwrap_or_else(|e| panic!("query: {query}, got: {e}"));
         decypher::sema::analyze(&decypher::parse(query).unwrap())

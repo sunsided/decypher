@@ -96,6 +96,11 @@ pub enum HirDiagnostic {
         /// Source location of the call.
         span: Span,
     },
+    /// A pattern expression used as a value (`RETURN (n)-->()`).
+    PatternExpressionOutsidePredicate {
+        /// Source location of the pattern.
+        span: Span,
+    },
     /// A variable used as two kinds of entity
     /// (`MATCH (r) MATCH ()-[r]-()`).
     VariableTypeConflict {
@@ -149,6 +154,9 @@ impl From<crate::sema::StructuralError> for HirDiagnostic {
             E::InvalidParameterUse { span } => HirDiagnostic::InvalidParameterUse { span },
             E::NonDeterministicAggregate { span } => {
                 HirDiagnostic::NonDeterministicAggregate { span }
+            }
+            E::PatternExpressionOutsidePredicate { span } => {
+                HirDiagnostic::PatternExpressionOutsidePredicate { span }
             }
             E::VariableTypeConflict {
                 name,
@@ -211,6 +219,9 @@ impl HirDiagnostic {
             }
             HirDiagnostic::InvalidParameterUse { .. } => ErrorKind::InvalidParameterUse,
             HirDiagnostic::NonDeterministicAggregate { .. } => ErrorKind::NonDeterministicAggregate,
+            HirDiagnostic::PatternExpressionOutsidePredicate { .. } => {
+                ErrorKind::PatternExpressionOutsidePredicate
+            }
             HirDiagnostic::VariableTypeConflict {
                 name,
                 bound_as,
@@ -242,6 +253,7 @@ impl HirDiagnostic {
             HirDiagnostic::InvalidSkipLimit { span, .. } => *span,
             HirDiagnostic::InvalidParameterUse { span } => *span,
             HirDiagnostic::NonDeterministicAggregate { span } => *span,
+            HirDiagnostic::PatternExpressionOutsidePredicate { span } => *span,
             HirDiagnostic::VariableTypeConflict { span, .. } => *span,
             HirDiagnostic::UnknownFunction { span, .. } => *span,
             HirDiagnostic::UnsupportedFeature { span, .. } => *span,

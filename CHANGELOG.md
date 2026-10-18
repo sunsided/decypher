@@ -60,7 +60,15 @@ are marked **Breaking** below.
   `InvalidMergePattern` are removed (#109).
 - **Breaking:** new `hir::HirDiagnostic` variants `InvalidSkipLimit`,
   `InvalidParameterUse`, `NonDeterministicAggregate` and
-  `VariableTypeConflict` (#110).
+  `VariableTypeConflict` (#110), and `PatternExpressionOutsidePredicate`
+  (#111).
+- **Breaking:** both analyzers report
+  `ErrorKind::PatternExpressionOutsidePredicate` for a pattern expression used
+  as a value (`RETURN size((n)-->())`, `WITH (n)-->() AS x`), as Neo4j 5 and
+  the openCypher TCK do; use `COUNT { … }` or a pattern comprehension
+  instead. Pattern expressions stay valid as predicates: in `WHERE`, under
+  `NOT` / `AND` / `OR` / `XOR`, in `exists(…)` and as `CASE WHEN`
+  conditions. The parser still accepts both (#111).
 - Both analyzers report redeclared path variables (`WITH 1 AS p MATCH p =
   …`, `MATCH p = (p)-->()`) and `CREATE` / `MERGE` patterns that re-create a
   bound node or relationship (`MATCH (a) CREATE (a)`,
