@@ -1362,3 +1362,57 @@ fn analyze_count_pattern_subquery() {
     let err = analyze("MATCH (n) RETURN COUNT { (n)-->(m) } AS c, m").unwrap_err();
     check!(err.to_string().contains("unresolved variable `m`"), "{err}");
 }
+
+/// Path variables must be new and cannot name a node or relationship of
+/// their own pattern; `CREATE` / `MERGE` cannot re-create a bound node or
+/// relationship (#108, TCK `VariableAlreadyBound`).
+///
+/// Unit: `analyze()` / `sema::analyze()`
+/// Precondition: Redeclared path variables, bound nodes standing alone or
+///               given labels/properties in `CREATE`/`MERGE`, and bound
+///               relationship variables in `CREATE`/`MERGE`.
+/// Expectation: Both analyzers report a redeclaration; connecting to bound
+///              nodes stays valid.
+#[test]
+fn analyze_reports_redeclared_pattern_variables() {
+    use decypher::ErrorKind;
+    for query in [
+        "MATCH (p)-->() MATCH p = ()-->() RETURN p",
+        "WITH 1 AS p MATCH p = ()-->() RETURN p",
+        "MATCH ()-[p]-(), p = ()-->() RETURN p",
+        "MATCH p = (p)-->() RETURN p",
+        "MATCH p = ()-[p*]->() RETURN p",
+        "MATCH (a) CREATE (a)",
+        "MATCH (a) MERGE (a)",
+        "MATCH (a) CREATE (a {name: 'foo'})",
+        "CREATE (n:Foo)-[:T1]->(), (n:Bar)-[:T2]->()",
+        "CREATE (a:Foo) MERGE (a)-[r:KNOWS]->(a:Bar)",
+        "MATCH ()-[r]->() CREATE ()-[r]->()",
+        "MATCH (a)-[r]->(b) MERGE (a)-[r]->(b)",
+        "MATCH (a) FOREACH (x IN [1] | CREATE (a))",
+    ] {
+        let err = analyze(query).unwrap_err();
+        check!(
+            matches!(err.kind, ErrorKind::RedeclaredVariable { .. }),
+            "query: {query}, got: {err}"
+        );
+        let sema = decypher::sema::analyze(&decypher::parse(query).unwrap()).unwrap_err();
+        check!(
+            sema.errors
+                .iter()
+                .any(|e| matches!(e.kind, ErrorKind::RedeclaredVariable { .. })),
+            "query: {query}, sema got: {:?}",
+            sema.errors
+        );
+    }
+    for query in [
+        "MATCH (a), (b) CREATE (a)-[:R]->(b)",
+        "MATCH (a) MERGE (a)-[:R]->(b:Foo) RETURN b",
+        "CREATE (a:Foo)-[:R]->(b), (b)-[:S]->(a)",
+        "MATCH p = (a)-->(b) RETURN p, a, b",
+    ] {
+        analyze(query).unwrap_or_else(|e| panic!("query: {query}, got: {e}"));
+        decypher::sema::analyze(&decypher::parse(query).unwrap())
+            .unwrap_or_else(|e| panic!("query: {query}, sema got: {:?}", e.errors));
+    }
+}

@@ -39,6 +39,7 @@ const SEMANTIC_ERRORS: &[&str] = &[
     "NestedAggregation",
     "AmbiguousAggregationExpression",
     "ColumnNameConflict",
+    "VariableAlreadyBound",
 ];
 
 struct TckQuery {

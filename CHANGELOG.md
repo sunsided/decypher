@@ -30,7 +30,7 @@ are marked **Breaking** below.
 - The TCK gate also checks that `sema::analyze` accepts every query the TCK
   expects to compile, and that both analyzers reject queries the TCK expects
   to fail with an undefined variable, an invalid, nested or ambiguous
-  aggregation, or a column name conflict.
+  aggregation, a column name conflict, or a redeclared variable.
 
 ### Changed
 
