@@ -24,9 +24,9 @@ mod resolve;
 mod scope;
 
 pub use aggregate_registry::AggregateRegistry;
-#[cfg(feature = "hir")]
-pub(crate) use aggregation::implicit_grouping_keys;
 pub use aggregation::{AggregationViolation, check_aggregation, check_aggregation_with};
+#[cfg(feature = "hir")]
+pub(crate) use aggregation::{implicit_grouping_keys, misplaced_aggregates};
 pub use error::SemaError;
 pub use resolve::{ResolutionResult, resolve_names, resolve_names_with};
 pub use scope::{ScopeStack, SymbolKind};

@@ -60,6 +60,12 @@ pub fn check_aggregation_with(
     aggregates: &AggregateRegistry,
     diagnostics: &mut Diagnostics,
 ) {
+    let is_aggregate = |fc: &FunctionInvocation| aggregates.is_aggregate_call(fc);
+    for (function, span) in misplaced_aggregates(query, &is_aggregate) {
+        diagnostics
+            .errors
+            .push(SemaError::AggregateNotAllowed { function, span }.into_error());
+    }
     let mut checker = AggregationChecker {
         aggregates,
         diagnostics,
@@ -271,5 +277,165 @@ impl<'ast> Visit<'ast> for UngroupedReferences<'_> {
             | Expression::CollectSubquery(_) => {}
             _ => walk_expression(self, node),
         }
+    }
+}
+
+/// The aggregate calls of `query` in positions that do not allow them, by
+/// dot-joined function name and span.
+///
+/// Aggregates may appear in `WITH` and `RETURN` items, and in the `WHERE`
+/// and `ORDER BY` of a projection that aggregates. They may not appear
+/// anywhere else (`MATCH … WHERE count(n) > 1`, `CALL p(count(n))`), inside
+/// the arguments of another aggregate (`count(count(*))`), or in the body of
+/// a comprehension (`[x IN list | count(*)]`).
+pub(crate) fn misplaced_aggregates(
+    query: &Query,
+    is_aggregate: &dyn Fn(&FunctionInvocation) -> bool,
+) -> Vec<(String, Span)> {
+    let mut placement = AggregatePlacement {
+        is_aggregate,
+        allowed: false,
+        found: Vec::new(),
+    };
+    placement.visit_query(query);
+    placement.found
+}
+
+/// Collects aggregate calls outside the positions that allow them.
+struct AggregatePlacement<'a> {
+    is_aggregate: &'a dyn Fn(&FunctionInvocation) -> bool,
+    /// Whether the expression being visited may contain an aggregate.
+    allowed: bool,
+    /// Offending aggregate calls, by function name and span.
+    found: Vec<(String, Span)>,
+}
+
+impl AggregatePlacement<'_> {
+    /// Runs `visit` with aggregates `allowed` or not.
+    fn with_allowed(&mut self, allowed: bool, visit: impl FnOnce(&mut Self)) {
+        let outer = std::mem::replace(&mut self.allowed, allowed);
+        visit(self);
+        self.allowed = outer;
+    }
+
+    fn visit_projection<'ast>(
+        &mut self,
+        items: &'ast [ProjectionItem],
+        filters: &[Option<&'ast Expression>],
+        order: Option<&'ast Order>,
+        counts: &[Option<&'ast Expression>],
+    ) {
+        let aggregating = items
+            .iter()
+            .any(|item| item.expression.contains_aggregate(self.is_aggregate));
+        self.with_allowed(true, |this| {
+            for item in items {
+                this.visit_expression(&item.expression);
+            }
+        });
+        self.with_allowed(aggregating, |this| {
+            for filter in filters.iter().flatten() {
+                this.visit_expression(filter);
+            }
+            if let Some(order) = order {
+                this.visit_order(order);
+            }
+        });
+        self.with_allowed(false, |this| {
+            for count in counts.iter().flatten() {
+                this.visit_expression(count);
+            }
+        });
+    }
+}
+
+impl<'ast> Visit<'ast> for AggregatePlacement<'_> {
+    fn visit_with(&mut self, node: &'ast With) {
+        self.visit_projection(
+            &node.items,
+            &[node.where_clause.as_ref()],
+            node.order.as_ref(),
+            &[node.skip.as_ref(), node.limit.as_ref()],
+        );
+    }
+
+    fn visit_return(&mut self, node: &'ast Return) {
+        self.visit_projection(
+            &node.items,
+            &[],
+            node.order.as_ref(),
+            &[node.skip.as_ref(), node.limit.as_ref()],
+        );
+    }
+
+    fn visit_expression(&mut self, node: &'ast Expression) {
+        let (name, span) = match node {
+            Expression::CountStar { span } => ("count".to_string(), *span),
+            Expression::FunctionCall(fc) if (self.is_aggregate)(fc) => {
+                let name = fc
+                    .name
+                    .iter()
+                    .map(|segment| segment.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(".");
+                (name, fc.span)
+            }
+            _ => return walk_expression(self, node),
+        };
+        if !self.allowed {
+            self.found.push((name, span));
+        }
+        self.with_allowed(false, |this| walk_expression(this, node));
+    }
+
+    fn visit_list_comprehension(&mut self, node: &'ast ListComprehension) {
+        self.visit_expression(&node.collection);
+        self.with_allowed(false, |this| {
+            if let Some(filter) = &node.filter {
+                this.visit_expression(filter);
+            }
+            if let Some(map) = &node.map {
+                this.visit_expression(map);
+            }
+        });
+    }
+
+    fn visit_filter_expression(&mut self, node: &'ast FilterExpression) {
+        self.visit_expression(&node.collection);
+        if let Some(predicate) = &node.predicate {
+            self.with_allowed(false, |this| this.visit_expression(predicate));
+        }
+    }
+
+    fn visit_reduce_expression(&mut self, node: &'ast ReduceExpression) {
+        self.visit_expression(&node.init);
+        self.visit_expression(&node.list);
+        self.with_allowed(false, |this| this.visit_expression(&node.expression));
+    }
+
+    fn visit_pattern_comprehension(&mut self, node: &'ast PatternComprehension) {
+        self.with_allowed(false, |this| {
+            crate::ast::visit::walk_pattern_comprehension(this, node)
+        });
+    }
+
+    // Subqueries start without aggregates allowed; their own projections
+    // allow them again.
+    fn visit_exists_expression(&mut self, node: &'ast ExistsExpression) {
+        self.with_allowed(false, |this| {
+            crate::ast::visit::walk_exists_expression(this, node)
+        });
+    }
+
+    fn visit_count_subquery_expression(&mut self, node: &'ast CountSubqueryExpression) {
+        self.with_allowed(false, |this| {
+            crate::ast::visit::walk_count_subquery_expression(this, node)
+        });
+    }
+
+    fn visit_collect_subquery_expression(&mut self, node: &'ast CollectSubqueryExpression) {
+        self.with_allowed(false, |this| {
+            crate::ast::visit::walk_collect_subquery_expression(this, node)
+        });
     }
 }

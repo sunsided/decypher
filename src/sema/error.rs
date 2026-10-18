@@ -28,6 +28,8 @@ pub enum SemaError {
     },
     /// DISTINCT used outside of a projection body.
     DistinctNotAllowed { span: Span },
+    /// An aggregate called where aggregation is not allowed.
+    AggregateNotAllowed { function: String, span: Span },
     /// Invalid reference (e.g. in ORDER BY after WITH referencing
     /// a variable not in the projection).
     InvalidReference {
@@ -54,6 +56,9 @@ impl SemaError {
                 non_grouping: non_grouping.clone(),
             },
             SemaError::DistinctNotAllowed { .. } => ErrorKind::DistinctNotAllowed,
+            SemaError::AggregateNotAllowed { function, .. } => ErrorKind::AggregateNotAllowed {
+                function: function.clone(),
+            },
             SemaError::InvalidReference { name, reason, .. } => ErrorKind::InvalidReference {
                 name: name.clone(),
                 reason,
@@ -70,6 +75,7 @@ impl SemaError {
                 SemaError::RedeclaredVariable { redecl_span, .. } => *redecl_span,
                 SemaError::AggregationMix { span, .. } => *span,
                 SemaError::DistinctNotAllowed { span } => *span,
+                SemaError::AggregateNotAllowed { span, .. } => *span,
                 SemaError::InvalidReference { span, .. } => *span,
             },
             source_label: None,

@@ -147,6 +147,7 @@ impl NameResolver {
                 SemaError::RedeclaredVariable { redecl_span, .. } => *redecl_span,
                 SemaError::AggregationMix { span, .. } => *span,
                 SemaError::DistinctNotAllowed { span } => *span,
+                SemaError::AggregateNotAllowed { span, .. } => *span,
                 SemaError::InvalidReference { span, .. } => *span,
             },
             source_label: None,

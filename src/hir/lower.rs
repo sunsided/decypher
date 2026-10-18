@@ -68,6 +68,12 @@ pub fn lower(query: &Query, config: &LowerConfig) -> Result<HirQuery, Diagnostic
     let mut ctx = LoweringContext::new(config);
     let mut parts = Vec::new();
 
+    let is_aggregate = |fc: &FunctionInvocation| config.aggregates.is_aggregate_call(fc);
+    for (function, span) in crate::sema::misplaced_aggregates(query, &is_aggregate) {
+        ctx.diagnostics
+            .push(HirDiagnostic::AggregateNotAllowed { function, span });
+    }
+
     for stmt in &query.statements {
         let stmt_parts = ctx.lower_query_body(stmt);
         parts.extend(stmt_parts);

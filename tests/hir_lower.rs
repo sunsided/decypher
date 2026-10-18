@@ -1237,3 +1237,57 @@ fn analyze_reports_redeclared_clause_variables() {
     }
     analyze("MATCH (n) WITH n.x AS x UNWIND [1] AS n RETURN n, x").unwrap();
 }
+
+/// Aggregates are only allowed in projection items and in the `WHERE` and
+/// `ORDER BY` of an aggregating projection (#103).
+///
+/// Unit: `analyze()` / `sema::analyze()`
+/// Precondition: Aggregates in `MATCH … WHERE`, in `ORDER BY` after a
+///               projection without aggregates, in a list comprehension
+///               body, in procedure arguments and nested in an aggregate.
+/// Expectation: Both analyzers report `AggregateNotAllowed`; aggregates in
+///              their allowed places still pass.
+#[test]
+fn analyze_reports_misplaced_aggregates() {
+    use decypher::ErrorKind;
+    for (query, function) in [
+        ("MATCH (a) WHERE count(a) > 10 RETURN a", "count"),
+        ("MATCH (n) RETURN n.num1 ORDER BY max(n.num2)", "max"),
+        (
+            "MATCH (n) WITH n.num1 AS foo ORDER BY count(n) RETURN foo",
+            "count",
+        ),
+        ("MATCH (n) RETURN [x IN [1, 2] | count(*)]", "count"),
+        (
+            "MATCH (n) CALL test.labels(count(n)) YIELD label RETURN label",
+            "count",
+        ),
+        ("MATCH (n) RETURN count(count(*))", "count"),
+        ("MATCH (n) SET n.c = count(*)", "count"),
+    ] {
+        let expected = ErrorKind::AggregateNotAllowed {
+            function: function.into(),
+        };
+        let err = analyze(query).unwrap_err();
+        check!(err.kind == expected, "query: {query}, got: {err}");
+        let parsed = decypher::parse(query).unwrap();
+        let sema = decypher::sema::analyze(&parsed).unwrap_err();
+        check!(
+            sema.errors.iter().any(|e| e.kind == expected),
+            "query: {query}, sema got: {:?}",
+            sema.errors
+        );
+    }
+    for query in [
+        "MATCH (n) RETURN n.k, count(*) AS c ORDER BY count(*) DESC",
+        "MATCH (n) WITH n.k AS k, count(*) AS c WHERE c > 1 RETURN k",
+        "MATCH (n) RETURN reduce(s = 0, x IN collect(n.v) | s + x) AS t",
+        "MATCH (n) WHERE COUNT { MATCH (n)-->() } > 1 RETURN n",
+        "MATCH (n) WHERE EXISTS { MATCH (n)-->(m) RETURN count(m) AS c } RETURN n",
+        "MATCH (n) RETURN CASE WHEN count(*) > 1 THEN 'many' ELSE 'one' END AS c",
+    ] {
+        if let Err(err) = analyze(query) {
+            panic!("query: {query}, got: {err}");
+        }
+    }
+}
