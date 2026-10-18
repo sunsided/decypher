@@ -28,6 +28,7 @@ jobs:
           import subprocess
           import tomllib
           from pathlib import Path
+          from urllib.parse import quote
 
           def github_api(endpoint):
               result = subprocess.run(
@@ -42,12 +43,14 @@ jobs:
           pinned_commit = pinned["commit"]
           latest_tag = github_api("releases/latest")["tag_name"]
 
+          # Any valid git tag is accepted (`+`, `/`, … included); tags are
+          # percent-encoded wherever they go into an API path or URL.
           for tag in (pinned_tag, latest_tag):
-              if not isinstance(tag, str) or not re.fullmatch(r"[A-Za-z0-9._-]+", tag):
-                  raise ValueError("Unsupported upstream tag format")
+              if not isinstance(tag, str) or not tag or any(c.isspace() or not c.isprintable() for c in tag):
+                  raise ValueError(f"Unsupported upstream tag: {tag!r}")
 
           # Resolve the tag itself: target_commitish may only name a branch.
-          latest_commit = github_api(f"commits/tags/{latest_tag}")["sha"]
+          latest_commit = github_api(f"commits/tags/{quote(latest_tag, safe='')}")["sha"]
           for commit in (pinned_commit, latest_commit):
               if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
                   raise ValueError("Expected a full upstream commit SHA")
@@ -67,7 +70,7 @@ jobs:
               "| --- | --- | --- |",
               f"| Pinned | `{pinned_tag}` | `{pinned_commit}` |",
               f"| Latest | `{latest_tag}` | `{latest_commit}` |", "",
-              f"[Release notes]({upstream}/releases/tag/{latest_tag})",
+              f"[Release notes]({upstream}/releases/tag/{quote(latest_tag, safe='')})",
           ]
           if differs:
               summary += [
