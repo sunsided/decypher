@@ -911,3 +911,96 @@ fn analyze_call_subquery_imports_and_exports() {
         );
     }
 }
+
+/// Aggregates nested in larger expressions are computed by the `Aggregate`
+/// operation, and a following `Project` builds the expression from them
+/// instead of lowering it to an unknown function (#68).
+///
+/// Unit: `analyze()`
+/// Precondition: Aggregates inside `abs(…)`, `… + 1` and `reduce(… collect(…) …)`,
+///               next to a grouping key.
+/// Expectation: `Aggregate` holds the inner aggregate calls; a `Project`
+///              follows with one item per projected column.
+#[test]
+fn analyze_nested_aggregates_are_lowered_through_projection() {
+    for (query, functions, columns) in [
+        ("MATCH (n) RETURN abs(sum(n.x)) AS s", vec!["sum"], 1),
+        ("MATCH (n) RETURN count(n) + 1 AS c, n.k", vec!["count"], 2),
+        (
+            "MATCH (n) RETURN reduce(s = 0, x IN collect(n.v) | s + x) AS t",
+            vec!["collect"],
+            1,
+        ),
+    ] {
+        let hir = analyze(query).unwrap();
+        let ops = &hir.parts[0].operations;
+        let aggregate = ops
+            .iter()
+            .find_map(|op| match op {
+                Operation::Aggregate(a) => Some(a),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("expected an Aggregate operation: {query}"));
+        let names: Vec<_> = aggregate
+            .aggregates
+            .iter()
+            .map(|a| hir.arenas.functions.name_of(a.function).unwrap_or_default())
+            .collect();
+        check!(names == functions, "query: {query}");
+        let project = find_project_operation(ops);
+        check!(project.items.len() == columns, "query: {query}");
+    }
+}
+
+/// `DISTINCT` is kept when a projection aggregates.
+///
+/// Unit: `analyze()`
+/// Precondition: `WITH DISTINCT n.k AS k, collect(n) AS ns`.
+/// Expectation: The `Project` after the `Aggregate` is distinct.
+#[test]
+fn analyze_distinct_survives_aggregation() {
+    let hir = analyze("MATCH (n) WITH DISTINCT n.k AS k, collect(n) AS ns RETURN k").unwrap();
+    let ops = &hir.parts[0].operations;
+    check!(ops.iter().any(|op| matches!(op, Operation::Aggregate(_))));
+    check!(find_project_operation(ops).distinct);
+}
+
+/// A projection that produces the same column name twice is reported (#84).
+///
+/// Unit: `analyze()`
+/// Precondition: Duplicate aliases in RETURN, WITH and a CALL subquery, and
+///               two unaliased `count(*)` items.
+/// Expectation: `analyze` fails with a redeclared variable; distinct
+///              unaliased columns such as `a.name, b.name` are fine.
+#[test]
+fn analyze_reports_duplicate_projection_columns() {
+    for query in [
+        "RETURN 1 AS a, 2 AS a",
+        "WITH 1 AS a, 2 AS a RETURN a",
+        "CALL { RETURN 1 AS a, 2 AS a } RETURN a",
+        "MATCH (n) RETURN count(*), count(*)",
+    ] {
+        let err = analyze(query).unwrap_err();
+        check!(
+            err.to_string().contains("redeclared"),
+            "query: {query}, got: {err}"
+        );
+    }
+    analyze("MATCH (a), (b) RETURN a.name, b.name").unwrap();
+    analyze("RETURN 1, 2").unwrap();
+}
+
+/// Aliases are not visible to other items of the same projection (#85
+/// review): the later `a` is still the matched node, and referencing an
+/// alias defined in the same `WITH` fails.
+///
+/// Unit: `analyze()`
+/// Precondition: A RETURN alias shadowing a node variable used again in the
+///               same RETURN, and `WITH 1 AS a, a + 1 AS b`.
+/// Expectation: The first lowers; the second fails with an unresolved `a`.
+#[test]
+fn analyze_aliases_are_not_visible_within_their_projection() {
+    analyze("MATCH (a) RETURN a.id IS NOT NULL AS a, a IS NOT NULL AS b").unwrap();
+    let err = analyze("WITH 1 AS a, a + 1 AS b RETURN b").unwrap_err();
+    check!(err.to_string().contains("unresolved variable `a`"));
+}

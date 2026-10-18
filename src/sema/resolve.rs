@@ -54,6 +54,25 @@ impl NameResolver {
     }
 
     /// Emit a semantic error, converting it to a [`CypherError`] first.
+    /// Reports projection items that produce the same column name
+    /// (`RETURN 1 AS a, 2 AS a`, `RETURN count(*), count(*)`, `WITH n, n`).
+    fn report_duplicate_columns(&mut self, items: &[ProjectionItem]) {
+        let mut seen: std::collections::HashMap<String, crate::error::Span> =
+            std::collections::HashMap::new();
+        for item in items {
+            let (name, span) = item.column();
+            if let Some(&first_span) = seen.get(&name) {
+                self.emit(SemaError::RedeclaredVariable {
+                    name,
+                    first_span,
+                    redecl_span: span,
+                });
+            } else {
+                seen.insert(name, span);
+            }
+        }
+    }
+
     fn emit(&mut self, sema: SemaError) {
         self.errors.push(CypherError {
             kind: sema.to_error_kind(),
@@ -202,6 +221,7 @@ impl<'ast> Visit<'ast> for NameResolver {
             );
         }
 
+        self.report_duplicate_columns(&node.items);
         for item in &node.items {
             self.visit_expression(&item.expression);
 
@@ -219,16 +239,10 @@ impl<'ast> Visit<'ast> for NameResolver {
         self.scopes = ScopeStack::new();
 
         for (bind_name, bind_span) in projected {
-            if let Err(first_span) = self
+            // Duplicate columns were reported above.
+            let _ = self
                 .scopes
-                .bind(&bind_name, SymbolKind::WithAlias, bind_span)
-            {
-                self.emit(SemaError::RedeclaredVariable {
-                    name: bind_name,
-                    first_span,
-                    redecl_span: bind_span,
-                });
-            }
+                .bind(&bind_name, SymbolKind::WithAlias, bind_span);
         }
 
         // ORDER BY, SKIP, LIMIT, WHERE are evaluated in the projected scope.
@@ -247,19 +261,21 @@ impl<'ast> Visit<'ast> for NameResolver {
     }
 
     fn visit_return(&mut self, node: &'ast Return) {
+        self.report_duplicate_columns(&node.items);
+        // All items are evaluated before any alias becomes visible: in
+        // `RETURN a.id AS a, a IS NOT NULL AS b` the second `a` is still the
+        // matched node.
         for item in &node.items {
             self.visit_expression(&item.expression);
-            if let Some(alias) = &item.alias
-                && let Err(first_span) =
-                    self.scopes
-                        .bind(&alias.name.name, SymbolKind::ReturnAlias, alias.name.span)
-            {
-                self.emit(SemaError::RedeclaredVariable {
-                    name: alias.name.name.clone(),
-                    first_span,
-                    redecl_span: alias.name.span,
-                });
-            }
+        }
+        // Aliases live in their own scope, so they may shadow a variable of
+        // the query (`AS a` above) and are visible to ORDER BY.
+        self.scopes.push_scope();
+        for alias in node.items.iter().filter_map(|item| item.alias.as_ref()) {
+            // Duplicate columns were reported above.
+            let _ = self
+                .scopes
+                .bind(&alias.name.name, SymbolKind::ReturnAlias, alias.name.span);
         }
         if let Some(order) = &node.order {
             self.visit_order(order);

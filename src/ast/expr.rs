@@ -456,3 +456,131 @@ pub enum MapProjectionItem {
         variable: Variable,
     },
 }
+
+impl Expression {
+    /// The byte-offset span of this expression, or an empty span for
+    /// expressions that don't record one.
+    pub(crate) fn span(&self) -> Span {
+        match self {
+            Expression::Literal(lit) => match lit {
+                Literal::Number(n) => match n {
+                    NumberLiteral::Integer(_) => Span::new(0, 0),
+                    NumberLiteral::Float(_) => Span::new(0, 0),
+                },
+                Literal::String(s) => s.span,
+                Literal::Boolean(_) => Span::new(0, 0),
+                Literal::Null => Span::new(0, 0),
+                Literal::List(l) => l.span,
+                Literal::Map(m) => m.span,
+            },
+            Expression::Variable(v) => v.name.span,
+            Expression::Parameter(p) => p.span,
+            Expression::PropertyLookup { span, .. } => *span,
+            Expression::NodeLabels { span, .. } => *span,
+            Expression::BinaryOp { span, .. } => *span,
+            Expression::UnaryOp { span, .. } => *span,
+            Expression::Comparison { span, .. } => *span,
+            Expression::ListIndex { span, .. } => *span,
+            Expression::ListSlice { span, .. } => *span,
+            Expression::In { span, .. } => *span,
+            Expression::IsNull { span, .. } => *span,
+            Expression::FunctionCall(fc) => fc.span,
+            Expression::CountStar { span } => *span,
+            Expression::Case(case) => case.span,
+            Expression::ListComprehension(lc) => lc.span,
+            Expression::PatternComprehension(pc) => pc.span,
+            Expression::All(fe)
+            | Expression::Any(fe)
+            | Expression::None(fe)
+            | Expression::Single(fe) => fe.span,
+            Expression::Reduce(r) => r.span,
+            Expression::Parenthesized(_) => Span::new(0, 0),
+            Expression::Pattern(rp) => rp.span,
+            Expression::Exists(ex) => ex.span,
+            Expression::CountSubquery(c) => c.span,
+            Expression::CollectSubquery(c) => c.span,
+            Expression::MapProjection(mp) => mp.span,
+        }
+    }
+
+    /// Whether this expression contains an aggregate call — `count(*)` or a
+    /// function call for which `is_aggregate` holds — outside of subqueries,
+    /// whose aggregates belong to the subquery.
+    pub(crate) fn contains_aggregate(
+        &self,
+        is_aggregate: &dyn Fn(&FunctionInvocation) -> bool,
+    ) -> bool {
+        use crate::ast::visit::{Visit, walk_expression};
+
+        struct Finder<'f> {
+            is_aggregate: &'f dyn Fn(&FunctionInvocation) -> bool,
+            found: bool,
+        }
+        impl<'ast> Visit<'ast> for Finder<'_> {
+            fn visit_expression(&mut self, node: &'ast Expression) {
+                match node {
+                    _ if self.found => {}
+                    Expression::CountStar { .. } => self.found = true,
+                    Expression::FunctionCall(f) if (self.is_aggregate)(f) => self.found = true,
+                    _ => walk_expression(self, node),
+                }
+            }
+            fn visit_exists_expression(&mut self, _: &'ast ExistsExpression) {}
+            fn visit_count_subquery_expression(&mut self, _: &'ast CountSubqueryExpression) {}
+            fn visit_collect_subquery_expression(&mut self, _: &'ast CollectSubqueryExpression) {}
+        }
+
+        let mut finder = Finder {
+            is_aggregate,
+            found: false,
+        };
+        finder.visit_expression(self);
+        finder.found
+    }
+
+    /// Replaces every aggregate call outside of subqueries (see
+    /// [`Expression::contains_aggregate`]) by a variable named `name_for(i)`
+    /// for the `i`-th extracted call, and returns the extracted calls in order.
+    ///
+    /// `abs(sum(x)) + count(*)` becomes `abs(v0) + v1`, returning `sum(x)` and
+    /// `count(*)`.
+    #[cfg(feature = "hir")]
+    pub(crate) fn extract_aggregates(
+        &mut self,
+        is_aggregate: &dyn Fn(&FunctionInvocation) -> bool,
+        name_for: &dyn Fn(usize) -> String,
+    ) -> Vec<Expression> {
+        use crate::ast::visit::{VisitMut, walk_expression_mut};
+
+        struct Extractor<'f> {
+            is_aggregate: &'f dyn Fn(&FunctionInvocation) -> bool,
+            name_for: &'f dyn Fn(usize) -> String,
+            extracted: Vec<Expression>,
+        }
+        impl VisitMut for Extractor<'_> {
+            fn visit_expression(&mut self, node: &mut Expression) {
+                let span = match node {
+                    Expression::CountStar { span } => *span,
+                    Expression::FunctionCall(f) if (self.is_aggregate)(f) => f.span,
+                    _ => return walk_expression_mut(self, node),
+                };
+                let name = (self.name_for)(self.extracted.len());
+                let variable = Expression::Variable(Variable {
+                    name: SymbolicName { name, span },
+                });
+                self.extracted.push(std::mem::replace(node, variable));
+            }
+            fn visit_exists_expression(&mut self, _: &mut ExistsExpression) {}
+            fn visit_count_subquery_expression(&mut self, _: &mut CountSubqueryExpression) {}
+            fn visit_collect_subquery_expression(&mut self, _: &mut CollectSubqueryExpression) {}
+        }
+
+        let mut extractor = Extractor {
+            is_aggregate,
+            name_for,
+            extracted: Vec::new(),
+        };
+        extractor.visit_expression(self);
+        extractor.extracted
+    }
+}

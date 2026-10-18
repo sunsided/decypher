@@ -201,6 +201,19 @@ pub struct ProjectionItem {
     pub alias: Option<Variable>,
 }
 
+impl ProjectionItem {
+    /// The name and span of the column this item produces: its `AS` alias,
+    /// its variable for a bare variable, or otherwise the expression's text
+    /// (`count(*)`, `a.name`). Two items with the same column name conflict.
+    pub(crate) fn column(&self) -> (String, Span) {
+        match (&self.alias, &self.expression) {
+            (Some(alias), _) => (alias.name.name.clone(), alias.name.span),
+            (None, Expression::Variable(v)) => (v.name.name.clone(), v.name.span),
+            (None, expr) => (crate::ast::ToCypher::to_cypher(expr), expr.span()),
+        }
+    }
+}
+
 /// `ORDER BY item, …`
 #[derive(Debug, Clone, PartialEq)]
 pub struct Order {
