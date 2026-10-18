@@ -1,8 +1,6 @@
 # Known openCypher TCK failures; see tests/tck.rs.
 # Format: <check> <query id>  # <error> | <query>
 # Regenerate with: TCK_BLESS=1 cargo test --test tck
-analyze 166fc9f64b76c642  # unresolved variable `p` | MERGE (a {num: 1}) MERGE (b {num: 2}) MERGE p = (a)-[:R]->(b) RETURN p
-analyze de784694bbe18e0e  # unresolved variable `p` | MERGE p = (a {num: 1}) RETURN p
 parse 427a6e2c87eac40f  # invalid number `9223372036854775809`: number too large | RETURN -9223372036854775809 AS literal
 parse 5c1e4c72310b4498  # invalid number `1.34E999`: number too large | RETURN 1.34E999
 parse 8f3aa1dda734a9f9  # invalid number `0o1000000000000000000000`: number too large | RETURN 0o1000000000000000000000 AS literal

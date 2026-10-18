@@ -438,24 +438,53 @@ impl<'cfg> LoweringContext<'cfg> {
         }
     }
 
-    fn lower_call_subquery(&mut self, c: &CallSubquery) {
-        let imported = self
-            .scope_stack
-            .bindings_by_name
-            .iter()
-            .rev()
-            .flat_map(|m| m.values())
-            .copied()
-            .collect();
-        let query_ast = Query {
-            statements: vec![QueryBody::Regular(c.query.clone())],
-            span: Span::new(0, 0),
-        };
-        let query = lower(&query_ast, self.config).unwrap_or_else(|_| HirQuery {
-            arenas: HirArenas::new(),
-            parts: Vec::new(),
+    /// Lowers the body of a `CALL`, `EXISTS`, `COUNT` or `COLLECT` subquery.
+    ///
+    /// The subquery gets its own arenas, but the outer variables visible at
+    /// the call site are seeded into its root scope, so correlated references
+    /// such as `CALL { WITH x … }` resolve. Diagnostics from the subquery are
+    /// reported on the enclosing query instead of being dropped. Returns the
+    /// lowered subquery and the outer bindings visible to it.
+    fn lower_subquery(&mut self, query: &RegularQuery) -> (HirQuery, Vec<BindingId>) {
+        // Innermost binding wins for shadowed names.
+        let mut visible: HashMap<String, BindingId> = HashMap::new();
+        for frame in &self.scope_stack.bindings_by_name {
+            for (name, &id) in frame {
+                visible.insert(name.clone(), id);
+            }
+        }
+        let mut visible: Vec<(String, BindingId)> = visible.into_iter().collect();
+        visible.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let mut inner = LoweringContext::new(self.config);
+        inner.scope_stack.push_scope(&mut inner.arenas);
+        for (name, id) in &visible {
+            let outer = self.arenas.bindings.get(*id);
+            let (kind, span) = (outer.kind, outer.introduced_at);
+            inner.scope_stack.bind(&mut inner.arenas, name, kind, span);
+        }
+        let parts = inner.lower_regular_query(query);
+        self.diagnostics.extend(inner.diagnostics);
+        let query = HirQuery {
+            arenas: inner.arenas,
+            parts,
             diagnostics: Vec::new(),
-        });
+        };
+        (query, visible.into_iter().map(|(_, id)| id).collect())
+    }
+
+    fn lower_call_subquery(&mut self, c: &CallSubquery) {
+        let (query, imported) = self.lower_subquery(&c.query);
+        // The subquery's returned columns become variables of the outer query.
+        let exported = c
+            .query
+            .returned_columns()
+            .into_iter()
+            .map(|(name, span)| {
+                self.scope_stack
+                    .bind(&mut self.arenas, &name, BindingKind::Value, span)
+            })
+            .collect();
         let in_transactions = c.in_transactions.as_ref().map(|it| HirInTransactions {
             of_rows: it.of_rows.as_ref().map(|e| self.lower_expr(e)),
             on_error: match it.on_error {
@@ -468,6 +497,7 @@ impl<'cfg> LoweringContext<'cfg> {
         self.current_part_ops
             .push(Operation::CallSubquery(CallSubqueryOp {
                 imported_bindings: imported,
+                exported_bindings: exported,
                 query: Box::new(query),
                 in_transactions,
             }));
@@ -1401,7 +1431,9 @@ impl<'cfg> LoweringContext<'cfg> {
     fn lower_exists_inner(&mut self, inner: &ExistsInner) -> ExistsSubquery {
         match inner {
             ExistsInner::Pattern(pat, where_clause) => {
-                // Convert pattern+where to a minimal query
+                // Convert pattern+where to a minimal query. Variables the
+                // pattern introduces are local to the predicate.
+                let scope = self.scope_stack.push_scope(&mut self.arenas);
                 let pattern = self.lower_pattern(pat);
                 let mut ops = vec![Operation::Match(MatchOp {
                     pattern,
@@ -1415,7 +1447,6 @@ impl<'cfg> LoweringContext<'cfg> {
                     items: Vec::new(),
                     distinct: false,
                 }));
-                let scope = self.scope_stack.push_scope(&mut self.arenas);
                 let out_scope = self.scope_stack.push_scope(&mut self.arenas);
                 let query = HirQuery {
                     arenas: HirArenas::new(),
@@ -1434,22 +1465,7 @@ impl<'cfg> LoweringContext<'cfg> {
                 }
             }
             ExistsInner::RegularQuery(rq) => {
-                let imported: Vec<BindingId> = self
-                    .scope_stack
-                    .bindings_by_name
-                    .iter()
-                    .rev()
-                    .flat_map(|m| m.values().copied())
-                    .collect();
-                let query_ast = Query {
-                    statements: vec![QueryBody::Regular((**rq).clone())],
-                    span: Span::new(0, 0),
-                };
-                let query = lower(&query_ast, self.config).unwrap_or_else(|_| HirQuery {
-                    arenas: HirArenas::new(),
-                    parts: Vec::new(),
-                    diagnostics: Vec::new(),
-                });
+                let (query, imported) = self.lower_subquery(rq);
                 ExistsSubquery {
                     query: Box::new(query),
                     imported_bindings: imported,
@@ -1459,22 +1475,7 @@ impl<'cfg> LoweringContext<'cfg> {
     }
 
     fn lower_count_subquery(&mut self, query: &RegularQuery) -> CountSubquery {
-        let imported: Vec<BindingId> = self
-            .scope_stack
-            .bindings_by_name
-            .iter()
-            .rev()
-            .flat_map(|m| m.values().copied())
-            .collect();
-        let query_ast = Query {
-            statements: vec![QueryBody::Regular(query.clone())],
-            span: Span::new(0, 0),
-        };
-        let q = lower(&query_ast, self.config).unwrap_or_else(|_| HirQuery {
-            arenas: HirArenas::new(),
-            parts: Vec::new(),
-            diagnostics: Vec::new(),
-        });
+        let (q, imported) = self.lower_subquery(query);
         CountSubquery {
             query: Box::new(q),
             imported_bindings: imported,
@@ -1482,22 +1483,7 @@ impl<'cfg> LoweringContext<'cfg> {
     }
 
     fn lower_collect_subquery(&mut self, query: &RegularQuery) -> CollectSubquery {
-        let imported: Vec<BindingId> = self
-            .scope_stack
-            .bindings_by_name
-            .iter()
-            .rev()
-            .flat_map(|m| m.values().copied())
-            .collect();
-        let query_ast = Query {
-            statements: vec![QueryBody::Regular(query.clone())],
-            span: Span::new(0, 0),
-        };
-        let q = lower(&query_ast, self.config).unwrap_or_else(|_| HirQuery {
-            arenas: HirArenas::new(),
-            parts: Vec::new(),
-            diagnostics: Vec::new(),
-        });
+        let (q, imported) = self.lower_subquery(query);
         CollectSubquery {
             query: Box::new(q),
             imported_bindings: imported,
@@ -1507,11 +1493,16 @@ impl<'cfg> LoweringContext<'cfg> {
     // ── Pattern lowering ─────────────────────────────────────────────────
 
     fn lower_pattern(&mut self, pattern: &Pattern) -> GraphPattern {
+        self.lower_pattern_parts(&pattern.parts)
+    }
+
+    /// Lowers pattern parts, binding each `p = …` path variable.
+    fn lower_pattern_parts(&mut self, parts: &[crate::ast::pattern::PatternPart]) -> GraphPattern {
         let mut nodes = Vec::new();
         let mut relationships = Vec::new();
         let mut path_bindings = Vec::new();
 
-        for part in &pattern.parts {
+        for part in parts {
             let path_binding = part.variable.as_ref().map(|v| {
                 self.scope_stack.bind(
                     &mut self.arenas,
@@ -1582,15 +1573,26 @@ impl<'cfg> LoweringContext<'cfg> {
         (nodes, relationships)
     }
 
-    fn lower_node_pattern(&mut self, node: &NodePattern) -> HirNodePattern {
-        let binding = node.variable.as_ref().map(|v| {
-            self.scope_stack.bind(
+    /// Binding for a node or relationship variable in a pattern: a variable
+    /// that is already visible refers to the same entity (`MATCH (n) MATCH
+    /// (n)-->(m)`), so its binding is reused; otherwise a new one is created.
+    fn bind_pattern_variable(&mut self, v: &Variable) -> BindingId {
+        match self.scope_stack.resolve(&v.name.name) {
+            Some(id) => id,
+            None => self.scope_stack.bind(
                 &mut self.arenas,
                 &v.name.name,
                 BindingKind::PatternBound,
                 v.name.span,
-            )
-        });
+            ),
+        }
+    }
+
+    fn lower_node_pattern(&mut self, node: &NodePattern) -> HirNodePattern {
+        let binding = node
+            .variable
+            .as_ref()
+            .map(|v| self.bind_pattern_variable(v));
         let labels: Vec<LabelId> = node
             .labels
             .iter()
@@ -1611,14 +1613,10 @@ impl<'cfg> LoweringContext<'cfg> {
         right: NodeIndex,
     ) -> HirRelationshipPattern {
         let (binding, types, length, properties) = if let Some(detail) = &rel.detail {
-            let binding = detail.variable.as_ref().map(|v| {
-                self.scope_stack.bind(
-                    &mut self.arenas,
-                    &v.name.name,
-                    BindingKind::PatternBound,
-                    v.name.span,
-                )
-            });
+            let binding = detail
+                .variable
+                .as_ref()
+                .map(|v| self.bind_pattern_variable(v));
             let types: Vec<RelTypeId> = detail
                 .types
                 .as_ref()
@@ -1686,18 +1684,8 @@ impl<'cfg> LoweringContext<'cfg> {
         &mut self,
         part: &crate::ast::pattern::PatternPart,
     ) -> GraphPattern {
-        let mut nodes = Vec::new();
-        let mut relationships = Vec::new();
-
-        let (ns, rs) = self.lower_pattern_element(&part.anonymous.element);
-        nodes.extend(ns);
-        relationships.extend(rs);
-
-        GraphPattern {
-            nodes,
-            relationships,
-            path_bindings: Vec::new(),
-        }
+        // `MERGE p = (a)-[:R]->(b)` binds `p` just like `MATCH p = …`.
+        self.lower_pattern_parts(std::slice::from_ref(part))
     }
 
     fn lower_label_expression_id(&mut self, expr: &LabelExpression) -> LabelId {

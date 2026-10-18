@@ -827,3 +827,87 @@ fn analyze_unbound_update_targets_are_reported() {
     }
     analyze("MATCH (n) SET n:Foo, n = {a: 1} RETURN n {.a}").unwrap();
 }
+
+/// A pattern variable that is already bound refers to the same entity, so
+/// HIR reuses its binding instead of allocating a new one (#79).
+///
+/// Unit: `analyze()`
+/// Precondition: `n` bound by one MATCH and used again in a second MATCH;
+///               `a` bound by MATCH and used again in CREATE.
+/// Expectation: Exactly one pattern binding exists for each variable.
+#[test]
+fn analyze_reuses_bindings_for_repeated_pattern_variables() {
+    use decypher::hir::binding::BindingKind;
+    for (query, var) in [
+        ("MATCH (n) MATCH (n)-->(m) RETURN m", "n"),
+        ("MATCH (a) CREATE (a)-[:R]->(b) RETURN b", "a"),
+    ] {
+        let hir = analyze(query).unwrap();
+        let pattern_bindings = hir
+            .arenas
+            .bindings
+            .iter()
+            .filter(|(_, b)| b.name == var && b.kind == BindingKind::PatternBound)
+            .count();
+        check!(pattern_bindings == 1, "query: {query}");
+    }
+}
+
+/// `MERGE p = …` binds the path variable like `MATCH p = …` (#67).
+///
+/// Unit: `analyze()`
+/// Precondition: A path variable introduced by MERGE and returned.
+/// Expectation: `analyze` succeeds.
+#[test]
+fn analyze_merge_binds_path_variable() {
+    analyze("MERGE p = (a {num: 1}) RETURN p").unwrap();
+    analyze("MERGE (a {num: 1}) MERGE (b {num: 2}) MERGE p = (a)-[:R]->(b) RETURN p").unwrap();
+}
+
+/// `CALL { … }` subqueries import outer variables through their leading
+/// `WITH`, export their returned columns, and report errors in their body
+/// instead of silently lowering to an empty query (#67).
+///
+/// Unit: `analyze()`
+/// Precondition: Correlated and uncorrelated CALL subqueries, a UNION
+///               subquery, and subqueries referencing unknown variables.
+/// Expectation: Valid queries lower, with the exported columns recorded on
+///              the `CallSubquery` operation; invalid ones fail.
+#[test]
+fn analyze_call_subquery_imports_and_exports() {
+    use decypher::hir::ops::Operation;
+    let hir = analyze(
+        "MATCH (n) CALL { WITH n MATCH (n)-->(m) RETURN count(m) AS c, n AS same } RETURN n, c, same",
+    )
+    .unwrap();
+    let call = hir.parts[0]
+        .operations
+        .iter()
+        .find_map(|op| match op {
+            Operation::CallSubquery(c) => Some(c),
+            _ => None,
+        })
+        .expect("expected a CallSubquery operation");
+    check!(call.exported_bindings.len() == 2);
+    check!(!call.query.parts.is_empty());
+
+    analyze("CALL { MATCH (n) RETURN n } RETURN n").unwrap();
+    analyze("CALL { RETURN 1 AS a UNION RETURN 2 AS a } RETURN a").unwrap();
+
+    for (query, var) in [
+        ("CALL { RETURN zz AS a } RETURN a", "zz"),
+        ("MATCH (n) CALL { WITH n CREATE (m) } RETURN n, m", "m"),
+        (
+            "MATCH (n) WHERE EXISTS { MATCH (m) WHERE m.v = zz } RETURN n",
+            "zz",
+        ),
+        ("MATCH (n) WHERE EXISTS { (n)-->(m) } RETURN m", "m"),
+    ] {
+        let err = analyze(query).unwrap_err();
+        check!(
+            err.to_string()
+                .contains(&format!("unresolved variable `{var}`")),
+            "query: {query}, got: {err}"
+        );
+    }
+}

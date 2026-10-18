@@ -7,28 +7,17 @@
 use decypher::sema::analyze;
 use decypher::{ErrorKind, parse};
 
-/// Two node patterns in the same `MATCH` that bind the same variable produce
-/// a `RedeclaredVariable` error.
+/// Repeating a node variable within one `MATCH` refers to the same node; it is
+/// not a redeclaration.
 ///
 /// Unit: `sema::analyze()`
-/// Precondition: `MATCH (a), (a) RETURN a` — `a` is bound twice in one scope.
-/// Expectation: Analysis returns `Err` with one `RedeclaredVariable { name: "a" }`.
+/// Precondition: `MATCH (a), (a) RETURN a` — `a` appears twice in one pattern.
+/// Expectation: Analysis succeeds.
 #[test]
-fn redeclare_in_match_pattern() {
+fn repeated_variable_in_match_pattern_is_a_reference() {
     let query = parse("MATCH (a), (a) RETURN a").expect("should parse");
     let result = analyze(&query);
-    assert!(result.is_err());
-    let errs = result.unwrap_err();
-    assert_eq!(errs.len(), 1);
-    match errs.errors[0].kind() {
-        ErrorKind::RedeclaredVariable { name, .. } => {
-            assert_eq!(name, "a");
-        }
-        _ => panic!(
-            "expected RedeclaredVariable, got {:?}",
-            errs.errors[0].kind()
-        ),
-    }
+    assert!(result.is_ok(), "analysis failed: {:?}", result);
 }
 
 /// Two consecutive `UNWIND` clauses binding the same variable produce a
@@ -130,26 +119,51 @@ fn shadowing_across_scopes_allowed() {
     assert!(result.is_ok(), "analysis failed: {:?}", result);
 }
 
-/// A node variable reused at both ends of a relationship chain in the same
-/// MATCH pattern produces a `RedeclaredVariable` error.
+/// A node variable at both ends of a relationship is a self-loop, valid
+/// openCypher (TCK: `MATCH (n)-[r]->(n) RETURN count(r)`).
 ///
 /// Unit: `sema::analyze()`
-/// Precondition: `MATCH (a)-[r]->(a) RETURN a, r` — `a` bound twice in one pattern.
-/// Expectation: Analysis returns `Err` with one `RedeclaredVariable { name: "a" }`.
+/// Precondition: `MATCH (a)-[r]->(a) RETURN a, r`.
+/// Expectation: Analysis succeeds.
 #[test]
-fn redeclare_in_pattern_chain() {
+fn self_loop_in_pattern_chain_is_a_reference() {
     let query = parse("MATCH (a)-[r]->(a) RETURN a, r").expect("should parse");
     let result = analyze(&query);
-    assert!(result.is_err());
-    let errs = result.unwrap_err();
+    assert!(result.is_ok(), "analysis failed: {:?}", result);
+}
+
+/// Re-binding a path variable is still a redeclaration.
+///
+/// Unit: `sema::analyze()`
+/// Precondition: `MATCH p = (a) MATCH p = (b) RETURN p`.
+/// Expectation: Analysis returns one `RedeclaredVariable { name: "p" }`.
+#[test]
+fn redeclare_path_variable() {
+    let query = parse("MATCH p = (a) MATCH p = (b) RETURN p").expect("should parse");
+    let errs = analyze(&query).unwrap_err();
     assert_eq!(errs.len(), 1);
     match errs.errors[0].kind() {
-        ErrorKind::RedeclaredVariable { name, .. } => {
-            assert_eq!(name, "a");
-        }
-        _ => panic!(
-            "expected RedeclaredVariable, got {:?}",
-            errs.errors[0].kind()
-        ),
+        ErrorKind::RedeclaredVariable { name, .. } => assert_eq!(name, "p"),
+        other => panic!("expected RedeclaredVariable, got {other:?}"),
+    }
+}
+
+/// CREATE and MERGE bind their pattern variables and reuse visible ones.
+///
+/// Unit: `sema::analyze()`
+/// Precondition: Variables introduced by CREATE/MERGE (including a MERGE path
+///               variable) and a MATCH-bound node reused in CREATE.
+/// Expectation: Analysis succeeds.
+#[test]
+fn create_and_merge_bind_pattern_variables() {
+    for q in [
+        "CREATE (a) RETURN a",
+        "MERGE (a) RETURN a",
+        "MERGE p = (a)-[:R]->(b) RETURN p, a, b",
+        "MATCH (a) CREATE (a)-[:R]->(b) RETURN b",
+    ] {
+        let query = parse(q).expect("should parse");
+        let result = analyze(&query);
+        assert!(result.is_ok(), "query: {q}, analysis failed: {result:?}");
     }
 }
