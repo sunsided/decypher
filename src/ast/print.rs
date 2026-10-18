@@ -690,50 +690,21 @@ impl ToCypher for PatternElementChain {
 
 impl ToCypher for RelationshipPattern {
     fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
-        match self.direction {
-            RelationshipDirection::Left => {
-                write!(w, "<-")?;
-                if let Some(detail) = &self.detail {
-                    write!(w, "[")?;
-                    detail.write_cypher(w)?;
-                    write!(w, "]")?;
-                } else {
-                    write!(w, "[]")?;
-                }
-                write!(w, "-")
-            }
-            RelationshipDirection::Right => {
-                write!(w, "-")?;
-                if let Some(detail) = &self.detail {
-                    write!(w, "[")?;
-                    detail.write_cypher(w)?;
-                    write!(w, "]")?;
-                } else {
-                    write!(w, "[]")?;
-                }
-                write!(w, "->")
-            }
-            RelationshipDirection::Both => {
-                write!(w, "-")?;
-                if let Some(detail) = &self.detail {
-                    write!(w, "[")?;
-                    detail.write_cypher(w)?;
-                    write!(w, "]")?;
-                } else {
-                    write!(w, "[]")?;
-                }
-                write!(w, "-")
-            }
-            RelationshipDirection::Undirected => {
-                if let Some(detail) = &self.detail {
-                    write!(w, "-[")?;
-                    detail.write_cypher(w)?;
-                    write!(w, "]-")
-                } else {
-                    write!(w, "-[]-")
-                }
-            }
-        }?;
+        let (left, right) = match self.direction {
+            RelationshipDirection::Left => ("<-", "-"),
+            RelationshipDirection::Right => ("-", "->"),
+            RelationshipDirection::Both => ("<-", "->"),
+            RelationshipDirection::Undirected => ("-", "-"),
+        };
+        write!(w, "{left}")?;
+        // Without a detail the relationship is bare (`-->`); an empty one
+        // keeps its brackets (`-[]->`), so both spellings survive reparsing.
+        if let Some(detail) = &self.detail {
+            write!(w, "[")?;
+            detail.write_cypher(w)?;
+            write!(w, "]")?;
+        }
+        write!(w, "{right}")?;
         if let Some(quantifier) = &self.quantifier {
             quantifier.write_cypher(w)?;
         }

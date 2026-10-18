@@ -74,7 +74,7 @@ pub fn lower(query: &Query, config: &LowerConfig) -> Result<HirQuery, Diagnostic
             .push(HirDiagnostic::AggregateNotAllowed { function, span });
     }
     ctx.diagnostics.extend(
-        crate::sema::structural_errors(query)
+        crate::sema::structural_errors(query, &is_aggregate)
             .into_iter()
             .map(HirDiagnostic::from),
     );

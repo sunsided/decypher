@@ -8,6 +8,15 @@
 //! - A `MATCH` pattern uses each relationship variable once.
 //! - `DELETE` targets are nodes, relationships or paths, not label checks.
 //! - `WITH` items other than variables are aliased.
+//! - `SKIP` and `LIMIT` take a constant, non-negative integer.
+//! - `MATCH` and `MERGE` patterns use literal property maps, not parameters
+//!   (`MATCH (n $param)`).
+//! - Aggregates do not call `rand()`.
+//! - Pattern expressions are predicates: they appear in `WHERE`, under
+//!   `NOT` / `AND` / `OR` / `XOR`, in `exists(…)` and as `CASE WHEN`
+//!   conditions, not as values (`RETURN size((n)-->())`).
+//! - A variable is used as one kind of entity only (see
+//!   [`super::variable_types`]).
 //!
 //! The entry point is [`structural_errors`], shared by
 //! [`crate::sema::analyze`] and HIR lowering.
@@ -18,10 +27,11 @@ use crate::ast::pattern::*;
 use crate::ast::query::*;
 use crate::ast::visit::{
     Visit, walk_collect_subquery_expression, walk_count_subquery_expression, walk_create,
-    walk_delete, walk_exists_expression, walk_match, walk_merge, walk_regular_query, walk_remove,
-    walk_set, walk_with,
+    walk_delete, walk_exists_expression, walk_expression, walk_function_invocation_expr,
+    walk_merge, walk_node_pattern, walk_regular_query, walk_relationship_detail, walk_remove,
+    walk_return, walk_set,
 };
-use crate::error::{ErrorKind, Span};
+use crate::error::{ErrorKind, Span, VariableKind};
 
 /// A violation of a structural rule.
 #[derive(Debug, Clone)]
@@ -37,6 +47,23 @@ pub(crate) enum StructuralError {
     InvalidDeleteTarget { span: Span },
     /// A `WITH` item that is neither a variable nor aliased.
     MissingAlias { span: Span },
+    /// A `SKIP` or `LIMIT` value that is not a constant, non-negative
+    /// integer.
+    InvalidSkipLimit { reason: &'static str, span: Span },
+    /// A parameter used as the property map of a `MATCH` or `MERGE` pattern.
+    InvalidParameterUse { span: Span },
+    /// A non-deterministic function called inside an aggregate
+    /// (`count(rand())`).
+    NonDeterministicAggregate { span: Span },
+    /// A pattern expression used as a value (`RETURN (n)-->()`).
+    PatternExpressionOutsidePredicate { span: Span },
+    /// A variable used as two kinds of entity (`MATCH (r) MATCH ()-[r]-()`).
+    VariableTypeConflict {
+        name: String,
+        bound_as: VariableKind,
+        used_as: VariableKind,
+        span: Span,
+    },
 }
 
 impl StructuralError {
@@ -52,6 +79,22 @@ impl StructuralError {
             }
             Self::InvalidDeleteTarget { .. } => ErrorKind::InvalidDeleteTarget,
             Self::MissingAlias { .. } => ErrorKind::MissingAlias,
+            Self::InvalidSkipLimit { reason, .. } => ErrorKind::InvalidSkipLimit { reason },
+            Self::InvalidParameterUse { .. } => ErrorKind::InvalidParameterUse,
+            Self::NonDeterministicAggregate { .. } => ErrorKind::NonDeterministicAggregate,
+            Self::PatternExpressionOutsidePredicate { .. } => {
+                ErrorKind::PatternExpressionOutsidePredicate
+            }
+            Self::VariableTypeConflict {
+                name,
+                bound_as,
+                used_as,
+                ..
+            } => ErrorKind::VariableTypeConflict {
+                name: name.clone(),
+                bound_as: *bound_as,
+                used_as: *used_as,
+            },
         }
     }
 
@@ -62,29 +105,53 @@ impl StructuralError {
             | Self::InvalidClauseComposition { span, .. }
             | Self::InvalidRelationshipPattern { span, .. }
             | Self::InvalidDeleteTarget { span }
-            | Self::MissingAlias { span } => *span,
+            | Self::MissingAlias { span }
+            | Self::InvalidSkipLimit { span, .. }
+            | Self::InvalidParameterUse { span }
+            | Self::NonDeterministicAggregate { span }
+            | Self::PatternExpressionOutsidePredicate { span }
+            | Self::VariableTypeConflict { span, .. } => *span,
         }
     }
 }
 
-/// The structural violations in `query`, in source order.
-pub(crate) fn structural_errors(query: &Query) -> Vec<StructuralError> {
+/// The structural violations in `query`. `is_aggregate` tells aggregate
+/// calls apart.
+pub(crate) fn structural_errors(
+    query: &Query,
+    is_aggregate: &dyn Fn(&FunctionInvocation) -> bool,
+) -> Vec<StructuralError> {
     let mut checker = StructureChecker {
+        is_aggregate,
         read_only: false,
+        creating: false,
+        in_aggregate: false,
+        predicate: false,
         errors: Vec::new(),
     };
     checker.visit_query(query);
-    checker.errors
+    let mut errors = checker.errors;
+    errors.extend(super::variable_types::variable_type_conflicts(query));
+    errors
 }
 
-struct StructureChecker {
+struct StructureChecker<'a> {
+    is_aggregate: &'a dyn Fn(&FunctionInvocation) -> bool,
     /// Whether the clauses being visited belong to an `EXISTS`, `COUNT` or
     /// `COLLECT` subquery, which may not update the graph.
     read_only: bool,
+    /// Whether the patterns being visited belong to a `CREATE`, which may
+    /// take a parameter as property map.
+    creating: bool,
+    /// Whether the expressions being visited are arguments of an aggregate.
+    in_aggregate: bool,
+    /// Whether the expression being visited is a predicate, where a pattern
+    /// expression may appear.
+    predicate: bool,
     errors: Vec<StructuralError>,
 }
 
-impl StructureChecker {
+impl StructureChecker<'_> {
     fn report_update(&mut self, span: Span) {
         if self.read_only {
             self.errors.push(StructuralError::InvalidClauseComposition {
@@ -92,6 +159,51 @@ impl StructureChecker {
                 span,
             });
         }
+    }
+
+    fn check_skip_limit(&mut self, skip: Option<&Expression>, limit: Option<&Expression>) {
+        for (clause, expr) in [("SKIP", skip), ("LIMIT", limit)] {
+            let Some(expr) = expr else { continue };
+            let reason = if references_variable(expr) {
+                Some(match clause {
+                    "SKIP" => "SKIP cannot refer to variables",
+                    _ => "LIMIT cannot refer to variables",
+                })
+            } else {
+                match literal_number(expr) {
+                    Some(NumberLiteral::Integer(n)) if n < 0 => Some(match clause {
+                        "SKIP" => "SKIP cannot be negative",
+                        _ => "LIMIT cannot be negative",
+                    }),
+                    Some(NumberLiteral::Float(_)) => Some(match clause {
+                        "SKIP" => "SKIP must be an integer",
+                        _ => "LIMIT must be an integer",
+                    }),
+                    _ => None,
+                }
+            };
+            if let Some(reason) = reason {
+                self.errors.push(StructuralError::InvalidSkipLimit {
+                    reason,
+                    span: expr.span(),
+                });
+            }
+        }
+    }
+
+    fn check_properties(&mut self, properties: Option<&Properties>) {
+        if let Some(Properties::Parameter(param)) = properties
+            && !self.creating
+        {
+            self.errors
+                .push(StructuralError::InvalidParameterUse { span: param.span });
+        }
+    }
+
+    fn visit_predicate(&mut self, expr: &Expression) {
+        let outer = std::mem::replace(&mut self.predicate, true);
+        self.visit_expression(expr);
+        self.predicate = outer;
     }
 
     fn visit_read_only(&mut self, visit: impl FnOnce(&mut Self)) {
@@ -132,7 +244,7 @@ impl StructureChecker {
     }
 }
 
-impl<'ast> Visit<'ast> for StructureChecker {
+impl<'ast> Visit<'ast> for StructureChecker<'_> {
     fn visit_regular_query(&mut self, node: &'ast RegularQuery) {
         if node.unions.iter().any(|u| u.all) && node.unions.iter().any(|u| !u.all) {
             self.errors.push(StructuralError::InvalidClauseComposition {
@@ -169,7 +281,10 @@ impl<'ast> Visit<'ast> for StructureChecker {
                 }
             }
         }
-        walk_match(self, node);
+        self.visit_pattern(&node.pattern);
+        if let Some(predicate) = &node.where_clause {
+            self.visit_predicate(predicate);
+        }
     }
 
     fn visit_create(&mut self, node: &'ast Create) {
@@ -177,7 +292,9 @@ impl<'ast> Visit<'ast> for StructureChecker {
         for part in &node.pattern.parts {
             self.check_created(&part.anonymous.element, true);
         }
+        let outer = std::mem::replace(&mut self.creating, true);
         walk_create(self, node);
+        self.creating = outer;
     }
 
     fn visit_merge(&mut self, node: &'ast Merge) {
@@ -208,7 +325,37 @@ impl<'ast> Visit<'ast> for StructureChecker {
         walk_remove(self, node);
     }
 
+    fn visit_node_pattern(&mut self, node: &'ast NodePattern) {
+        self.check_properties(node.properties.as_ref());
+        walk_node_pattern(self, node);
+    }
+
+    fn visit_relationship_detail(&mut self, node: &'ast RelationshipDetail) {
+        self.check_properties(node.properties.as_ref());
+        walk_relationship_detail(self, node);
+    }
+
+    fn visit_function_invocation_expr(&mut self, node: &'ast FunctionInvocation) {
+        if self.in_aggregate
+            && let [name] = node.name.as_slice()
+            && name.name.eq_ignore_ascii_case("rand")
+        {
+            self.errors
+                .push(StructuralError::NonDeterministicAggregate { span: node.span });
+        }
+        let outer = self.in_aggregate;
+        self.in_aggregate |= (self.is_aggregate)(node);
+        walk_function_invocation_expr(self, node);
+        self.in_aggregate = outer;
+    }
+
+    fn visit_return(&mut self, node: &'ast Return) {
+        self.check_skip_limit(node.skip.as_ref(), node.limit.as_ref());
+        walk_return(self, node);
+    }
+
     fn visit_with(&mut self, node: &'ast With) {
+        self.check_skip_limit(node.skip.as_ref(), node.limit.as_ref());
         for item in &node.items {
             if item.alias.is_none() && !matches!(item.expression, Expression::Variable(_)) {
                 self.errors.push(StructuralError::MissingAlias {
@@ -216,7 +363,102 @@ impl<'ast> Visit<'ast> for StructureChecker {
                 });
             }
         }
-        walk_with(self, node);
+        for item in &node.items {
+            self.visit_projection_item(item);
+        }
+        if let Some(order) = &node.order {
+            self.visit_order(order);
+        }
+        for expr in [&node.skip, &node.limit].into_iter().flatten() {
+            self.visit_expression(expr);
+        }
+        if let Some(predicate) = &node.where_clause {
+            self.visit_predicate(predicate);
+        }
+    }
+
+    fn visit_expression(&mut self, node: &'ast Expression) {
+        let outer = self.predicate;
+        if let Expression::Pattern(pattern) = node
+            && !outer
+        {
+            self.errors
+                .push(StructuralError::PatternExpressionOutsidePredicate { span: pattern.span });
+        }
+        self.predicate = match node {
+            Expression::BinaryOp {
+                op: BinaryOperator::And | BinaryOperator::Or | BinaryOperator::Xor,
+                ..
+            }
+            | Expression::UnaryOp {
+                op: UnaryOperator::Not,
+                ..
+            }
+            | Expression::Parenthesized(_) => outer,
+            Expression::FunctionCall(call) => {
+                matches!(call.name.as_slice(), [name] if name.name.eq_ignore_ascii_case("exists"))
+            }
+            _ => false,
+        };
+        walk_expression(self, node);
+        self.predicate = outer;
+    }
+
+    fn visit_exists_inner(&mut self, node: &'ast ExistsInner) {
+        match node {
+            ExistsInner::Pattern(pattern, predicate) => {
+                self.visit_pattern(pattern);
+                if let Some(predicate) = predicate {
+                    self.visit_predicate(predicate);
+                }
+            }
+            ExistsInner::RegularQuery(query) => self.visit_regular_query(query),
+        }
+    }
+
+    fn visit_case_expression(&mut self, node: &'ast CaseExpression) {
+        // `WHEN` is a predicate only in the searched form (`CASE WHEN p`);
+        // in `CASE x WHEN v` it is a value compared with `x`.
+        let searched = node.scrutinee.is_none();
+        if let Some(scrutinee) = &node.scrutinee {
+            self.visit_expression(scrutinee);
+        }
+        for alternative in &node.alternatives {
+            if searched {
+                self.visit_predicate(&alternative.when);
+            } else {
+                self.visit_expression(&alternative.when);
+            }
+            self.visit_expression(&alternative.then);
+        }
+        if let Some(default) = &node.default {
+            self.visit_expression(default);
+        }
+    }
+
+    fn visit_list_comprehension(&mut self, node: &'ast ListComprehension) {
+        self.visit_expression(&node.collection);
+        if let Some(predicate) = &node.filter {
+            self.visit_predicate(predicate);
+        }
+        if let Some(map) = &node.map {
+            self.visit_expression(map);
+        }
+    }
+
+    fn visit_pattern_comprehension(&mut self, node: &'ast PatternComprehension) {
+        self.visit_relationships_pattern(&node.pattern);
+        if let Some(predicate) = &node.where_clause {
+            self.visit_predicate(predicate);
+        }
+        self.visit_expression(&node.map);
+    }
+
+    fn visit_filter_expression(&mut self, node: &'ast FilterExpression) {
+        self.visit_expression(&node.collection);
+        if let Some(predicate) = &node.predicate {
+            self.visit_predicate(predicate);
+        }
     }
 
     fn visit_exists_expression(&mut self, node: &'ast ExistsExpression) {
@@ -253,6 +495,36 @@ fn union_columns(query: &SingleQuery) -> Option<Vec<String>> {
     let mut columns: Vec<String> = ret.items.iter().map(|item| item.column().0).collect();
     columns.sort();
     Some(columns)
+}
+
+/// Whether `expr` refers to a variable.
+fn references_variable(expr: &Expression) -> bool {
+    struct Finder(bool);
+    impl<'ast> Visit<'ast> for Finder {
+        fn visit_variable(&mut self, _: &'ast crate::ast::names::Variable) {
+            self.0 = true;
+        }
+    }
+    let mut finder = Finder(false);
+    finder.visit_expression(expr);
+    finder.0
+}
+
+/// The value of a numeric literal, negated or not.
+fn literal_number(expr: &Expression) -> Option<NumberLiteral> {
+    match expr {
+        Expression::Literal(Literal::Number(n)) => Some(n.clone()),
+        Expression::Parenthesized(inner) => literal_number(inner),
+        Expression::UnaryOp {
+            op: UnaryOperator::Negate,
+            operand,
+            ..
+        } => match literal_number(operand)? {
+            NumberLiteral::Integer(n) => Some(NumberLiteral::Integer(n.checked_neg()?)),
+            NumberLiteral::Float(f) => Some(NumberLiteral::Float(-f)),
+        },
+        _ => None,
+    }
 }
 
 /// Whether a relationship type expression names exactly one static type.

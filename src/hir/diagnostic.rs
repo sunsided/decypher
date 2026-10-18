@@ -4,7 +4,7 @@
 //! pass detects. They can be converted into [`crate::error::CypherError`]
 //! for use in public error reporting.
 
-use crate::error::{CypherError, ErrorKind, Span};
+use crate::error::{CypherError, ErrorKind, Span, VariableKind};
 
 /// A semantic diagnostic produced during HIR lowering.
 ///
@@ -77,6 +77,42 @@ pub enum HirDiagnostic {
         /// Source location of the clause.
         span: Span,
     },
+    /// A `SKIP` or `LIMIT` value that is not a constant, non-negative
+    /// integer (`SKIP n.count`, `LIMIT -1`).
+    InvalidSkipLimit {
+        /// Why the value is invalid.
+        reason: &'static str,
+        /// Source location of the value.
+        span: Span,
+    },
+    /// A parameter used as the property map of a `MATCH` or `MERGE` pattern
+    /// (`MATCH (n $param)`).
+    InvalidParameterUse {
+        /// Source location of the parameter.
+        span: Span,
+    },
+    /// A non-deterministic function inside an aggregate (`count(rand())`).
+    NonDeterministicAggregate {
+        /// Source location of the call.
+        span: Span,
+    },
+    /// A pattern expression used as a value (`RETURN (n)-->()`).
+    PatternExpressionOutsidePredicate {
+        /// Source location of the pattern.
+        span: Span,
+    },
+    /// A variable used as two kinds of entity
+    /// (`MATCH (r) MATCH ()-[r]-()`).
+    VariableTypeConflict {
+        /// The variable name.
+        name: String,
+        /// What the variable was first used as (`a node`).
+        bound_as: VariableKind,
+        /// What it is used as here (`a relationship`).
+        used_as: VariableKind,
+        /// Source location of the conflicting use.
+        span: Span,
+    },
     /// A called function is not known to the lowering pass. Not reported yet
     /// (see #110).
     UnknownFunction {
@@ -112,6 +148,27 @@ impl From<crate::sema::StructuralError> for HirDiagnostic {
             }
             E::InvalidDeleteTarget { span } => HirDiagnostic::InvalidDeleteTarget { span },
             E::MissingAlias { span } => HirDiagnostic::MissingAlias { span },
+            E::InvalidSkipLimit { reason, span } => {
+                HirDiagnostic::InvalidSkipLimit { reason, span }
+            }
+            E::InvalidParameterUse { span } => HirDiagnostic::InvalidParameterUse { span },
+            E::NonDeterministicAggregate { span } => {
+                HirDiagnostic::NonDeterministicAggregate { span }
+            }
+            E::PatternExpressionOutsidePredicate { span } => {
+                HirDiagnostic::PatternExpressionOutsidePredicate { span }
+            }
+            E::VariableTypeConflict {
+                name,
+                bound_as,
+                used_as,
+                span,
+            } => HirDiagnostic::VariableTypeConflict {
+                name,
+                bound_as,
+                used_as,
+                span,
+            },
         }
     }
 }
@@ -157,6 +214,24 @@ impl HirDiagnostic {
             }
             HirDiagnostic::MissingAlias { .. } => ErrorKind::MissingAlias,
             HirDiagnostic::NoVariablesInScope { .. } => ErrorKind::NoVariablesInScope,
+            HirDiagnostic::InvalidSkipLimit { reason, .. } => {
+                ErrorKind::InvalidSkipLimit { reason }
+            }
+            HirDiagnostic::InvalidParameterUse { .. } => ErrorKind::InvalidParameterUse,
+            HirDiagnostic::NonDeterministicAggregate { .. } => ErrorKind::NonDeterministicAggregate,
+            HirDiagnostic::PatternExpressionOutsidePredicate { .. } => {
+                ErrorKind::PatternExpressionOutsidePredicate
+            }
+            HirDiagnostic::VariableTypeConflict {
+                name,
+                bound_as,
+                used_as,
+                ..
+            } => ErrorKind::VariableTypeConflict {
+                name: name.clone(),
+                bound_as: *bound_as,
+                used_as: *used_as,
+            },
             HirDiagnostic::UnionColumnMismatch { .. } => ErrorKind::UnionColumnMismatch,
             HirDiagnostic::UnknownFunction { .. } => ErrorKind::Internal {
                 message: format!("{:?}", self),
@@ -175,6 +250,11 @@ impl HirDiagnostic {
             HirDiagnostic::InvalidClauseComposition { span, .. } => *span,
             HirDiagnostic::MissingAlias { span } => *span,
             HirDiagnostic::NoVariablesInScope { span } => *span,
+            HirDiagnostic::InvalidSkipLimit { span, .. } => *span,
+            HirDiagnostic::InvalidParameterUse { span } => *span,
+            HirDiagnostic::NonDeterministicAggregate { span } => *span,
+            HirDiagnostic::PatternExpressionOutsidePredicate { span } => *span,
+            HirDiagnostic::VariableTypeConflict { span, .. } => *span,
             HirDiagnostic::UnknownFunction { span, .. } => *span,
             HirDiagnostic::UnsupportedFeature { span, .. } => *span,
             HirDiagnostic::UnionColumnMismatch { span } => *span,

@@ -90,7 +90,9 @@ pub mod cst {
 }
 
 pub use crate::ast::query::Query;
-pub use crate::error::{CypherError, Diagnostics, ErrorKind, Expected, Note, Result, Span};
+pub use crate::error::{
+    CypherError, Diagnostics, ErrorKind, Expected, Note, Result, Span, VariableKind,
+};
 pub use crate::parser::Parse;
 pub use crate::recover::{ParseOptions, parse_with_options};
 

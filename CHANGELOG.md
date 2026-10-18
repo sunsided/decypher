@@ -42,6 +42,12 @@ are marked **Breaking** below.
   length, undirected ones in `CREATE`, a relationship matched twice),
   `InvalidDeleteTarget` (`DELETE n:Person`), `MissingAlias`
   (`WITH a, count(*)`) and `NoVariablesInScope` (`MATCH () RETURN *`).
+- Checks that need no type or function catalog, in both analyzers (#110):
+  `InvalidSkipLimit` (`SKIP n.count`, `LIMIT -1`, `LIMIT 1.5`),
+  `InvalidParameterUse` (`MATCH (n $param)`; `CREATE` still allows it),
+  `NonDeterministicAggregate` (`count(rand())`) and `VariableTypeConflict`
+  with the new `VariableKind` (`MATCH (r) MATCH ()-[r]-()`,
+  `WITH 1 AS n MATCH (n)`).
 
 ### Changed
 
@@ -52,6 +58,17 @@ are marked **Breaking** below.
   `reason`; new variants `InvalidClauseComposition`, `MissingAlias` and
   `NoVariablesInScope`; the never-reported `VariableOutOfScope` and
   `InvalidMergePattern` are removed (#109).
+- **Breaking:** new `hir::HirDiagnostic` variants `InvalidSkipLimit`,
+  `InvalidParameterUse`, `NonDeterministicAggregate` and
+  `VariableTypeConflict` (#110), and `PatternExpressionOutsidePredicate`
+  (#111).
+- **Breaking:** both analyzers report
+  `ErrorKind::PatternExpressionOutsidePredicate` for a pattern expression used
+  as a value (`RETURN size((n)-->())`, `WITH (n)-->() AS x`), as Neo4j 5 and
+  the openCypher TCK do; use `COUNT { … }` or a pattern comprehension
+  instead. Pattern expressions stay valid as predicates: in `WHERE`, under
+  `NOT` / `AND` / `OR` / `XOR`, in `exists(…)` and as `CASE WHEN`
+  conditions. The parser still accepts both (#111).
 - Both analyzers report redeclared path variables (`WITH 1 AS p MATCH p =
   …`, `MATCH p = (p)-->()`) and `CREATE` / `MERGE` patterns that re-create a
   bound node or relationship (`MATCH (a) CREATE (a)`,
@@ -102,6 +119,10 @@ are marked **Breaking** below.
   with `UNION` failed to parse. The printer no longer writes a double space
   after a subquery part that ends without `RETURN`
   (`EXISTS { MATCH (n)-->(m) }`).
+- The printer wrote relationships without a detail block as `-[]->`, so the
+  reparsed AST differed, and printed `<-->` / `<-[…]->` as undirected
+  `-[…]-`. Bare relationships now print as `-->`, `<--`, `--` and `<-->`,
+  and every direction keeps its arrowheads (#113).
 
 ## [0.2.0-alpha.8] - 2026-10-18
 

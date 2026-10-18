@@ -406,11 +406,11 @@ fn test_parenthesis_vs_relationship_pattern() {
     }
     check_roundtrip(
         "MATCH (n) WHERE exists((n)<--()) RETURN n",
-        "MATCH (n) WHERE EXISTS { (n)<-[]-() } RETURN n;",
+        "MATCH (n) WHERE EXISTS { (n)<--() } RETURN n;",
     );
     check_roundtrip(
         "MATCH (a {x: (1)})-->(b) RETURN a",
-        "MATCH (a {x: (1)})-[]->(b) RETURN a;",
+        "MATCH (a {x: (1)})-->(b) RETURN a;",
     );
 }
 
@@ -453,7 +453,7 @@ fn test_pattern_expressions_and_comprehensions_round_trip() {
         ),
         (
             "MATCH (n) WHERE NOT (n)-->() RETURN n",
-            "MATCH (n) WHERE NOT (n)-[]->() RETURN n;",
+            "MATCH (n) WHERE NOT (n)-->() RETURN n;",
         ),
         (
             "MATCH (n) WHERE (n)-[r:REL*0..2]->(m {num: 5}) RETURN n",
@@ -461,11 +461,11 @@ fn test_pattern_expressions_and_comprehensions_round_trip() {
         ),
         (
             "MATCH (a) RETURN size((a)-->()) AS n",
-            "MATCH (a) RETURN size((a)-[]->()) AS n;",
+            "MATCH (a) RETURN size((a)-->()) AS n;",
         ),
         (
             "MATCH (a) RETURN [(a)-->(b) | b] AS x",
-            "MATCH (a) RETURN [(a)-[]->(b) | b] AS x;",
+            "MATCH (a) RETURN [(a)-->(b) | b] AS x;",
         ),
         (
             "MATCH (a) RETURN [p = (a:L {x: 1})-[r:T]->(b) WHERE b.x > 1 | b.name + 'x'] AS x",
@@ -508,7 +508,7 @@ fn test_label_items_keep_variable_and_labels() {
 fn test_exists_patterns_and_names_round_trip() {
     check_roundtrip(
         "MATCH (n) WHERE exists { (n)-->(m) WHERE n.p = m.p } RETURN n",
-        "MATCH (n) WHERE EXISTS { (n)-[]->(m) WHERE n.p = m.p } RETURN n;",
+        "MATCH (n) WHERE EXISTS { (n)-->(m) WHERE n.p = m.p } RETURN n;",
     );
     check_roundtrip(
         "MATCH (n) WHERE exists { MATCH (m) WHERE exists { (n)-[]->(m) WHERE n.prop = m.prop } RETURN true } RETURN n",
@@ -561,7 +561,7 @@ fn test_bracket_list_vs_pattern_comprehension() {
     }
     check_roundtrip(
         "MATCH (a) RETURN [p = (a)-->(b) | p] AS x",
-        "MATCH (a) RETURN [p = (a)-[]->(b) | p] AS x;",
+        "MATCH (a) RETURN [p = (a)-->(b) | p] AS x;",
     );
 }
 

@@ -144,6 +144,38 @@ impl fmt::Display for NumberReason {
     }
 }
 
+/// The kind of entity a variable holds, as reported by
+/// [`ErrorKind::VariableTypeConflict`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum VariableKind {
+    /// A node, bound by `(n)`.
+    Node,
+    /// A relationship, bound by `-[r]-`.
+    Relationship,
+    /// A list of relationships, bound by `-[r*]-`.
+    Relationships,
+    /// A path, bound by `p = …`.
+    Path,
+    /// A list literal (`WITH [1, 2] AS l`).
+    List,
+    /// Another literal value (`WITH 1 AS x`).
+    Value,
+}
+
+impl fmt::Display for VariableKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            VariableKind::Node => "a node",
+            VariableKind::Relationship => "a relationship",
+            VariableKind::Relationships => "a list of relationships",
+            VariableKind::Path => "a path",
+            VariableKind::List => "a list",
+            VariableKind::Value => "a value",
+        })
+    }
+}
+
 /// The structured kind of a parse/AST error.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -204,6 +236,25 @@ pub enum ErrorKind {
     MissingAlias,
     /// `RETURN *` with no variables in scope (semantic).
     NoVariablesInScope,
+    /// A `SKIP` or `LIMIT` value that is not a constant, non-negative
+    /// integer, such as `SKIP n.count` or `LIMIT -1` (semantic).
+    InvalidSkipLimit { reason: &'static str },
+    /// A parameter used as the property map of a `MATCH` or `MERGE` pattern,
+    /// such as `MATCH (n $param)` (semantic).
+    InvalidParameterUse,
+    /// A non-deterministic function inside an aggregate, such as
+    /// `count(rand())` (semantic).
+    NonDeterministicAggregate,
+    /// A pattern expression used as a value rather than a predicate, such
+    /// as `RETURN size((n)-->())` (semantic).
+    PatternExpressionOutsidePredicate,
+    /// A variable used as two kinds of entity, such as a node and a
+    /// relationship in `MATCH (r) MATCH ()-[r]-()` (semantic).
+    VariableTypeConflict {
+        name: String,
+        bound_as: VariableKind,
+        used_as: VariableKind,
+    },
     /// Invalid reference in ORDER BY / WHERE after WITH (semantic).
     InvalidReference { name: String, reason: &'static str },
 }
@@ -270,7 +321,30 @@ impl fmt::Display for ErrorKind {
                 write!(f, "all parts of a UNION must return the same columns")
             }
             ErrorKind::InvalidClauseComposition { reason }
-            | ErrorKind::InvalidRelationshipPattern { reason } => write!(f, "{reason}"),
+            | ErrorKind::InvalidRelationshipPattern { reason }
+            | ErrorKind::InvalidSkipLimit { reason } => write!(f, "{reason}"),
+            ErrorKind::InvalidParameterUse => write!(
+                f,
+                "parameter maps cannot be used in MATCH or MERGE patterns; use a literal map such as {{key: $value}}"
+            ),
+            ErrorKind::PatternExpressionOutsidePredicate => write!(
+                f,
+                "a pattern expression can only be used as a predicate; use COUNT {{ … }} to count matches or a pattern comprehension to collect them"
+            ),
+            ErrorKind::NonDeterministicAggregate => {
+                write!(
+                    f,
+                    "aggregates cannot use the non-deterministic function rand()"
+                )
+            }
+            ErrorKind::VariableTypeConflict {
+                name,
+                bound_as,
+                used_as,
+            } => write!(
+                f,
+                "variable `{name}` is {bound_as} and cannot be used as {used_as}"
+            ),
             ErrorKind::InvalidDeleteTarget => {
                 write!(f, "DELETE expects nodes, relationships or paths")
             }

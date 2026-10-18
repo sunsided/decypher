@@ -23,6 +23,7 @@ mod error;
 mod resolve;
 mod scope;
 mod structure;
+mod variable_types;
 
 pub use aggregate_registry::AggregateRegistry;
 pub use aggregation::{AggregationViolation, check_aggregation, check_aggregation_with};
@@ -87,7 +88,8 @@ pub fn analyze_with(query: &Query, aggregates: &AggregateRegistry) -> Result<(),
     check_aggregation_with(query, aggregates, &mut diagnostics);
 
     // Phase 3: Structural rules
-    for error in structure::structural_errors(query) {
+    let is_aggregate = |fc: &crate::ast::expr::FunctionInvocation| aggregates.is_aggregate_call(fc);
+    for error in structure::structural_errors(query, &is_aggregate) {
         diagnostics.errors.push(crate::error::CypherError {
             kind: error.kind(),
             span: error.span(),
