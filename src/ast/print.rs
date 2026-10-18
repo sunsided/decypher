@@ -1073,12 +1073,7 @@ impl ToCypher for ComparisonOperator {
 
 impl ToCypher for FunctionInvocation {
     fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
-        for (i, part) in self.name.iter().enumerate() {
-            if i > 0 {
-                write!(w, ".")?;
-            }
-            part.write_cypher(w)?;
-        }
+        write_invocation_name(&self.name, w)?;
         write!(w, "(")?;
         if self.distinct {
             write!(w, "DISTINCT ")?;
@@ -1283,13 +1278,7 @@ impl ToCypher for InQueryCall {
 impl ToCypher for ProcedureInvocation {
     fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
         if self.implicit_arguments {
-            for (i, part) in self.name.name.iter().enumerate() {
-                if i > 0 {
-                    write!(w, ".")?;
-                }
-                part.write_cypher(w)?;
-            }
-            Ok(())
+            write_invocation_name(&self.name.name, w)
         } else {
             self.name.write_cypher(w)
         }
@@ -1343,11 +1332,10 @@ impl ToCypher for Variable {
 
 impl ToCypher for SymbolicName {
     fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
-        let is_safe = is_safe_bare_identifier(&self.name);
-        if is_safe {
+        if is_safe_bare_identifier(&self.name) {
             write!(w, "{}", self.name)
         } else {
-            write!(w, "`{}`", self.name.replace('`', "``"))
+            write_quoted(&self.name, w)
         }
     }
 }
@@ -1370,8 +1358,63 @@ impl ToCypher for PropertyKeyName {
     }
 }
 
+/// Write the dotted name of a function or procedure invocation.
+///
+/// Before `(` the parser accepts some reserved words as plain names, so the
+/// quoting depends on the position rather than on the general keyword list:
+///
+/// - The first part stays bare unless the parser would read it as a clause,
+///   operator, literal or special form instead: `not(x)` is a negation,
+///   `distinct(x)` the projection modifier, `filter(…)` a list predicate.
+///   `count` and `exists` are fine on their own, which keeps `count(n)`
+///   unquoted, but not as a namespace (`exists.f(…)`).
+/// - After a `.`, only the literals `null`, `true` and `false` are ambiguous.
+fn write_invocation_name(parts: &[SymbolicName], w: &mut dyn fmt::Write) -> fmt::Result {
+    for (i, part) in parts.iter().enumerate() {
+        let name = part.name.as_str();
+        let upper = name.to_uppercase();
+        let ambiguous = if i == 0 {
+            let builtin = parts.len() == 1 && matches!(upper.as_str(), "COUNT" | "EXISTS");
+            (!is_safe_bare_identifier(name) && !builtin)
+                || matches!(
+                    upper.as_str(),
+                    "FILTER"
+                        | "REDUCE"
+                        | "EXTRACT"
+                        | "ANY"
+                        | "NONE"
+                        | "SINGLE"
+                        | "FOREACH"
+                        | "USE"
+                        | "FINISH"
+                        | "LOAD"
+                        | "SHOW"
+                        | "STARTS"
+                        | "ENDS"
+                        | "CONTAINS"
+                )
+        } else {
+            matches!(upper.as_str(), "NULL" | "TRUE" | "FALSE")
+        };
+
+        if i > 0 {
+            write!(w, ".")?;
+        }
+        if is_valid_identifier(name) && !ambiguous {
+            write!(w, "{name}")?;
+        } else {
+            write_quoted(name, w)?;
+        }
+    }
+    Ok(())
+}
+
+fn write_quoted(name: &str, w: &mut dyn fmt::Write) -> fmt::Result {
+    write!(w, "`{}`", name.replace('`', "``"))
+}
+
 fn is_safe_bare_identifier(name: &str) -> bool {
-    if name.is_empty() {
+    if !is_valid_identifier(name) {
         return false;
     }
     let is_keyword = matches!(
@@ -1422,11 +1465,15 @@ fn is_safe_bare_identifier(name: &str) -> bool {
     if is_keyword {
         return false;
     }
-    let first = name.chars().next().unwrap();
-    if !first.is_ascii_alphabetic() && first != '_' {
+    true
+}
+
+fn is_valid_identifier(name: &str) -> bool {
+    let Some(first) = name.chars().next() else {
         return false;
-    }
-    name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    };
+    (first.is_ascii_alphabetic() || first == '_')
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 // ── ToCypher implementations for new AST types (Parsing 1.0) ──

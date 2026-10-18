@@ -412,6 +412,115 @@ fn rt_function_call() {
     roundtrip("RETURN toUpper('hello');");
 }
 
+/// Built-in functions whose names are also keywords are emitted without
+/// backticks.
+#[test]
+fn function_name_keywords_are_not_quoted() {
+    let parsed = parse("MATCH (m) RETURN count(m), collect(m), sum(m.x), exists(m.x);")
+        .expect("parse should succeed");
+    let emitted = parsed.to_cypher();
+
+    assert_eq!(
+        emitted,
+        "MATCH (m) RETURN count(m), collect(m), sum(m.x), exists(m.x);"
+    );
+}
+
+/// Every keyword-like name survives printing as a function or procedure name,
+/// whichever position it is in: names the parser would read as something else
+/// (`not(1)` as a negation, `null(1)` as a literal) must stay quoted, the rest
+/// may be printed bare.
+///
+/// `roundtrip` can't be used here because dropping backticks shifts spans, so
+/// this checks that the output re-parses and prints identically instead. A
+/// name that changes meaning when bare (`not(1)` → `NOT (1)`) or stops parsing
+/// fails that check.
+#[test]
+fn rt_keyword_function_and_procedure_names() {
+    let names = [
+        "match",
+        "where",
+        "return",
+        "create",
+        "delete",
+        "set",
+        "remove",
+        "with",
+        "order",
+        "by",
+        "asc",
+        "desc",
+        "skip",
+        "limit",
+        "union",
+        "all",
+        "distinct",
+        "optional",
+        "unwind",
+        "merge",
+        "on",
+        "as",
+        "in",
+        "is",
+        "null",
+        "not",
+        "and",
+        "or",
+        "xor",
+        "true",
+        "false",
+        "case",
+        "when",
+        "then",
+        "else",
+        "end",
+        "exists",
+        "count",
+        "yield",
+        "detach",
+        "start",
+        "call",
+        "filter",
+        "reduce",
+        "extract",
+        "any",
+        "none",
+        "single",
+        "foreach",
+        "use",
+        "finish",
+        "load",
+        "show",
+        "starts",
+        "ends",
+        "contains",
+        "collect",
+        "shortestPath",
+        "allShortestPaths",
+    ];
+    let templates = [
+        "RETURN `{}`(1);",
+        "RETURN a.`{}`(1);",
+        "RETURN `{}`.f(1);",
+        "CALL `{}`(1);",
+        "CALL a.`{}`(1);",
+        "CALL a.`{}`;",
+    ];
+    for template in templates {
+        for name in names {
+            let input = template.replace("{}", name);
+            let emitted = parse(&input).expect("parse should succeed").to_cypher();
+            let reparsed = parse(&emitted)
+                .unwrap_or_else(|e| panic!("{input} printed as {emitted}, which fails: {e}"));
+            check!(
+                reparsed.to_cypher() == emitted,
+                "{input} printed as {emitted}, which re-prints as {}",
+                reparsed.to_cypher()
+            );
+        }
+    }
+}
+
 /// Round-trip `rt function call qualified`: parse → serialise → re-parse must yield equal ASTs.
 ///
 /// Unit: `ToCypher::to_cypher` / `parse`
