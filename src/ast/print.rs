@@ -143,6 +143,10 @@ impl ToCypher for QueryBody {
 
 impl ToCypher for SingleQuery {
     fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        if let Some(use_clause) = &self.use_clause {
+            use_clause.write_cypher(w)?;
+            write!(w, " ")?;
+        }
         self.kind.write_cypher(w)
     }
 }
@@ -1713,6 +1717,23 @@ impl ToCypher for Use {
     fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
         write!(w, "USE ")?;
         self.graph.write_cypher(w)
+    }
+}
+
+impl ToCypher for GraphReference {
+    fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        match self {
+            GraphReference::Name(parts) => {
+                for (i, part) in parts.iter().enumerate() {
+                    if i > 0 {
+                        write!(w, ".")?;
+                    }
+                    part.write_cypher(w)?;
+                }
+                Ok(())
+            }
+            GraphReference::Function(call) => call.write_cypher(w),
+        }
     }
 }
 

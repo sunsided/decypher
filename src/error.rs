@@ -296,6 +296,9 @@ pub enum ErrorKind {
     DuplicateClause { clause: &'static str },
     /// An assignment was syntactically or semantically invalid.
     InvalidAssignment { reason: &'static str },
+    /// A `USE` target that is neither a graph name nor a graph function
+    /// call, such as `USE 'db'`.
+    InvalidGraphReference,
     /// A grammar production is not yet supported by the AST builder.
     Unsupported { production: Cow<'static, str> },
     /// An internal error — last-resort fallback.
@@ -404,6 +407,10 @@ impl fmt::Display for ErrorKind {
             ErrorKind::DuplicateClause { clause } => {
                 write!(f, "duplicate `{}` clause", clause)
             }
+            ErrorKind::InvalidGraphReference => write!(
+                f,
+                "USE expects a graph name or a graph function such as graph.byName(…)"
+            ),
             ErrorKind::InvalidAssignment { reason } => {
                 write!(f, "invalid assignment: {}", reason)
             }

@@ -46,6 +46,8 @@ pub enum QueryBody {
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct SingleQuery {
+    /// The leading `USE` clause selecting the graph the query runs on.
+    pub use_clause: Option<super::schema::Use>,
     /// Whether this is a single-part or multi-part (WITH-joined) query.
     pub kind: SingleQueryKind,
 }

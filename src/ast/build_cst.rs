@@ -223,6 +223,28 @@ fn build_regular_query(clauses: &[Clause], unions: &[Union]) -> Result<ast_c::Re
 }
 
 fn build_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_c::SingleQuery> {
+    with_use_clause(clauses, build_single_query_parts)
+}
+
+/// Builds a single query whose first clause may be `USE`, which selects the
+/// graph for the rest of the clauses.
+fn with_use_clause(
+    mut clauses: Vec<Clause>,
+    build: fn(Vec<Clause>) -> Result<ast_c::SingleQuery>,
+) -> Result<ast_c::SingleQuery> {
+    let use_clause = match clauses.first() {
+        Some(Clause::Use(c)) if clauses.len() > 1 => Some(build_use(c.clone())?),
+        _ => None,
+    };
+    if use_clause.is_some() {
+        clauses.remove(0);
+    }
+    let mut query = build(clauses)?;
+    query.use_clause = use_clause;
+    Ok(query)
+}
+
+fn build_single_query_parts(clauses: Vec<Clause>) -> Result<ast_c::SingleQuery> {
     let missing = missing_return(clauses.last());
     let with_indices: Vec<_> = clauses
         .iter()
@@ -268,6 +290,7 @@ fn build_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_c::Single
                 }
                 Clause::Finish(f) => {
                     return Ok(ast_c::SingleQuery {
+                        use_clause: None,
                         kind: ast_c::SingleQueryKind::SinglePart(ast_c::SinglePartQuery {
                             reading_clauses: reading,
                             body: ast_c::SinglePartBody::Finish(build_finish(f)?),
@@ -286,6 +309,7 @@ fn build_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_c::Single
         let body = single_part_body(updating, ret).ok_or(missing)?;
 
         Ok(ast_c::SingleQuery {
+            use_clause: None,
             kind: ast_c::SingleQueryKind::SinglePart(ast_c::SinglePartQuery {
                 reading_clauses: reading,
                 body,
@@ -378,6 +402,7 @@ fn build_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_c::Single
         let final_part = final_part.ok_or(missing)?;
 
         Ok(ast_c::SingleQuery {
+            use_clause: None,
             kind: ast_c::SingleQueryKind::MultiPart(ast_c::MultiPartQuery { parts, final_part }),
         })
     }
@@ -2111,6 +2136,10 @@ fn subquery_body(
 }
 
 fn build_subquery_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_c::SingleQuery> {
+    with_use_clause(clauses, build_subquery_single_query_parts)
+}
+
+fn build_subquery_single_query_parts(clauses: Vec<Clause>) -> Result<ast_c::SingleQuery> {
     let with_indices: Vec<_> = clauses
         .iter()
         .enumerate()
@@ -2155,6 +2184,7 @@ fn build_subquery_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_
                 }
                 Clause::Finish(f) => {
                     return Ok(ast_c::SingleQuery {
+                        use_clause: None,
                         kind: ast_c::SingleQueryKind::SinglePart(ast_c::SinglePartQuery {
                             reading_clauses: reading,
                             body: ast_c::SinglePartBody::Finish(build_finish(f)?),
@@ -2171,6 +2201,7 @@ fn build_subquery_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_
         let body = subquery_body(updating, ret);
 
         Ok(ast_c::SingleQuery {
+            use_clause: None,
             kind: ast_c::SingleQueryKind::SinglePart(ast_c::SinglePartQuery {
                 reading_clauses: reading,
                 body,
@@ -2255,6 +2286,7 @@ fn build_subquery_single_query_from_clauses(clauses: Vec<Clause>) -> Result<ast_
         });
 
         Ok(ast_c::SingleQuery {
+            use_clause: None,
             kind: ast_c::SingleQueryKind::MultiPart(ast_c::MultiPartQuery { parts, final_part }),
         })
     }
@@ -2909,18 +2941,41 @@ fn build_return_body(rc: ReturnClause) -> Result<ast_c::ReturnBody> {
 
 fn build_use(c: UseClause) -> Result<ast_c::Use> {
     let sp = span_of(c.syntax());
-    let name = c
-        .schema_name()
-        .and_then(|sn| sn.symbolic_name())
-        .map(|s| ast_c::SymbolicName {
-            name: symbolic_name_text(&s),
-            span: span_of(s.syntax()),
-        })
-        .ok_or_else(|| internal("missing graph name in USE", sp))?;
-    Ok(ast_c::Use {
-        graph: name,
+    let expr = c
+        .expr()
+        .ok_or_else(|| internal("missing graph reference in USE", sp))?;
+    let graph = graph_reference(build_expression(expr)?).ok_or_else(|| CypherError {
+        kind: ErrorKind::InvalidGraphReference,
         span: sp,
-    })
+        source_label: None,
+        notes: Vec::new(),
+        source: None,
+    })?;
+    Ok(ast_c::Use { graph, span: sp })
+}
+
+/// The graph a `USE` expression names: a variable or property chain
+/// (`composite.part`), or a function call.
+fn graph_reference(expr: ast_c::Expression) -> Option<ast_c::GraphReference> {
+    fn names(expr: ast_c::Expression, out: &mut Vec<ast_c::SymbolicName>) -> Option<()> {
+        match expr {
+            ast_c::Expression::Variable(var) => out.push(var.name),
+            ast_c::Expression::PropertyLookup { base, property, .. } => {
+                names(*base, out)?;
+                out.push(property.name);
+            }
+            _ => return None,
+        }
+        Some(())
+    }
+    match expr {
+        ast_c::Expression::FunctionCall(call) => Some(ast_c::GraphReference::Function(call)),
+        expr => {
+            let mut parts = Vec::new();
+            names(expr, &mut parts)?;
+            Some(ast_c::GraphReference::Name(parts))
+        }
+    }
 }
 
 fn build_load_csv(c: LoadCsvClause) -> Result<ast_c::LoadCsv> {

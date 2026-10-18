@@ -987,6 +987,9 @@ pub fn walk_query<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Query) {
 }
 
 pub fn walk_single_query<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast SingleQuery) {
+    if let Some(use_clause) = &node.use_clause {
+        v.visit_use(use_clause);
+    }
     match &node.kind {
         SingleQueryKind::SinglePart(sp) => {
             for rc in &sp.reading_clauses {
@@ -1641,6 +1644,9 @@ pub fn walk_query_mut<V: VisitMut>(v: &mut V, node: &mut Query) {
 }
 
 pub fn walk_single_query_mut<V: VisitMut>(v: &mut V, node: &mut SingleQuery) {
+    if let Some(use_clause) = &mut node.use_clause {
+        v.visit_use_mut(use_clause);
+    }
     match &mut node.kind {
         SingleQueryKind::SinglePart(sp) => {
             for rc in &mut sp.reading_clauses {
@@ -1699,6 +1705,7 @@ pub fn walk_single_query_mut<V: VisitMut>(v: &mut V, node: &mut SingleQuery) {
                 v.visit_with(&mut part.with);
             }
             let mut final_sp = SingleQuery {
+                use_clause: None,
                 kind: SingleQueryKind::SinglePart(mp.final_part.clone()),
             };
             v.visit_single_query(&mut final_sp);
@@ -2324,7 +2331,14 @@ pub fn walk_return_body<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast ReturnBody)
 }
 
 pub fn walk_use<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Use) {
-    v.visit_symbolic_name(&node.graph);
+    match &node.graph {
+        GraphReference::Name(parts) => {
+            for part in parts {
+                v.visit_symbolic_name(part);
+            }
+        }
+        GraphReference::Function(call) => v.visit_function_invocation_expr(call),
+    }
 }
 
 pub fn walk_load_csv<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast LoadCsv) {
@@ -2472,7 +2486,14 @@ pub fn walk_return_body_mut<V: VisitMut>(v: &mut V, node: &mut ReturnBody) {
 }
 
 pub fn walk_use_mut<V: VisitMut>(v: &mut V, node: &mut Use) {
-    v.visit_symbolic_name(&mut node.graph);
+    match &mut node.graph {
+        GraphReference::Name(parts) => {
+            for part in parts {
+                v.visit_symbolic_name(part);
+            }
+        }
+        GraphReference::Function(call) => v.visit_function_invocation_expr(call),
+    }
 }
 
 pub fn walk_load_csv_mut<V: VisitMut>(v: &mut V, node: &mut LoadCsv) {

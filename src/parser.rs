@@ -123,10 +123,9 @@ impl<'a> Parser<'a> {
             if self.current_len() == 0 {
                 break;
             }
-            if self.at(SyntaxKind::KW_SHOW)
-                || self.at(SyntaxKind::KW_USE)
-                || self.at(SyntaxKind::KW_DROP)
-            {
+            // `USE` (`USE db MATCH …`) and `SHOW` start statements, parsed
+            // below.
+            if self.at(SyntaxKind::KW_DROP) {
                 grammar::expr::parse_clause(self);
             } else if self.at(SyntaxKind::KW_CREATE) {
                 let next = self.peek_next_non_trivia();
@@ -461,6 +460,7 @@ impl<'a> Parser<'a> {
                     | SyntaxKind::KW_FOREACH
                     | SyntaxKind::KW_EACH
                     | SyntaxKind::KW_FUNCTIONS
+                    | SyntaxKind::KW_GRAPH
                     | SyntaxKind::KW_FULLTEXT
                     | SyntaxKind::KW_IF
                     | SyntaxKind::KW_IN

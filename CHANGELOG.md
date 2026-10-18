@@ -75,6 +75,13 @@ are marked **Breaking** below.
   `reason`; new variants `InvalidClauseComposition`, `MissingAlias` and
   `NoVariablesInScope`; the never-reported `VariableOutOfScope` and
   `InvalidMergePattern` are removed (#109).
+- **Breaking:** `USE` targets are an `ast::GraphReference`: a dotted graph
+  name (`USE composite.part`) or a graph function call
+  (`USE graph.byName('g')`); `ast::Use::graph` was a single `SymbolicName`.
+  A `USE` before a query is kept in the new `ast::SingleQuery::use_clause`,
+  so it is also allowed in each `UNION` branch and in `CALL { … }`. A `USE`
+  target that is neither is reported as `ErrorKind::InvalidGraphReference`
+  (#117).
 - **Breaking:** `sema::Catalog` replaces `AggregateRegistry` (formerly
   `hir::AggregateRegistry`): `register(name)` is `register_aggregate(name)`,
   `contains(name)` is `is_aggregate(name)`, and `hir::LowerConfig::aggregates`
@@ -142,6 +149,16 @@ are marked **Breaking** below.
   with `UNION` failed to parse. The printer no longer writes a double space
   after a subquery part that ends without `RETURN`
   (`EXISTS { MATCH (n)-->(m) }`).
+- A `USE` clause before a query was dropped from the AST
+  (`USE db MATCH (n) RETURN n` printed as `MATCH (n) RETURN n`), and
+  `USE db.part …` and `USE graph.byName(…) …` failed with an internal error
+  (#117).
+- `graph` can be used as a variable name (`WITH 1 AS graph`) (#118).
+- `SHOW INDEXES` and other `SHOW` commands failed with an internal error.
+- Tokens that cannot start a clause inside `CALL { … }`, `EXISTS { … }` and
+  `COLLECT { … }` bodies were dropped silently
+  (`CALL { foo MATCH (n) RETURN n }`), and so was an unknown `DROP` command;
+  both are syntax errors now.
 - `point(…)` and `graph.names()` / `graph.byName(…)` failed to parse, since
   `point` and `graph` are also keywords (#115).
 - The printer wrote relationships without a detail block as `-[]->`, so the
