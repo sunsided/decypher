@@ -119,6 +119,10 @@ are marked **Breaking** below.
   with `UNION` failed to parse. The printer no longer writes a double space
   after a subquery part that ends without `RETURN`
   (`EXISTS { MATCH (n)-->(m) }`).
+- The printer wrote relationships without a detail block as `-[]->`, so the
+  reparsed AST differed, and printed `<-->` / `<-[…]->` as undirected
+  `-[…]-`. Bare relationships now print as `-->`, `<--`, `--` and `<-->`,
+  and every direction keeps its arrowheads (#113).
 
 ## [0.2.0-alpha.8] - 2026-10-18
 

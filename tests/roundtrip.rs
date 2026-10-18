@@ -907,3 +907,25 @@ fn rt_union_chains_in_subqueries() {
         check!(printed.matches("UNION").count() == unions);
     }
 }
+
+/// Round-trip relationships without a detail block and with an empty one
+/// (#113): `-->` and `-[]->` each print as written, in every direction.
+///
+/// Unit: `ToCypher::to_cypher` / `parse`
+/// Precondition: Bare and empty-bracket relationships, including `<-->`,
+///               quantified ones and ones inside `EXISTS` / `COUNT`.
+/// Expectation: Re-parsed AST equals the original parsed AST, and the text is
+///              unchanged.
+#[test]
+fn rt_bare_and_empty_relationships() {
+    for query in [
+        "MATCH (a)-->(b)<--(c)--(d)<-->(e) RETURN a;",
+        "MATCH (a)-[]->(b)<-[]-(c)-[]-(d)<-[]->(e) RETURN a;",
+        "MATCH (a)-->{1,3}(b) RETURN a;",
+        "MATCH (n) WHERE EXISTS { (n)-->() } RETURN n;",
+        "MATCH (n) RETURN COUNT { (n)<--() } AS c;",
+    ] {
+        roundtrip(query);
+        check!(parse(query).unwrap().to_cypher() == query);
+    }
+}
