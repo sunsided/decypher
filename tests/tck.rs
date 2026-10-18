@@ -49,6 +49,10 @@ const SEMANTIC_ERRORS: &[&str] = &[
     "RelationshipUniquenessViolation",
     "NoExpressionAlias",
     "NoVariablesInScope",
+    "NonConstantExpression",
+    "NegativeIntegerArgument",
+    "InvalidParameterUse",
+    "VariableTypeConflict",
 ];
 
 struct TckQuery {

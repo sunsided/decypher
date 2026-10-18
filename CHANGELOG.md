@@ -42,6 +42,12 @@ are marked **Breaking** below.
   length, undirected ones in `CREATE`, a relationship matched twice),
   `InvalidDeleteTarget` (`DELETE n:Person`), `MissingAlias`
   (`WITH a, count(*)`) and `NoVariablesInScope` (`MATCH () RETURN *`).
+- Checks that need no type or function catalog, in both analyzers (#110):
+  `InvalidSkipLimit` (`SKIP n.count`, `LIMIT -1`, `LIMIT 1.5`),
+  `InvalidParameterUse` (`MATCH (n $param)`; `CREATE` still allows it),
+  `NonDeterministicAggregate` (`count(rand())`) and `VariableTypeConflict`
+  with the new `VariableKind` (`MATCH (r) MATCH ()-[r]-()`,
+  `WITH 1 AS n MATCH (n)`).
 
 ### Changed
 
@@ -52,6 +58,9 @@ are marked **Breaking** below.
   `reason`; new variants `InvalidClauseComposition`, `MissingAlias` and
   `NoVariablesInScope`; the never-reported `VariableOutOfScope` and
   `InvalidMergePattern` are removed (#109).
+- **Breaking:** new `hir::HirDiagnostic` variants `InvalidSkipLimit`,
+  `InvalidParameterUse`, `NonDeterministicAggregate` and
+  `VariableTypeConflict` (#110).
 - Both analyzers report redeclared path variables (`WITH 1 AS p MATCH p =
   …`, `MATCH p = (p)-->()`) and `CREATE` / `MERGE` patterns that re-create a
   bound node or relationship (`MATCH (a) CREATE (a)`,

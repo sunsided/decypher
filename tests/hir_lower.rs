@@ -1501,3 +1501,74 @@ fn analyze_reports_structural_errors() {
             .unwrap_or_else(|e| panic!("query: {query}, sema got: {:?}", e.errors));
     }
 }
+
+/// Catalog-free checks (#110): `SKIP`/`LIMIT` values, parameter maps in
+/// `MATCH`/`MERGE` patterns, `rand()` inside an aggregate, and variables used
+/// as two kinds of entity.
+///
+/// Unit: `analyze()` / `sema::analyze()`
+/// Precondition: One query per rule, mostly from the openCypher TCK; and
+///               valid counterparts, including scopes that rebind a name.
+/// Expectation: Both analyzers report the rule's error kind; the valid
+///              queries pass.
+#[test]
+fn analyze_reports_constant_and_variable_kind_errors() {
+    use decypher::ErrorKind;
+    let skip_limit = ErrorKind::InvalidSkipLimit { reason: "" };
+    let conflict = ErrorKind::VariableTypeConflict {
+        name: String::new(),
+        bound_as: decypher::VariableKind::Node,
+        used_as: decypher::VariableKind::Node,
+    };
+    let checks = [
+        ("MATCH (n) RETURN n SKIP n.count", &skip_limit),
+        ("MATCH (n) RETURN n LIMIT -1", &skip_limit),
+        ("MATCH (n) WITH n SKIP 1.5 RETURN n", &skip_limit),
+        ("MATCH (n $param) RETURN n", &ErrorKind::InvalidParameterUse),
+        (
+            "MERGE (a)-[r:FOO $param]->(b) RETURN r",
+            &ErrorKind::InvalidParameterUse,
+        ),
+        (
+            "RETURN count(rand())",
+            &ErrorKind::NonDeterministicAggregate,
+        ),
+        ("MATCH (r)-[]-() MATCH ()-[r]-() RETURN r", &conflict),
+        ("MATCH r = ()-[*]-() MATCH (r) RETURN r", &conflict),
+        ("MATCH ()-[]-(r)-[r*]-() RETURN r", &conflict),
+        ("WITH 123 AS r MATCH ()-[r]-() RETURN r", &conflict),
+        (
+            "MATCH (n) WITH [n] AS users MATCH (users)-->(m) RETURN m",
+            &conflict,
+        ),
+        ("MATCH (r) WITH r AS x MATCH ()-[x]-() RETURN x", &conflict),
+    ];
+    let same =
+        |a: &ErrorKind, b: &ErrorKind| std::mem::discriminant(a) == std::mem::discriminant(b);
+    for (query, expected) in checks {
+        let err = analyze(query).unwrap_err();
+        check!(same(&err.kind, expected), "query: {query}, got: {err}");
+        let sema = decypher::sema::analyze(&decypher::parse(query).unwrap()).unwrap_err();
+        check!(
+            sema.errors.iter().any(|e| same(&e.kind, expected)),
+            "query: {query}, sema got: {:?}",
+            sema.errors
+        );
+    }
+    for query in [
+        "MATCH (n) RETURN n SKIP $s LIMIT 2 + 3",
+        "CREATE (n $param) RETURN n",
+        "MATCH (n) SET n = $param",
+        "RETURN rand() AS r, count(*) AS c",
+        "MATCH ()-[r1]->()-[r2]->() WITH [r1, r2] AS rs MATCH ()-[rs*]->() RETURN rs",
+        "MATCH (r) WITH 1 AS x MATCH ()-[r]-() RETURN r",
+        "MATCH (r) RETURN r UNION MATCH ()-[r]-() RETURN r",
+        "MATCH (r) CALL { MATCH ()-[r]-() RETURN r AS x } RETURN x",
+        "MATCH (n) RETURN [n IN [1, 2] | n] AS l",
+        "MATCH (n) RETURN n; MATCH ()-[n]-() RETURN n",
+    ] {
+        analyze(query).unwrap_or_else(|e| panic!("query: {query}, got: {e}"));
+        decypher::sema::analyze(&decypher::parse(query).unwrap())
+            .unwrap_or_else(|e| panic!("query: {query}, sema got: {:?}", e.errors));
+    }
+}
