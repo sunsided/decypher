@@ -1689,8 +1689,13 @@ fn parse_set_item(p: &mut Parser) {
             p.builder.finish_node();
             true
         } else if p.at(SyntaxKind::L_PAREN) {
-            // `SET (n).name = …`: a parenthesised target expression.
+            // `SET (n).name = …`: a parenthesised target expression. Only a
+            // property can be set through it, so a `.key` must follow.
             parse_atom(p);
+            p.skip_trivia();
+            if !p.at(SyntaxKind::DOT) {
+                p.error_here(&[Expected::Symbol(Cow::Borrowed("."))]);
+            }
             true
         } else {
             false
@@ -2026,7 +2031,7 @@ fn parse_relationship_detail(p: &mut Parser) {
         p.builder.finish_node();
         p.skip_trivia();
     } else if p.at(SyntaxKind::DOLLAR) {
-        // `(n $props)`: a parameter supplying the property map.
+        // `[r:FOO $props]`: a parameter supplying the relationship's property map.
         parse_parameter_properties(p);
     }
     if p.at(SyntaxKind::KW_WHERE) {
