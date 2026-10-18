@@ -170,13 +170,21 @@ pub struct ReturnBody {
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Use {
-    /// The symbolic graph name targeted by this clause.
-    ///
-    /// Only a [`SymbolicName`] is accepted here; arbitrary expressions are
-    /// not supported by the parser.
-    pub graph: SymbolicName,
+    /// The graph targeted by this clause.
+    pub graph: GraphReference,
     /// Byte-offset span of the clause.
     pub span: Span,
+}
+
+/// The target of a `USE` clause.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub enum GraphReference {
+    /// A graph name, dot-separated for a composite database's constituent
+    /// (`db`, `composite.part`).
+    Name(Vec<SymbolicName>),
+    /// A graph function call (`graph.byName('g')`, `graph.byElementId(id)`).
+    Function(crate::ast::expr::FunctionInvocation),
 }
 
 /// The `YIELD` specification of a `SHOW` command.

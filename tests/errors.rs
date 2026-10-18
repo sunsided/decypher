@@ -484,3 +484,29 @@ fn invalid_number_of_arguments_message_agrees_in_number() {
     );
     assert_eq!(message(2, Some(2)), "`f()` takes 2 arguments, but got 0");
 }
+
+/// Tokens that cannot start a clause inside a subquery body, an unknown
+/// `DROP` command and a `USE` target that is not a graph name or function
+/// are syntax errors rather than being dropped.
+///
+/// Unit: `parse()`
+/// Precondition: Stray tokens in `CALL { … }`, `EXISTS { … }` and
+///               `COLLECT { … }`; `DROP FOO`; `USE 1 + 2` and `USE 'db'`.
+/// Expectation: Each returns `Err`, pointing at the offending token.
+#[test]
+fn test_stray_tokens_are_reported() {
+    for (query, token) in [
+        ("CALL { foo MATCH (n) RETURN n } RETURN n", "foo"),
+        ("MATCH (n) WHERE EXISTS { foo MATCH (n) } RETURN n", "foo"),
+        ("RETURN COLLECT { foo bar RETURN 1 } AS c", "foo"),
+        ("DROP FOO", "FOO"),
+        ("USE 1 + 2 RETURN 1", "+"),
+    ] {
+        let err = parse(query).unwrap_err();
+        check!(
+            &query[err.span.start..err.span.end] == token,
+            "query: {query}, got: {err}"
+        );
+    }
+    check!(parse("USE 'db' RETURN 1").unwrap_err().kind == ErrorKind::InvalidGraphReference);
+}

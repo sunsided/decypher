@@ -1089,8 +1089,11 @@ impl AstNode for UseClause {
 }
 
 impl UseClause {
-    pub fn schema_name(&self) -> Option<super::schema::SchemaName> {
-        child(&self.0)
+    /// The graph reference: a name (`db`, `composite.part`) or a graph
+    /// function call (`graph.byName('g')`). For a flat chain the last
+    /// expression node is the composed one.
+    pub fn expr(&self) -> Option<Expression> {
+        self.0.children().filter_map(Expression::cast).last()
     }
 }
 

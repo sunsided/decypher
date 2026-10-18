@@ -808,9 +808,7 @@ fn use_clause() {
         .descendants()
         .find_map(decypher::cst::UseClause::cast)
         .unwrap();
-    check!(use_clause.schema_name().is_some());
-    let schema_name = use_clause.schema_name().unwrap();
-    check!(schema_name.symbolic_name().is_some());
+    check!(use_clause.expr().is_some());
 }
 
 /// Verify CST shape for: union all.

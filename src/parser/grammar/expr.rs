@@ -696,14 +696,14 @@ fn parse_subquery_body(p: &mut Parser) {
 /// returning whether there were any.
 fn parse_subquery_part(p: &mut Parser) -> bool {
     let mut saw_clause = false;
+    let mut reported = false;
     while !p.at(SyntaxKind::R_BRACE) && !p.at(SyntaxKind::KW_UNION) && p.current_len() > 0 {
         if is_clause_start_for_subquery(p) {
             parse_clause(p);
             saw_clause = true;
+            reported = false;
         } else {
-            p.start_node(SyntaxKind::ERROR);
-            p.bump();
-            p.builder.finish_node();
+            skip_stray_token(p, &mut reported);
         }
         p.skip_trivia();
     }
@@ -907,13 +907,13 @@ fn parse_atom(p: &mut Parser) {
                 p.skip_trivia();
                 p.bump(); // {
                 p.skip_trivia();
+                let mut reported = false;
                 while !p.at(SyntaxKind::R_BRACE) && p.current_len() > 0 {
                     if is_clause_start_for_subquery(p) {
                         parse_clause(p);
+                        reported = false;
                     } else {
-                        p.start_node(SyntaxKind::ERROR);
-                        p.bump();
-                        p.builder.finish_node();
+                        skip_stray_token(p, &mut reported);
                     }
                     p.skip_trivia();
                 }
@@ -1668,6 +1668,7 @@ fn is_clause_start_for_exists(p: &Parser) -> bool {
             | SyntaxKind::KW_OPTIONAL
             | SyntaxKind::KW_DETACH
             | SyntaxKind::KW_YIELD
+            | SyntaxKind::KW_USE
     )
 }
 
@@ -2713,6 +2714,7 @@ fn parse_regular_query_body(p: &mut Parser) {
 
 /// Parses the clauses of one `UNION` branch: until `UNION`, `}` or the end.
 fn parse_query_part(p: &mut Parser) {
+    let mut reported = false;
     loop {
         p.skip_trivia();
         if p.at(SyntaxKind::R_BRACE) || p.current_len() == 0 {
@@ -2723,18 +2725,29 @@ fn parse_query_part(p: &mut Parser) {
         }
         if is_clause_start_for_subquery(p) {
             parse_clause(p);
+            reported = false;
         } else if p.at(SyntaxKind::KW_YIELD) {
             // YIELD can appear in subquery context
             p.start_node(SyntaxKind::IN_QUERY_CALL);
             parse_yield_items(p);
             p.builder.finish_node();
         } else {
-            p.start_node(SyntaxKind::ERROR);
-            p.bump();
-            p.builder.finish_node();
+            skip_stray_token(p, &mut reported);
         }
         p.skip_trivia();
     }
+}
+
+/// Wraps a token that cannot start a clause of a subquery body in an `ERROR`
+/// node, reporting the first of a run of such tokens.
+fn skip_stray_token(p: &mut Parser, reported: &mut bool) {
+    if !*reported {
+        p.error_here(&[Expected::Category(Cow::Borrowed("clause"))]);
+        *reported = true;
+    }
+    p.start_node(SyntaxKind::ERROR);
+    p.bump();
+    p.builder.finish_node();
 }
 
 fn is_clause_start_for_subquery(p: &Parser) -> bool {
@@ -2754,6 +2767,7 @@ fn is_clause_start_for_subquery(p: &Parser) -> bool {
             | SyntaxKind::KW_OPTIONAL
             | SyntaxKind::KW_DETACH
             | SyntaxKind::KW_YIELD
+            | SyntaxKind::KW_USE
     )
 }
 
@@ -3142,9 +3156,14 @@ fn parse_drop_clause(p: &mut Parser) {
         Some(SyntaxKind::KW_CONSTRAINT) => parse_drop_constraint(p),
         Some(SyntaxKind::KW_DATABASE) | Some(SyntaxKind::KW_DATABASES) => parse_drop_database(p),
         _ => {
-            // Unknown DROP - eat it
             p.start_node(SyntaxKind::ERROR);
-            p.bump();
+            p.bump(); // DROP
+            p.skip_trivia();
+            p.error_here(&[
+                Expected::Keyword(Cow::Borrowed("INDEX")),
+                Expected::Keyword(Cow::Borrowed("CONSTRAINT")),
+                Expected::Keyword(Cow::Borrowed("DATABASE")),
+            ]);
             p.builder.finish_node();
         }
     }
@@ -3340,14 +3359,10 @@ fn parse_use_clause(p: &mut Parser) {
     p.start_node(SyntaxKind::USE_CLAUSE);
     p.bump(); // USE
     p.skip_trivia();
-    // Database name
-    if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) {
-        p.start_node(SyntaxKind::SCHEMA_NAME);
-        p.start_node(SyntaxKind::SYMBOLIC_NAME);
-        p.bump();
-        p.builder.finish_node();
-        p.builder.finish_node();
-    }
+    // A graph name (`db`, `composite.part`) or a graph function call
+    // (`graph.byName('g')`), parsed as an expression and checked by the AST
+    // builder.
+    expr_bp(p, Prec::POSTFIX);
     p.builder.finish_node();
 }
 
@@ -3441,6 +3456,7 @@ fn keyword_can_be_name(kind: SyntaxKind) -> bool {
             | SyntaxKind::KW_FOREACH
             | SyntaxKind::KW_EACH
             | SyntaxKind::KW_FUNCTIONS
+            | SyntaxKind::KW_GRAPH
             | SyntaxKind::KW_FULLTEXT
             | SyntaxKind::KW_IF
             | SyntaxKind::KW_IN

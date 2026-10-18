@@ -947,3 +947,30 @@ fn rt_keyword_named_functions() {
         check!(parse(query).unwrap().to_cypher() == query);
     }
 }
+
+/// Round-trip `USE` clauses (#117): a graph name, a composite database's
+/// constituent, and a graph function, before a query, in each `UNION`
+/// branch and inside `CALL { … }`; and `graph` as a variable name (#118).
+///
+/// Unit: `ToCypher::to_cypher` / `parse`
+/// Precondition: Queries with `USE` in every position Neo4j 5 allows.
+/// Expectation: Re-parsed AST equals the original and the text is unchanged,
+///              so no `USE` is dropped.
+#[test]
+fn rt_use_clauses() {
+    for query in [
+        "USE db;",
+        "USE db MATCH (n) RETURN n;",
+        "USE composite.part MATCH (n) RETURN n;",
+        "USE `my db` RETURN 1;",
+        "USE graph.byName('g') MATCH (n) RETURN n;",
+        "USE graph.byElementId($id) MATCH (n) RETURN n;",
+        "USE a RETURN 1 AS x UNION USE b RETURN 2 AS x;",
+        "CALL { USE graph.byName('g') MATCH (n) RETURN n } RETURN n;",
+        "WITH 1 AS graph RETURN graph;",
+        "SHOW INDEXES;",
+    ] {
+        roundtrip(query);
+        check!(parse(query).unwrap().to_cypher() == query);
+    }
+}
