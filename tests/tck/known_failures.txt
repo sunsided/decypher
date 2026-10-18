@@ -5,6 +5,95 @@ analyze 166fc9f64b76c642  # unresolved variable `p` | MERGE (a {num: 1}) MERGE (
 analyze 42da5fd6c52c5c01  # unresolved variable `b` | MATCH (n) RETURN [(n)-[:T]->(b) | b.name] AS list
 analyze de784694bbe18e0e  # unresolved variable `p` | MERGE p = (a {num: 1}) RETURN p
 analyze e6ee7a6c34bd18ce  # unresolved variable `r` | MATCH (n) RETURN [(n)-[r:T]->() | r.name] AS list
+lossless 027638fb0c693fd9  # printing drops REL1, m, n: MATCH (n), (m) RETURN n, m; | MATCH (n), (m) WHERE (n)-[:REL1*]->(m) RETURN n, m
+lossless 05087d02aa125329  # printing drops n: MATCH (n:N) SET ``:Foo WITH n WHERE n.num % 2 = 0 RETURN n.num… | MATCH (n:N) SET n:Foo WITH n WHERE n.num % 2 = 0 RETURN n.num AS num
+lossless 08827632d465e1c5  # printing drops a: MATCH (a:X) RETURN size([(()) | 1]) AS length; | MATCH (a:X) RETURN size([(a)-->() | 1]) AS length
+lossless 0b00979fdbafe844  # printing drops n: MATCH (n:N) REMOVE ``:N RETURN n SKIP 1; | MATCH (n:N) REMOVE n:N RETURN n SKIP 1
+lossless 0cf9f432f3dbfd2f  # printing drops HAS, n: MATCH (n:A) RETURN `count`([(p = (p)) | p]) AS c; | MATCH (n:A) RETURN count([p = (n)-[:HAS]->() | p]) AS c
+lossless 0d5e172976fa289d  # printing drops liker: MATCH (liker) RETURN [(p = (p)) | p] AS isNew ORDER BY lik… | MATCH (liker) RETURN [p = (liker)--() | p] AS isNew ORDER BY liker.time
+lossless 11a5eb58410aa137  # printing drops a: MATCH () MERGE (a:L) ON MATCH SET ``:M1 ON CREATE SET ``:M2; | MATCH () MERGE (a:L) ON MATCH SET a:M1 ON CREATE SET a:M2
+lossless 1269836333bca3a4  # printing drops n: MATCH (n) SET ``:Foo RETURN n; | MATCH (n) SET n:Foo RETURN n
+lossless 1470384edcdbcee3  # printing drops 2e0, REL1, m, n: MATCH (n), (m) RETURN n, m; | MATCH (n), (m) WHERE (n)-[:REL1*2]-(m) RETURN n, m
+lossless 18108d365e0b2df4  # printing drops REL1, REL2, REL3, REL4, m, n: MATCH (n), (m) RETURN n, m; | MATCH (n), (m) WHERE (n)-[:REL1|REL2|REL3|REL4]-(m) RETURN n, m
+lossless 18503362d0ad5a3f  # printing drops REL1, n: MATCH (n) RETURN n; | MATCH (n) WHERE (n)<-[:REL1*]-() RETURN n
+lossless 19238baedbbb428e  # printing drops a: MERGE (a) ON MATCH SET ``:L; | MERGE (a) ON MATCH SET a:L
+lossless 1b4c84257c2a2308  # printing drops 5e0, C, REL, a, num: MATCH (a), (b), (c) RETURN size(); | MATCH (a), (b), (c) RETURN size((a)-[:REL]->(:C)<-[:REL]-(a {num: 5}))
+lossless 1b7799f31628d590  # printing drops n: MATCH (n:N) REMOVE ``:N WITH sum(n.num) AS sum RETURN sum; | MATCH (n:N) REMOVE n:N WITH sum(n.num) AS sum RETURN sum
+lossless 1ec68fc92047d160  # printing drops a: MATCH (a), (b), (c) RETURN size(); | MATCH (a), (b), (c) RETURN size((a)-->())
+lossless 2104b22bc07651df  # printing drops n: MATCH (n:A) SET ``:Foo RETURN n; | MATCH (n:A) SET n:Foo RETURN n
+lossless 26cdfaaac7a0c4a0  # printing drops r: MATCH (n) RETURN n; | MATCH (n) WHERE ()-[r]->() RETURN n
+lossless 27dc4357e46e6868  # printing drops REL1, m, n: MATCH (n), (m) RETURN n, m; | MATCH (n), (m) WHERE (n)-[:REL1]->(m) RETURN n, m
+lossless 34e81a7150476ea6  # printing drops n: MATCH (n) RETURN n; | MATCH (n) WHERE (n)<-[]-() RETURN n
+lossless 3685df74ee226452  # printing drops n: MATCH (n:N) REMOVE ``:N RETURN sum(n.num) AS sum; | MATCH (n:N) REMOVE n:N RETURN sum(n.num) AS sum
+lossless 3aa22ae1b033688e  # printing drops n, r: MATCH (n) RETURN n; | MATCH (n) WHERE (n)-[r]-() RETURN n
+lossless 3fa3754bdb09d472  # printing drops 1e0, 2e0: MATCH (advertiser)-[:ADV_HAS_PRODUCT]->(out)-[:AP_HAS_V… | MATCH (advertiser)-[:ADV_HAS_PRODUCT]->(out)-[:AP_HAS_VALUE]->(red)<-[:AA_HAS_VALUE]-(a) WHERE adver…
+lossless 42da5fd6c52c5c01  # printing drops T, b, n: MATCH (n) RETURN [(()) | b.name] AS list; | MATCH (n) RETURN [(n)-[:T]->(b) | b.name] AS list
+lossless 436a580844640fb4  # printing drops 0e0, 2e0, 5e0, A, REL, num: MATCH (a), (b), (c) RETURN size(); | MATCH (a), (b), (c) RETURN size(()-[:REL*0..2]->()<-[:REL]-(:A {num: 5}))
+lossless 443dd4294c505b41  # printing drops r: MATCH (n) RETURN n; | MATCH (n) WHERE ()<-[r]-() RETURN n
+lossless 45b586a086dd1d16  # printing drops n: MATCH (n) SET ``:Foo RETURN labels(n); | MATCH (n) SET n :Foo RETURN labels(n)
+lossless 4aa4a1f0cdac2f35  # printing drops a: MERGE (a:TheLabel) ON CREATE SET ``:Foo RETURN labels(a); | MERGE (a:TheLabel) ON CREATE SET a:Foo RETURN labels(a)
+lossless 4cab5a66ff4041e8  # printing drops n: MATCH (n:N) REMOVE ``:N RETURN n LIMIT 0; | MATCH (n:N) REMOVE n:N RETURN n LIMIT 0
+lossless 4dfdacc075c4daf2  # printing drops REL1, m, n: MATCH (n), (m) RETURN n, m; | MATCH (n), (m) WHERE (n)-[:REL1]-(m) RETURN n, m
+lossless 533f698418b11d99  # printing drops n: MATCH (n) RETURN n; | MATCH (n) WHERE (n)-[]->() RETURN n
+lossless 569980b59e751b70  # printing drops OTHER, T, a: MATCH (a:X) RETURN size([(()) | 1]) AS length; | MATCH (a:X) RETURN size([(a)-[:T|OTHER]->() | 1]) AS length
+lossless 57d12065dd30ec0b  # printing drops T, a: MATCH (a:X) RETURN size([(()) | 1]) AS length; | MATCH (a:X) RETURN size([(a)-[:T]->() | 1]) AS length
+lossless 57dca05e6f9e3e82  # printing drops 'NA', n, r: MATCH (n) WHERE EXISTS { } RETURN n; | MATCH (n) WHERE exists { (n)-[r]->() WHERE type(r) = 'NA' } RETURN n
+lossless 5ccb93befa5f6ba9  # printing drops Bar, n: MATCH (n) SET ``:Foo RETURN n; | MATCH (n) SET n:Foo:Bar RETURN n
+lossless 5ccc7a27c7b8d3b0  # printing drops n: MATCH (n:N) SET ``:Foo RETURN n.num AS num SKIP 2 LIMIT 2; | MATCH (n:N) SET n:Foo RETURN n.num AS num SKIP 2 LIMIT 2
+lossless 5e8c6709c8d30682  # printing drops Bar, n: MATCH (n) SET ``:Foo RETURN labels(n); | MATCH (n) SET n :Foo :Bar RETURN labels(n)
+lossless 5f2d09452c50c2dc  # printing drops n: MATCH (n:N) SET ``:Foo WITH sum(n.num) AS sum RETURN sum; | MATCH (n:N) SET n:Foo WITH sum(n.num) AS sum RETURN sum
+lossless 5fe955e50cf63bd5  # printing drops n, r: MATCH (n) RETURN n; | MATCH (n) WHERE ()-[r]->(n) RETURN n
+lossless 62fa8825aabe6ffe  # printing drops m, n, prop: MATCH (n) WHERE EXISTS { MATCH (m) WHERE EXISTS { } R… | MATCH (n) WHERE exists { MATCH (m) WHERE exists { (n)-[]->(m) WHERE n.prop = m.prop } RETURN true } …
+lossless 6415b9958e59da26  # printing drops n: MATCH (n) REMOVE ``:Foo RETURN labels(n); | MATCH (n) REMOVE n:Foo RETURN labels(n)
+lossless 660e29239d274e12  # printing drops m, n: MATCH (n), (m) RETURN n, m; | MATCH (n), (m) WHERE (n)-[]->(m) RETURN n, m
+lossless 6e206fd216152ada  # printing drops REL, a, b: MATCH (a), (b), (c) RETURN size(); | MATCH (a), (b), (c) RETURN size((a)-[:REL]->(b))
+lossless 6e281c0866524b64  # printing drops a: OPTIONAL MATCH (a:DoesNotExist) REMOVE ``:L RETURN a; | OPTIONAL MATCH (a:DoesNotExist) REMOVE a:L RETURN a
+lossless 7474904596a5834a  # printing drops a, n, r: MATCH (n) RETURN n; | MATCH (n) WHERE (n)<-[r {}]-(a) RETURN n
+lossless 74ca5496672afed7  # printing drops REL1, n: MATCH (n) RETURN n; | MATCH (n) WHERE (n)-[:REL1]->() RETURN n
+lossless 76dc41e851235e29  # printing drops REL1, n: MATCH (n) RETURN n; | MATCH (n) WHERE (n)<-[:REL1]-() RETURN n
+lossless 7972cc13b96ae596  # printing drops n, r: MATCH (n) RETURN n; | MATCH (n) WHERE (n)-[r]->() RETURN n
+lossless 7c30b8b12a13e569  # printing drops REL, n: MATCH (n) SET n.prop = head(nodes(head())).foo; | MATCH (n) SET n.prop = head(nodes(head((n)-[:REL]->()))).foo
+lossless 7cad2501a26a49a7  # printing drops a, b: MATCH (a:A), (b:B) WITH [(p = (p)) | p] AS paths, `count`(a… | MATCH (a:A), (b:B) WITH [p = (a)-[*]->(b) | p] AS paths, count(a) AS c RETURN paths, c
+lossless 7d518d1ce055c73b  # printing drops n: MATCH (n:N) REMOVE ``:N RETURN n.num AS num SKIP 2 LIMIT 2; | MATCH (n:N) REMOVE n:N RETURN n.num AS num SKIP 2 LIMIT 2
+lossless 7e0d210287b9dbb6  # printing drops REL1, m, n: MATCH (n), (m) RETURN n, m; | MATCH (n), (m) WHERE (n)-[:REL1*]-(m) RETURN n, m
+lossless 7ffa10f76f8a1477  # printing drops HAS, n: MATCH (n:A) RETURN [(p = (p)) | p] AS ps; | MATCH (n:A) RETURN [p = (n)-[:HAS]->() | p] AS ps
+lossless 808ca66daff10a53  # printing drops n: MATCH (n:N) SET ``:Foo RETURN sum(n.num) AS sum; | MATCH (n:N) SET n:Foo RETURN sum(n.num) AS sum
+lossless 8161b76a7ced8f19  # printing drops REL1, n: MATCH (n) RETURN n; | MATCH (n) WHERE (n)-[:REL1]-() RETURN n
+lossless 820a959ae3cac15a  # printing drops a: MERGE (a:TheLabel) ON MATCH SET ``:Foo RETURN labels(a); | MERGE (a:TheLabel) ON MATCH SET a:Foo RETURN labels(a)
+lossless 8925494fcfabb4ba  # printing drops n: MATCH (n:N) REMOVE ``:N RETURN n.num AS num SKIP 0 LIMIT 5; | MATCH (n:N) REMOVE n:N RETURN n.num AS num SKIP 0 LIMIT 5
+lossless 8bf4c965d6d13aab  # printing drops n: MATCH (n:N) SET ``:Foo RETURN n LIMIT 0; | MATCH (n:N) SET n:Foo RETURN n LIMIT 0
+lossless 8cb0d5cc42d58293  # printing drops n: MATCH (n) RETURN [(p = (p)) | p] AS list; | MATCH (n) RETURN [p = (n)-->() | p] AS list
+lossless 99ac8894a440158b  # printing drops n: MATCH (n:S) WITH n, size([(()) | 1]) AS deg WHERE deg > 2 WITH… | MATCH (n:S) WITH n, size([(n)-->() | 1]) AS deg WHERE deg > 2 WITH deg LIMIT 100 RETURN percentileDi…
+lossless 9e3b93f1dc36940c  # printing drops Bar, n: MATCH (n) SET ``:Foo RETURN labels(n); | MATCH (n) SET n :Foo:Bar RETURN labels(n)
+lossless a02e2731e7b94eb7  # printing drops n: MATCH (n:N) REMOVE ``:N WITH n WHERE n.num % 2 = 0 RETURN n.nu… | MATCH (n:N) REMOVE n:N WITH n WHERE n.num % 2 = 0 RETURN n.num AS num
+lossless a07a842c84b6d88e  # printing drops n: MATCH (n)-[]->(b) WITH [(p = (p)) | p] AS ps, `count`(b) AS c … | MATCH (n)-->(b) WITH [p = (n)-->() | p] AS ps, count(b) AS c RETURN ps, c
+lossless a0b2c5179613f87f  # printing drops a: MATCH (a), (b), (c) RETURN size(); | MATCH (a), (b), (c) RETURN size(()--(a))
+lossless a2908204ab734756  # printing drops a: OPTIONAL MATCH (a:DoesNotExist) SET ``:L RETURN a; | OPTIONAL MATCH (a:DoesNotExist) SET a:L RETURN a
+lossless a4d3257a46eb02ba  # printing drops a, b: MATCH (a:A), (b:B) RETURN [(p = (p)) | p] AS list; | MATCH (a:A), (b:B) RETURN [p = (a)-->(b) | p] AS list
+lossless a63ecac83c92f14a  # printing drops REL1, n: MATCH (n) RETURN n; | MATCH (n) WHERE (n)-[:REL1*]-() RETURN n
+lossless a964456704141247  # printing drops a: MATCH (a), (b), (c) RETURN size(); | MATCH (a), (b), (c) RETURN size((a)<--(a {}))
+lossless abe57df733921540  # printing drops n: MATCH (n) REMOVE ``:L RETURN n.num; | MATCH (n) REMOVE n:L RETURN n.num
+lossless af12d191e988cf38  # printing drops a, n, r: MATCH (n) RETURN n; | MATCH (n) WHERE (n)-[r]->(a) RETURN n
+lossless b2e1ea09f2f6cac4  # printing drops n: MATCH (n:X) RETURN n, size([(()) | 1]) > 0 AS b; | MATCH (n:X) RETURN n, size([(n)--() | 1]) > 0 AS b
+lossless b45dfad4e1a5dda2  # printing drops n: MATCH (n) REMOVE ``:Bar RETURN labels(n); | MATCH (n) REMOVE n:Bar RETURN labels(n)
+lossless b6115a2dfd4fe13f  # printing drops 5e0, C, REL, a, n, num, r, s: MATCH (n) RETURN n; | MATCH (n) WHERE (n)-[r:REL]->(:C)<-[s:REL]-(a {num: 5}) RETURN n
+lossless bb9cc6bfa8a04a43  # printing drops 1e0, 2e0: MATCH (advertiser)-[:ADV_HAS_PRODUCT]->(out)-[:AP_HAS_V… | MATCH (advertiser)-[:ADV_HAS_PRODUCT]->(out)-[:AP_HAS_VALUE]->(red)<-[:AA_HAS_VALUE]-(a) WITH a, adv…
+lossless be7ed8e305febbf9  # printing drops r: MATCH (n) RETURN n; | MATCH (n) WHERE ()-[r]-() RETURN n
+lossless c2a811bddf7d133d  # printing drops a, n, r: MATCH (n) RETURN n; | MATCH (n) WHERE (a)-[r]->(n) RETURN n
+lossless cb3f0066a62a458c  # printing drops R, l, m, n: MATCH (n) WHERE EXISTS { MATCH (m) WHERE EXISTS { MAT… | MATCH (n) WHERE exists { MATCH (m) WHERE exists { MATCH (l) WHERE (l)<-[:R]-(n)-[:R]->(m) RETURN tru…
+lossless d45a0b8bf83b3cd0  # printing drops n, r: MATCH (n) RETURN n; | MATCH (n) WHERE (n)<-[r]-() RETURN n
+lossless d5a734faecbdb5e3  # printing drops 2e0, REL1, n: MATCH (n) RETURN n; | MATCH (n) WHERE (n)-[:REL1*2]-() RETURN n
+lossless daefcf2ddc040bf1  # printing drops 5e0, REL, a, n, num, r: MATCH (n) RETURN n; | MATCH (n) WHERE (n)-[r:REL]->(a {num: 5}) RETURN n
+lossless dc15fba7d29ace03  # printing drops n: MATCH (n:N) SET ``:Foo RETURN n.num AS num SKIP 0 LIMIT 5; | MATCH (n:N) SET n:Foo RETURN n.num AS num SKIP 0 LIMIT 5
+lossless dc60c19d75836c3f  # printing drops B, n: MATCH (n:A) RETURN [(p = (p)) | p] AS list; | MATCH (n:A) RETURN [p = (n)-->(:B) | p] AS list
+lossless ddf64c1dce538827  # printing drops REL1, n: MATCH (n) RETURN n; | MATCH (n) WHERE (n)-[:REL1*]->() RETURN n
+lossless de82edcebb375e57  # printing drops a, n, r: MATCH (n) RETURN n; | MATCH (n) WHERE (n)-[r {}]-(a) RETURN n
+lossless e1322f478f8dd809  # printing drops m, n, prop: MATCH (n) WHERE EXISTS { } RETURN n; | MATCH (n) WHERE exists { (n)-->(m) WHERE n.prop = m.prop } RETURN n
+lossless e55683d6f395cccd  # printing drops n: MATCH (n) RETURN n; | MATCH (n) WHERE (n)-[]-() RETURN n
+lossless e675ceb1d92376c9  # printing drops Y, x: MATCH p = (n:X)-[]->() RETURN n, [x IN nodes(p) | size([(()… | MATCH p = (n:X)-->() RETURN n, [x IN nodes(p) | size([(x)-->(:Y) | 1])] AS list
+lossless e6ee7a6c34bd18ce  # printing drops T, n, r: MATCH (n) RETURN [(()) | r.name] AS list; | MATCH (n) RETURN [(n)-[r:T]->() | r.name] AS list
+lossless f87a9b2eeb91bad1  # printing drops 0e0, 2e0, 5e0, REL, a, n, num, r: MATCH (n) RETURN n; | MATCH (n) WHERE (n)-[r:REL*0..2]->(a {num: 5}) RETURN n
+lossless f971983c59d82f23  # printing drops n: MATCH (n:N) SET ``:Foo RETURN n SKIP 1; | MATCH (n:N) SET n:Foo RETURN n SKIP 1
 parse 020463e6a8601b85  # unexpected token `:`, expected `(`, dynamic label expression, label name | MATCH (a)-[:T|:T]->(b) RETURN b
 parse 049f299e707fb552  # unexpected token `.`, expected `)` | RETURN [-.1e-5] AS literal
 parse 091f33f759daddfc  # internal error: invalid number | RETURN -0o0 AS literal

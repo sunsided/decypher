@@ -7,6 +7,9 @@
 //! - `parse`: the parser accepts or rejects it as expected;
 //! - `roundtrip`: for accepted queries, `parse → to_cypher → parse → to_cypher`
 //!   is idempotent, so printing does not change the query;
+//! - `lossless`: every identifier and literal of the query still appears in
+//!   the printed query. This catches parts dropped while building the AST,
+//!   which the idempotency check cannot see once the first print has lost them;
 //! - `analyze`: queries the TCK expects to compile without error also pass
 //!   semantic analysis.
 //!
@@ -104,6 +107,10 @@ fn check_query(q: &TckQuery) -> Vec<(&'static str, String)> {
         failures.push(("roundtrip", e));
     }
 
+    if let Err(e) = guarded(|| lossless(&q.source, &ast.to_cypher())) {
+        failures.push(("lossless", e));
+    }
+
     if q.accept && !q.expects_error {
         let analyzed =
             guarded(|| decypher::analyze(q.source.as_str()).map_err(|e| e.kind.to_string()));
@@ -112,6 +119,63 @@ fn check_query(q: &TckQuery) -> Vec<(&'static str, String)> {
         }
     }
     failures
+}
+
+/// Identifier and literal tokens of `source`, with escaped identifiers
+/// unescaped so that `` `a` `` and `a` compare equal.
+fn significant_tokens(source: &str) -> BTreeMap<String, usize> {
+    use decypher::syntax::SyntaxKind;
+    let mut counts = BTreeMap::new();
+    for token in decypher::parse_cst(source)
+        .tree
+        .descendants_with_tokens()
+        .filter_map(|el| el.into_token())
+    {
+        let text = match token.kind() {
+            SyntaxKind::IDENT => token.text().to_owned(),
+            SyntaxKind::ESCAPED_IDENT => token.text().trim_matches('`').replace("``", "`"),
+            // The printer normalises number syntax (`0x1F` → `31`, `1e9` →
+            // `1000000000.0`), so compare numbers by value.
+            SyntaxKind::INTEGER | SyntaxKind::FLOAT => number_value(token.text()),
+            // …and may switch quote style, so compare strings by content.
+            SyntaxKind::STRING => {
+                let t = token.text();
+                format!("'{}'", t.get(1..t.len().saturating_sub(1)).unwrap_or(t))
+            }
+            _ => continue,
+        };
+        *counts.entry(text).or_insert(0) += 1;
+    }
+    counts
+}
+
+/// A canonical rendering of a number literal's value.
+fn number_value(text: &str) -> String {
+    let t = text.to_ascii_lowercase().replace('_', "");
+    let int = |digits: &str, radix| u128::from_str_radix(digits, radix).ok().map(|v| v as f64);
+    let value = if let Some(hex) = t.strip_prefix("0x") {
+        int(hex, 16)
+    } else if let Some(oct) = t.strip_prefix("0o") {
+        int(oct, 8)
+    } else {
+        t.parse::<f64>().ok()
+    };
+    value.map_or(t, |v| format!("{v:e}"))
+}
+
+/// Checks that no identifier or literal of `source` is missing from `printed`.
+fn lossless(source: &str, printed: &str) -> Result<(), String> {
+    let printed_tokens = significant_tokens(printed);
+    let missing: Vec<_> = significant_tokens(source)
+        .into_iter()
+        .filter(|(token, n)| printed_tokens.get(token).copied().unwrap_or(0) < *n)
+        .map(|(token, _)| token)
+        .collect();
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("printing drops {}: {printed}", missing.join(", ")))
+    }
 }
 
 fn one_line(s: &str, max: usize) -> String {
