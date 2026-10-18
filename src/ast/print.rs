@@ -1073,11 +1073,16 @@ impl ToCypher for ComparisonOperator {
 
 impl ToCypher for FunctionInvocation {
     fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        let last_name_part = self.name.len().saturating_sub(1);
         for (i, part) in self.name.iter().enumerate() {
             if i > 0 {
                 write!(w, ".")?;
             }
-            part.write_cypher(w)?;
+            if i == last_name_part {
+                write_function_name(part, w)?;
+            } else {
+                part.write_cypher(w)?;
+            }
         }
         write!(w, "(")?;
         if self.distinct {
@@ -1370,8 +1375,19 @@ impl ToCypher for PropertyKeyName {
     }
 }
 
+/// Function names are followed by `(`, so a reserved word is unambiguous in
+/// this position and does not need backtick quoting. Namespace components keep
+/// the regular identifier rules used elsewhere in the AST.
+fn write_function_name(name: &SymbolicName, w: &mut dyn fmt::Write) -> fmt::Result {
+    if is_valid_identifier(name.name.as_str()) {
+        write!(w, "{}", name.name)
+    } else {
+        name.write_cypher(w)
+    }
+}
+
 fn is_safe_bare_identifier(name: &str) -> bool {
-    if name.is_empty() {
+    if !is_valid_identifier(name) {
         return false;
     }
     let is_keyword = matches!(
@@ -1422,11 +1438,15 @@ fn is_safe_bare_identifier(name: &str) -> bool {
     if is_keyword {
         return false;
     }
-    let first = name.chars().next().unwrap();
-    if !first.is_ascii_alphabetic() && first != '_' {
+    true
+}
+
+fn is_valid_identifier(name: &str) -> bool {
+    let Some(first) = name.chars().next() else {
         return false;
-    }
-    name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+    };
+    (first.is_ascii_alphabetic() || first == '_')
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 // ── ToCypher implementations for new AST types (Parsing 1.0) ──

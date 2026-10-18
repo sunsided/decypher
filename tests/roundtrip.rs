@@ -412,6 +412,20 @@ fn rt_function_call() {
     roundtrip("RETURN toUpper('hello');");
 }
 
+/// Function names that are also keywords are unambiguous before `(` and
+/// should be emitted without backticks.
+#[test]
+fn function_name_keywords_are_not_quoted() {
+    let parsed = parse("MATCH (m) RETURN count(m), collect(m), sum(m.x), exists(m.x);")
+        .expect("parse should succeed");
+    let emitted = parsed.to_cypher();
+
+    assert_eq!(
+        emitted,
+        "MATCH (m) RETURN count(m), collect(m), sum(m.x), exists(m.x);"
+    );
+}
+
 /// Round-trip `rt function call qualified`: parse → serialise → re-parse must yield equal ASTs.
 ///
 /// Unit: `ToCypher::to_cypher` / `parse`
