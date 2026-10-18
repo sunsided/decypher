@@ -71,7 +71,10 @@ fn implicit_grouping_keys_are_rejected() {
             "MATCH (me)--(you) WITH me.age + count(you.age) AS agg RETURN agg",
             vec!["me.age"],
         ),
-        ("MATCH (n)-->(m) RETURN n.k, m + count(*)", vec!["m"]),
+        (
+            "MATCH (n)-->(m) RETURN n.k, toString(m) + count(*)",
+            vec!["m"],
+        ),
     ] {
         let found = non_grouping(query, &Catalog::default());
         assert_eq!(found, expected, "query: {query}");

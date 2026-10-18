@@ -453,3 +453,34 @@ fn test_incomplete_gql_predicates() {
         );
     }
 }
+
+/// `InvalidNumberOfArguments` messages agree in number with the count.
+///
+/// Unit: `ErrorKind` `Display`
+/// Precondition: Signatures taking exactly one, at least one, and one to
+///               three arguments.
+/// Expectation: "argument" is singular for one and at least one, plural
+///              otherwise.
+#[test]
+fn invalid_number_of_arguments_message_agrees_in_number() {
+    use decypher::ErrorKind;
+    let message = |min, max| {
+        ErrorKind::InvalidNumberOfArguments {
+            name: "f()".into(),
+            min,
+            max,
+            found: 0,
+        }
+        .to_string()
+    };
+    assert_eq!(message(1, Some(1)), "`f()` takes 1 argument, but got 0");
+    assert_eq!(
+        message(1, None),
+        "`f()` takes at least 1 argument, but got 0"
+    );
+    assert_eq!(
+        message(1, Some(3)),
+        "`f()` takes 1 to 3 arguments, but got 0"
+    );
+    assert_eq!(message(2, Some(2)), "`f()` takes 2 arguments, but got 0");
+}

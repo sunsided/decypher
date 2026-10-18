@@ -36,8 +36,8 @@ use crate::ast::query::*;
 use crate::ast::visit::{
     Visit, walk_call_subquery, walk_create, walk_delete, walk_exists_inner, walk_expression,
     walk_filter_expression, walk_foreach, walk_in_query_call, walk_list_comprehension, walk_match,
-    walk_merge, walk_pattern_comprehension, walk_reduce_expression, walk_return,
-    walk_standalone_call, walk_unwind, walk_with,
+    walk_merge, walk_pattern_comprehension, walk_reduce_expression, walk_standalone_call,
+    walk_unwind,
 };
 use crate::error::{Span, ValueTypes, VariableKind};
 
@@ -219,6 +219,37 @@ impl<'a> TypeChecker<'a> {
             projected.insert(name, self.type_of(&item.expression));
         }
         self.vars = projected;
+    }
+
+    /// Visits a `WITH` or `RETURN`. Its `ORDER BY` and `WHERE` see the
+    /// columns, which hide the variables read before
+    /// (`RETURN n.num AS n ORDER BY n + 2`), as well as those variables.
+    fn visit_projection(
+        &mut self,
+        star: bool,
+        items: &[ProjectionItem],
+        order: Option<&Order>,
+        skip_limit: [&Option<Expression>; 2],
+        predicate: Option<&Expression>,
+    ) {
+        for item in items {
+            self.visit_projection_item(item);
+        }
+        for expr in skip_limit.into_iter().flatten() {
+            self.visit_expression(expr);
+        }
+        let before = self.vars.clone();
+        self.project(star, items);
+        let columns = std::mem::replace(&mut self.vars, before);
+        self.vars.extend(columns.clone());
+        if let Some(order) = order {
+            self.visit_order(order);
+        }
+        if let Some(predicate) = predicate {
+            self.expect_predicate(predicate, "WHERE");
+            self.visit_expression(predicate);
+        }
+        self.vars = columns;
     }
 
     /// Binds `var` to `ty` in the current scope, hiding an outer variable.
@@ -415,6 +446,27 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
+    /// `+` adds numbers, temporal values and durations, concatenates
+    /// strings and lists, and appends to or prepends to a list, so only
+    /// operands that are never addable are reported, unless the other side
+    /// may be a list (`[1] + true`).
+    fn check_addition(&mut self, lhs: &Expression, rhs: &Expression) {
+        use ValueTypes as T;
+        let never_addable = T::BOOLEAN | T::MAP | T::NODE | T::RELATIONSHIP | T::PATH | T::POINT;
+        let addable = T::NUMBER | T::STRING | T::LIST | T::TEMPORAL | T::DURATION;
+        let (lhs_ty, rhs_ty) = (self.type_of(lhs), self.type_of(rhs));
+        for (operand, ty, other) in [(lhs, lhs_ty, rhs_ty), (rhs, rhs_ty, lhs_ty)] {
+            if ty.within(never_addable) && !other.top.intersects(T::LIST) {
+                self.errors.push(StructuralError::InvalidArgumentType {
+                    context: Cow::Borrowed("+"),
+                    expected: addable,
+                    found: ty.top,
+                    span: operand.span(),
+                });
+            }
+        }
+    }
+
     /// Reports operands of a type their operator does not accept.
     fn check_operands(&mut self, expr: &Expression) {
         use ValueTypes as T;
@@ -430,7 +482,7 @@ impl<'a> TypeChecker<'a> {
                     BinaryOperator::Subtract => (arithmetic, "-"),
                     BinaryOperator::Multiply => (arithmetic, "*"),
                     BinaryOperator::Divide => (arithmetic, "/"),
-                    BinaryOperator::Add => return,
+                    BinaryOperator::Add => return self.check_addition(lhs, rhs),
                 };
                 self.expect(lhs, expected, Cow::Borrowed(symbol));
                 self.expect(rhs, expected, Cow::Borrowed(symbol));
@@ -529,17 +581,23 @@ impl<'ast> Visit<'ast> for TypeChecker<'_> {
     }
 
     fn visit_with(&mut self, node: &'ast With) {
-        walk_with(self, node);
-        self.project(node.star, &node.items);
-        if let Some(predicate) = &node.where_clause {
-            // The WHERE of a WITH sees its columns.
-            self.expect_predicate(predicate, "WHERE");
-        }
+        self.visit_projection(
+            node.star,
+            &node.items,
+            node.order.as_ref(),
+            [&node.skip, &node.limit],
+            node.where_clause.as_ref(),
+        );
     }
 
     fn visit_return(&mut self, node: &'ast Return) {
-        walk_return(self, node);
-        self.project(node.star, &node.items);
+        self.visit_projection(
+            node.star,
+            &node.items,
+            node.order.as_ref(),
+            [&node.skip, &node.limit],
+            None,
+        );
     }
 
     fn visit_in_query_call(&mut self, node: &'ast InQueryCall) {

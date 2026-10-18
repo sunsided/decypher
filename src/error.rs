@@ -462,7 +462,8 @@ impl fmt::Display for ErrorKind {
                     Some(max) => format!("{min} to {max}"),
                     None => format!("at least {min}"),
                 };
-                let s = if *min == 1 && *max == Some(1) {
+                // "1 argument", "at least 1 argument", "1 to 3 arguments"
+                let s = if *min == 1 && max.is_none_or(|max| max == 1) {
                     ""
                 } else {
                     "s"
