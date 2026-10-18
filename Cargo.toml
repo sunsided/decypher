@@ -37,6 +37,10 @@ rustdoc-args = ["--cfg", "docsrs"]
 name = "hir_lower"
 required-features = ["hir"]
 
+[[test]]
+name = "serde"
+required-features = ["serde"]
+
 [[example]]
 name = "indiana_jones"
 required-features = ["hir"]

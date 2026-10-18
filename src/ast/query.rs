@@ -16,6 +16,7 @@ use crate::error::Span;
 
 /// The root of a parsed Cypher source: a list of top-level statements.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Query {
     /// The top-level statements in the source, in order.
     pub statements: Vec<QueryBody>,
@@ -25,6 +26,7 @@ pub struct Query {
 
 /// A single top-level statement in a query source.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum QueryBody {
     /// A plain single query (single- or multi-part, no `UNION`).
     SingleQuery(SingleQuery),
@@ -42,6 +44,7 @@ pub enum QueryBody {
 
 /// A data query that is either a single-part or multi-part query.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct SingleQuery {
     /// Whether this is a single-part or multi-part (WITH-joined) query.
     pub kind: SingleQueryKind,
@@ -49,6 +52,7 @@ pub struct SingleQuery {
 
 /// Discriminates single-part from multi-part queries.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum SingleQueryKind {
     /// A query with no `WITH` clause separating reading from returning.
     SinglePart(SinglePartQuery),
@@ -58,6 +62,7 @@ pub enum SingleQueryKind {
 
 /// A query part that reads, optionally updates, and then returns or finishes.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct SinglePartQuery {
     /// Zero or more reading clauses (`MATCH`, `UNWIND`, `CALL`, `LOAD CSV`).
     pub reading_clauses: Vec<ReadingClause>,
@@ -67,6 +72,7 @@ pub struct SinglePartQuery {
 
 /// The body that terminates a [`SinglePartQuery`].
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum SinglePartBody {
     /// Ends with a `RETURN` clause.
     Return(Return),
@@ -83,6 +89,7 @@ pub enum SinglePartBody {
 
 /// A multi-part query: a sequence of WITH-separated parts plus a final part.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct MultiPartQuery {
     /// Intermediate parts, each ending with a `WITH` clause.
     pub parts: Vec<MultiPartQueryPart>,
@@ -95,6 +102,7 @@ pub struct MultiPartQuery {
 /// Consists of reading clauses, optional updating clauses, and the mandatory
 /// `WITH` projection that feeds results to the next part.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct MultiPartQueryPart {
     /// Reading clauses at the start of this part.
     pub reading_clauses: Vec<ReadingClause>,
@@ -106,6 +114,7 @@ pub struct MultiPartQueryPart {
 
 /// A reading clause that introduces or filters graph data without writing.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum ReadingClause {
     /// `MATCH` pattern clause.
     Match(Match),
@@ -124,6 +133,7 @@ pub enum ReadingClause {
 /// Executes an inner query in a correlated sub-context. The optional
 /// [`InTransactions`] modifier enables batch processing.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct CallSubquery {
     /// The inner query body.
     pub query: RegularQuery,
@@ -137,6 +147,7 @@ pub struct CallSubquery {
 ///
 /// Controls how `CALL { … }` batches its inner query for large writes.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct InTransactions {
     /// Optional batch size expression (`OF n ROWS`).
     pub of_rows: Option<Expression>,
@@ -148,6 +159,7 @@ pub struct InTransactions {
 
 /// Error-handling mode for `IN TRANSACTIONS`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum OnErrorBehavior {
     /// Continue processing subsequent batches after an error.
     Continue,
@@ -159,6 +171,7 @@ pub enum OnErrorBehavior {
 
 /// A write clause that modifies graph data.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum UpdatingClause {
     /// `CREATE` pattern clause.
     Create(Create),
@@ -176,6 +189,7 @@ pub enum UpdatingClause {
 
 /// A query with one initial query and zero or more `UNION` branches.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct RegularQuery {
     /// The initial single query.
     pub single_query: SingleQuery,
@@ -219,6 +233,7 @@ impl RegularQuery {
 
 /// A single `UNION` or `UNION ALL` branch in a [`RegularQuery`].
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub struct Union {
     /// `true` if `UNION ALL` (duplicates allowed); `false` if `UNION` (deduplicates).
     pub all: bool,

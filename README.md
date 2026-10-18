@@ -35,7 +35,7 @@ println!("{:#?}", query);
 - **Source spans** — Every AST node carries a `Span { start, end }` (byte offsets into the input) for diagnostics.
 - **Ergonomic errors** — `CypherError` with syntax, AST build, and unsupported-production variants via `thiserror`.
 - **Cypher emission** — The `ToCypher` trait renders any AST node back into valid openCypher text, enabling round-trips (`parse → ast → to_cypher → parse`).
-- **`serde` support** — Optional `serde` feature for `Serialize`/`Deserialize` derives on all AST nodes.
+- **`serde` support** — Optional `serde` feature for `Serialize` derives on all AST nodes and spans.
 - **Typed CST (unstable)** — A rust-analyzer-style typed wrapper layer over a lossless rowan CST, available under `decypher::cst`. Each CST node (`SourceFile`, `MatchClause`, `Expression`, …) exposes typed accessor methods instead of raw `SyntaxKind` matches. This is what the public `parse()` function uses internally.
 
 ### Typed CST example
