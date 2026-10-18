@@ -35,9 +35,16 @@ for (const license of ["LICENSE-APACHE", "LICENSE-EUPL", "LICENSE-MIT"]) {
   cpSync(join(crateDir, "..", "..", license), join(pkgDir, license));
 }
 
-const cargoToml = readFileSync(join(crateDir, "Cargo.toml"), "utf8");
-const version = cargoToml.match(/^version\s*=\s*"([^"]+)"/m)?.[1];
-if (!version) throw new Error("could not read the package version from Cargo.toml");
+// Ask cargo rather than parsing Cargo.toml, so workspace inheritance or
+// reordered tables can't yield the wrong version.
+const metadata = JSON.parse(
+  execFileSync("cargo", ["metadata", "--no-deps", "--format-version", "1"], {
+    cwd: crateDir,
+    encoding: "utf8",
+  }),
+);
+const version = metadata.packages.find((p) => p.name === "decypher-wasm")?.version;
+if (!version) throw new Error("decypher-wasm not found in `cargo metadata`");
 
 const manifest = JSON.parse(readFileSync(join(crateDir, "npm", "package.json"), "utf8"));
 manifest.version = version;
