@@ -16,7 +16,10 @@ are marked **Breaking** below.
   `@sunsided/decypher` for Node.js and browsers: `parse` (typed AST as JSON),
   `validate` (syntax errors and unresolved or out-of-scope variables),
   `format`, and `cst` (lossless syntax tree), with TypeScript types and
-  runnable Node.js and browser examples (#100).
+  runnable Node.js and browser examples (#100). Releases publish it to this
+  repository's GitHub Packages npm registry under the `alpha` dist-tag
+  (`npm install @sunsided/decypher@alpha` with
+  `@sunsided:registry=https://npm.pkg.github.com`).
 - The `serde` feature now derives `Serialize` for every AST node and for
   `Span` / `Spanned`; previously it was declared but had no effect.
 - `sema::check_aggregation_with`, `sema::analyze_with` and
