@@ -154,6 +154,24 @@ pub enum ExprKind {
         /// `true` for `IS NOT NULL`.
         negated: bool,
     },
+    /// `IS [NOT] [form] NORMALIZED` string normalization predicate.
+    IsNormalized {
+        /// The string expression being tested.
+        operand: ExprId,
+        /// `true` for `IS NOT … NORMALIZED`.
+        negated: bool,
+        /// The normal form, or `None` for the default (NFC).
+        form: Option<crate::ast::expr::NormalForm>,
+    },
+    /// `IS [NOT] :: <type>` type predicate.
+    IsTyped {
+        /// The expression whose type is tested.
+        operand: ExprId,
+        /// `true` for `IS NOT :: <type>`.
+        negated: bool,
+        /// The normalised type text, e.g. `LIST<INTEGER>`.
+        type_name: String,
+    },
 
     /// A chained comparison: `left op1 rhs1 op2 rhs2 …`.
     Comparison {

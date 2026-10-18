@@ -177,6 +177,30 @@ pub enum Expression {
         /// Byte-offset span of the expression.
         span: Span,
     },
+    /// `IS [NOT] [NFC|NFD|NFKC|NFKD] NORMALIZED` (GQL string normalization
+    /// predicate).
+    IsNormalized {
+        /// The string expression being tested.
+        operand: Box<Expression>,
+        /// `true` for `IS NOT … NORMALIZED`.
+        negated: bool,
+        /// The normal form, or `None` for the default (NFC).
+        form: Option<NormalForm>,
+        /// Byte-offset span of the expression.
+        span: Span,
+    },
+    /// `IS [NOT] :: <type>` / `IS [NOT] TYPED <type>` (GQL type predicate).
+    IsTyped {
+        /// The expression whose type is tested.
+        operand: Box<Expression>,
+        /// `true` for `IS NOT :: <type>`.
+        negated: bool,
+        /// The type, normalised to upper case with single spaces, e.g.
+        /// `INTEGER`, `LIST<STRING NOT NULL>`, `INTEGER | FLOAT`.
+        type_name: String,
+        /// Byte-offset span of the expression.
+        span: Span,
+    },
     /// A function invocation: `f(args)` or `ns.f(args)`.
     FunctionCall(FunctionInvocation),
     /// `count(*)` — the special aggregate form.
@@ -212,6 +236,31 @@ pub enum Expression {
     CollectSubquery(Box<CollectSubqueryExpression>),
     /// `variable { … }` map projection expression.
     MapProjection(Box<MapProjection>),
+}
+
+/// A Unicode normal form for `IS [NOT] <form> NORMALIZED`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NormalForm {
+    /// `NFC` (the default).
+    Nfc,
+    /// `NFD`
+    Nfd,
+    /// `NFKC`
+    Nfkc,
+    /// `NFKD`
+    Nfkd,
+}
+
+impl NormalForm {
+    /// The keyword spelling (`NFC`, …).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            NormalForm::Nfc => "NFC",
+            NormalForm::Nfd => "NFD",
+            NormalForm::Nfkc => "NFKC",
+            NormalForm::Nfkd => "NFKD",
+        }
+    }
 }
 
 /// Binary infix operators.
@@ -483,7 +532,9 @@ impl Expression {
             Expression::ListIndex { span, .. } => *span,
             Expression::ListSlice { span, .. } => *span,
             Expression::In { span, .. } => *span,
-            Expression::IsNull { span, .. } => *span,
+            Expression::IsNull { span, .. }
+            | Expression::IsNormalized { span, .. }
+            | Expression::IsTyped { span, .. } => *span,
             Expression::FunctionCall(fc) => fc.span,
             Expression::CountStar { span } => *span,
             Expression::Case(case) => case.span,

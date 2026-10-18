@@ -189,36 +189,147 @@ fn parse_list_index(p: &mut Parser) {
 }
 
 fn parse_is_null(p: &mut Parser) {
-    p.start_node(SyntaxKind::NULL_OP_EXPR);
+    // `IS [NOT] NULL`, `IS [NOT] [NFC|NFD|NFKC|NFKD] NORMALIZED` (GQL string
+    // normalization) or `IS [NOT] :: <type>` / `IS [NOT] TYPED <type>` (GQL type
+    // predicate). The node kind is decided after `IS [NOT]`.
+    let checkpoint = p.checkpoint();
     p.bump(); // IS
     p.skip_trivia();
     p.eat(SyntaxKind::KW_NOT);
     p.skip_trivia();
-    if p.at(SyntaxKind::NULL_KW) {
-        p.bump();
-    } else if p.at_bare_word("NORMALIZED") {
-        // Support string normalization predicate form: `IS NORMALIZED`.
-        p.bump();
-        p.skip_trivia();
-        // Optional NFC/NFD/NFKC/NFKD specifier.
-        if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) {
-            p.start_node(SyntaxKind::SYMBOLIC_NAME);
+    let is_form = ["NFC", "NFD", "NFKC", "NFKD"]
+        .iter()
+        .any(|form| p.at_bare_word(form));
+    if p.at_bare_word("NORMALIZED") || is_form {
+        p.start_node_at(checkpoint, SyntaxKind::NORMALIZED_PREDICATE_EXPR);
+        if is_form {
             p.bump();
-            p.builder.finish_node();
+            p.skip_trivia();
         }
-    } else if p.at(SyntaxKind::COLON) {
-        // Support typed predicate form: `IS :: <type>` (or `IS NOT :: <type>`).
-        p.bump();
-        p.skip_trivia();
-        p.expect(SyntaxKind::COLON);
-        p.skip_trivia();
-        if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) || is_keyword_as_name(p) {
-            p.start_node(SyntaxKind::SYMBOLIC_NAME);
+        if p.at_bare_word("NORMALIZED") {
             p.bump();
-            p.builder.finish_node();
+        } else {
+            p.error_here(&[Expected::Keyword(Cow::Borrowed("NORMALIZED"))]);
         }
+    } else if p.at(SyntaxKind::COLON) || p.at_bare_word("TYPED") {
+        p.start_node_at(checkpoint, SyntaxKind::TYPE_PREDICATE_EXPR);
+        if p.at(SyntaxKind::COLON) {
+            p.bump();
+            p.expect(SyntaxKind::COLON);
+        } else {
+            p.bump(); // TYPED
+        }
+        p.skip_trivia();
+        parse_type_expr(p);
     } else {
+        p.start_node_at(checkpoint, SyntaxKind::NULL_OP_EXPR);
         p.expect(SyntaxKind::NULL_KW);
+    }
+    p.builder.finish_node();
+}
+
+/// Words that may appear in a GQL value type (`INTEGER`, `LIST<STRING>`,
+/// `ZONED DATETIME`, `PROPERTY VALUE`, …).
+const TYPE_WORDS: &[&str] = &[
+    "ANY",
+    "NOTHING",
+    "NULL",
+    "BOOL",
+    "BOOLEAN",
+    "STRING",
+    "VARCHAR",
+    "INT",
+    "INTEGER",
+    "SIGNED",
+    "INTEGER8",
+    "INTEGER16",
+    "INTEGER32",
+    "INTEGER64",
+    "FLOAT",
+    "FLOAT64",
+    "DATE",
+    "LOCAL",
+    "ZONED",
+    "TIME",
+    "DATETIME",
+    "TIMESTAMP",
+    "DURATION",
+    "POINT",
+    "NODE",
+    "VERTEX",
+    "RELATIONSHIP",
+    "EDGE",
+    "MAP",
+    "LIST",
+    "ARRAY",
+    "PATH",
+    "PROPERTY",
+    "VALUE",
+];
+
+/// The text of the current token.
+fn current_text<'a>(p: &Parser<'a>) -> &'a str {
+    p.input
+        .get(p.byte_pos..p.byte_pos + p.current_len)
+        .unwrap_or_default()
+}
+
+/// The texts of the next `n` significant tokens after the current one.
+fn peek_texts<'a>(p: &Parser<'a>, n: usize) -> Vec<&'a str> {
+    let mut lx = p.lexer.clone();
+    let mut texts = Vec::new();
+    while texts.len() < n {
+        match lx.advance() {
+            Some(tok) if matches!(tok.kind, SyntaxKind::WHITESPACE | SyntaxKind::COMMENT) => {}
+            Some(tok) => {
+                let end = lx.position();
+                texts.push(p.input.get(end - tok.text_len..end).unwrap_or_default());
+            }
+            None => break,
+        }
+    }
+    texts
+}
+
+/// Parses a GQL value type into a TYPE_EXPR node: type words, `<…>`
+/// parameters, `|` unions, and `NOT NULL` / `!` suffixes. Anything else ends
+/// the type, so a following `AND`, `AS` or clause keyword is left alone.
+fn parse_type_expr(p: &mut Parser) {
+    p.start_node(SyntaxKind::TYPE_EXPR);
+    let mut depth = 0usize;
+    let mut previous_was_time = false;
+    loop {
+        let text = current_text(p).to_ascii_uppercase();
+        let is_time = matches!(text.as_str(), "TIME" | "DATETIME" | "TIMESTAMP");
+        let take = match p.current_kind() {
+            SyntaxKind::LT => {
+                depth += 1;
+                true
+            }
+            SyntaxKind::GT if depth > 0 => {
+                depth -= 1;
+                true
+            }
+            SyntaxKind::PIPE | SyntaxKind::BANG => true,
+            SyntaxKind::KW_NOT => peek_texts(p, 1)
+                .first()
+                .is_some_and(|t| t.eq_ignore_ascii_case("NULL")),
+            // `TIME WITH TIME ZONE`, `DATETIME WITHOUT TIME ZONE`
+            _ if previous_was_time && matches!(text.as_str(), "WITH" | "WITHOUT") => {
+                let next = peek_texts(p, 2);
+                next.len() == 2
+                    && next[0].eq_ignore_ascii_case("TIME")
+                    && next[1].eq_ignore_ascii_case("ZONE")
+            }
+            _ if text == "ZONE" => true,
+            _ => TYPE_WORDS.contains(&text.as_str()),
+        };
+        if !take || p.current_len() == 0 {
+            break;
+        }
+        previous_was_time = is_time;
+        p.bump();
+        p.skip_trivia();
     }
     p.builder.finish_node();
 }
@@ -271,8 +382,8 @@ fn is_label_check_follow(p: &Parser) -> bool {
 }
 
 /// Whether `IS` at the current position starts a GQL label predicate
-/// (`n IS Person`) rather than `IS [NOT] NULL`, `IS [NOT] NORMALIZED` or the
-/// type predicate `IS :: <type>`.
+/// (`n IS Person`) rather than `IS [NOT] NULL`, `IS [NOT] [form] NORMALIZED`
+/// or the type predicate `IS :: <type>` / `IS TYPED <type>`.
 fn is_label_predicate_after_is(p: &Parser) -> bool {
     let mut lx = p.lexer.clone();
     let next = loop {
@@ -288,7 +399,11 @@ fn is_label_predicate_after_is(p: &Parser) -> bool {
     let text = p.input.get(end - tok.text_len..end).unwrap_or_default();
     match tok.kind {
         SyntaxKind::NULL_KW | SyntaxKind::KW_NOT | SyntaxKind::COLON => false,
-        SyntaxKind::IDENT => !text.eq_ignore_ascii_case("NORMALIZED"),
+        // `IS [form] NORMALIZED` and `IS TYPED <type>` keep their meaning; a
+        // label with one of these names needs backticks here.
+        SyntaxKind::IDENT => !["NORMALIZED", "NFC", "NFD", "NFKC", "NFKD", "TYPED"]
+            .iter()
+            .any(|word| text.eq_ignore_ascii_case(word)),
         // A quoted name, a parenthesised or negated label expression, or a
         // dynamic label `$(expr)`.
         SyntaxKind::ESCAPED_IDENT | SyntaxKind::L_PAREN | SyntaxKind::BANG | SyntaxKind::DOLLAR => {

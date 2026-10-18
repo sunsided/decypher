@@ -702,3 +702,50 @@ fn test_gql_union_distinct_and_is_label() {
         check_roundtrip(input, printed);
     }
 }
+
+/// GQL normalization and type predicates keep their meaning instead of being
+/// rebuilt as `IS NULL` (#88).
+///
+/// Unit: `parse()` / `Expression::IsNormalized`, `Expression::IsTyped`
+/// Precondition: `IS [NOT] [form] NORMALIZED`, `IS [NOT] :: <type>` and
+///               `IS TYPED <type>` with parameterised, union, multi-word and
+///               `NOT NULL` types, followed by `AND`, `AS` and clauses.
+/// Expectation: Each prints the same predicate, with the type normalised.
+#[test]
+fn test_normalization_and_type_predicates() {
+    for (input, printed) in [
+        ("RETURN 'a' IS NORMALIZED", "RETURN 'a' IS NORMALIZED;"),
+        (
+            "RETURN 'a' IS NOT NFKC NORMALIZED",
+            "RETURN 'a' IS NOT NFKC NORMALIZED;",
+        ),
+        (
+            "RETURN 'a' IS nfd normalized AS x",
+            "RETURN 'a' IS NFD NORMALIZED AS x;",
+        ),
+        ("RETURN 1 IS NOT :: INTEGER", "RETURN 1 IS NOT :: INTEGER;"),
+        ("RETURN 1 IS TYPED INTEGER", "RETURN 1 IS :: INTEGER;"),
+        (
+            "RETURN [1] IS :: list < integer not null >",
+            "RETURN [1] IS :: LIST<INTEGER NOT NULL>;",
+        ),
+        (
+            "RETURN 1 IS :: INTEGER | FLOAT AS t",
+            "RETURN 1 IS :: INTEGER | FLOAT AS t;",
+        ),
+        (
+            "RETURN 1 IS :: TIME WITH TIME ZONE",
+            "RETURN 1 IS :: TIME WITH TIME ZONE;",
+        ),
+        (
+            "WITH 1 AS x WHERE x IS :: INTEGER AND x > 0 RETURN x",
+            "WITH 1 AS x WHERE x IS :: INTEGER AND x > 0 RETURN x;",
+        ),
+        (
+            "MATCH (n) WHERE n.v IS :: DATE WITH n RETURN n",
+            "MATCH (n) WHERE n.v IS :: DATE WITH n RETURN n;",
+        ),
+    ] {
+        check_roundtrip(input, printed);
+    }
+}

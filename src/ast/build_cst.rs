@@ -1219,6 +1219,30 @@ fn build_expression(e: Expression) -> Result<ast_c::Expression> {
     }
 }
 
+/// Renders a TYPE_EXPR as normalised text: upper-case words separated by
+/// single spaces, `<`/`>` and `!` attached, ` | ` between union members
+/// (`list < string not null >` → `LIST<STRING NOT NULL>`).
+fn normalize_type_text(node: &rowan::SyntaxNode<crate::syntax::CypherLang>) -> String {
+    let mut out = String::new();
+    for token in node
+        .descendants_with_tokens()
+        .filter_map(|el| el.into_token())
+        .filter(|t| !matches!(t.kind(), SyntaxKind::WHITESPACE | SyntaxKind::COMMENT))
+    {
+        match token.kind() {
+            SyntaxKind::LT | SyntaxKind::GT | SyntaxKind::BANG => out.push_str(token.text()),
+            SyntaxKind::PIPE => out.push_str(" | "),
+            _ => {
+                if out.ends_with(|c: char| c.is_ascii_alphanumeric() || c == '>') {
+                    out.push(' ');
+                }
+                out.push_str(&token.text().to_ascii_uppercase());
+            }
+        }
+    }
+    out
+}
+
 fn build_binary_expr(b: BinaryExpr) -> Result<ast_c::Expression> {
     let sp = span_of(b.syntax());
     let lhs = b
@@ -1238,6 +1262,51 @@ fn build_binary_expr(b: BinaryExpr) -> Result<ast_c::Expression> {
             negated: true,
             span: sp,
         }),
+        Some(BinOp::IsNormalized) => {
+            let tokens = || {
+                b.syntax()
+                    .children_with_tokens()
+                    .filter_map(|el| el.into_token())
+            };
+            let form = tokens().find_map(|t| match t.text().to_ascii_uppercase().as_str() {
+                "NFC" => Some(ast_c::NormalForm::Nfc),
+                "NFD" => Some(ast_c::NormalForm::Nfd),
+                "NFKC" => Some(ast_c::NormalForm::Nfkc),
+                "NFKD" => Some(ast_c::NormalForm::Nfkd),
+                _ => None,
+            });
+            Ok(ast_c::Expression::IsNormalized {
+                operand: Box::new(lhs),
+                negated: tokens().any(|t| t.kind() == SyntaxKind::KW_NOT),
+                form,
+                span: sp,
+            })
+        }
+        Some(BinOp::IsTyped) => {
+            let negated = b
+                .syntax()
+                .children_with_tokens()
+                .any(|el| el.kind() == SyntaxKind::KW_NOT);
+            let type_expr = b
+                .syntax()
+                .children()
+                .find(|n| n.kind() == SyntaxKind::TYPE_EXPR)
+                .ok_or_else(|| internal("missing type in type predicate", sp))?;
+            let type_name = normalize_type_text(&type_expr);
+            if type_name.is_empty() {
+                return Err(unexpected(
+                    vec![Expected::Category("type".into())],
+                    String::new(),
+                    span_of(&type_expr),
+                ));
+            }
+            Ok(ast_c::Expression::IsTyped {
+                operand: Box::new(lhs),
+                negated,
+                type_name,
+                span: sp,
+            })
+        }
         Some(BinOp::HasLabel) => {
             let labels: Result<Vec<_>> = b
                 .syntax()

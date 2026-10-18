@@ -1445,7 +1445,9 @@ pub fn walk_expression<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Expression) 
             v.visit_expression(lhs);
             v.visit_expression(rhs);
         }
-        Expression::IsNull { operand, .. } => {
+        Expression::IsNull { operand, .. }
+        | Expression::IsNormalized { operand, .. }
+        | Expression::IsTyped { operand, .. } => {
             v.visit_expression(operand);
         }
         Expression::FunctionCall(func) => v.visit_function_invocation_expr(func),
@@ -2045,7 +2047,9 @@ pub fn walk_expression_mut<V: VisitMut>(v: &mut V, node: &mut Expression) {
             v.visit_expression(lhs);
             v.visit_expression(rhs);
         }
-        Expression::IsNull { operand, .. } => {
+        Expression::IsNull { operand, .. }
+        | Expression::IsNormalized { operand, .. }
+        | Expression::IsTyped { operand, .. } => {
             v.visit_expression(operand);
         }
         Expression::FunctionCall(func) => v.visit_function_invocation_expr(func),
