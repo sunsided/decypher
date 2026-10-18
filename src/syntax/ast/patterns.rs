@@ -645,6 +645,11 @@ impl Properties {
     pub fn list_literal(&self) -> Option<super::expressions::ListLiteral> {
         child(&self.0)
     }
+
+    /// The `$param` form: a parameter supplying the property map.
+    pub fn parameter(&self) -> Option<super::expressions::Parameter> {
+        child(&self.0)
+    }
 }
 
 // ============================================================

@@ -250,17 +250,19 @@ fn parse_string_op(p: &mut Parser) {
 }
 
 fn is_label_check_follow(p: &Parser) -> bool {
-    matches!(
-        p.peek_next_non_trivia(),
+    match p.peek_next_non_trivia() {
         Some(
             SyntaxKind::IDENT
-                | SyntaxKind::ESCAPED_IDENT
-                | SyntaxKind::COLON
-                | SyntaxKind::L_PAREN
-                | SyntaxKind::DOLLAR
-                | SyntaxKind::BANG
-        )
-    )
+            | SyntaxKind::ESCAPED_IDENT
+            | SyntaxKind::COLON
+            | SyntaxKind::L_PAREN
+            | SyntaxKind::DOLLAR
+            | SyntaxKind::BANG,
+        ) => true,
+        // A keyword label such as `m:TYPE`.
+        Some(kind) => keyword_can_be_name(kind) && kind != SyntaxKind::KW_WHERE,
+        None => false,
+    }
 }
 
 fn parse_postfix_node_labels(p: &mut Parser) {
@@ -304,6 +306,10 @@ fn parse_label_or(
     while p.at(SyntaxKind::PIPE) {
         p.bump();
         p.skip_trivia();
+        // Legacy relationship-type alternation `[:A|:B]` repeats the colon.
+        if name_kind == SyntaxKind::REL_TYPE_NAME && p.eat(SyntaxKind::COLON) {
+            p.skip_trivia();
+        }
         parse_label_and(p, static_kind, name_kind, dynamic_kind);
         p.skip_trivia();
     }
@@ -932,6 +938,16 @@ fn parse_atom(p: &mut Parser) {
                 p.builder.finish_node();
             }
         }
+        // Every keyword with a meaning of its own in expression position has
+        // been handled above, so any other non-reserved keyword here is a name:
+        // `WITH collect(row) AS rows UNWIND rows AS node RETURN node`.
+        _ if is_keyword_as_name(p) => {
+            p.start_node(SyntaxKind::VARIABLE);
+            p.start_node(SyntaxKind::SYMBOLIC_NAME);
+            p.bump();
+            p.builder.finish_node();
+            p.builder.finish_node();
+        }
         _ => {
             if p.current_len() > 0 {
                 let start = p.byte_pos;
@@ -1094,6 +1110,14 @@ fn relationship_pattern_follows(mut lx: crate::parser::lexer::Lexer<'_>) -> bool
     }
 }
 
+/// Parses `$param` as the PROPERTIES of a node or relationship pattern.
+fn parse_parameter_properties(p: &mut Parser) {
+    p.start_node(SyntaxKind::PROPERTIES);
+    parse_atom(p);
+    p.builder.finish_node();
+    p.skip_trivia();
+}
+
 fn parse_node_pattern_for_atom(p: &mut Parser) {
     // Parse ( optional var :Label* {props}? )
     p.start_node(SyntaxKind::NODE_PATTERN);
@@ -1138,6 +1162,9 @@ fn parse_node_pattern_for_atom(p: &mut Parser) {
         p.builder.finish_node();
         p.builder.finish_node();
         p.skip_trivia();
+    } else if p.at(SyntaxKind::DOLLAR) {
+        // `(n $props)`: a parameter supplying the property map.
+        parse_parameter_properties(p);
     }
     if p.at(SyntaxKind::KW_WHERE) {
         p.start_node(SyntaxKind::WHERE_CLAUSE);
@@ -1174,7 +1201,10 @@ fn parse_bracket_expr(p: &mut Parser) {
         }
     };
     if let Some(tok) = first {
-        if tok.kind == SyntaxKind::IDENT || tok.kind == SyntaxKind::ESCAPED_IDENT {
+        if tok.kind == SyntaxKind::IDENT
+            || tok.kind == SyntaxKind::ESCAPED_IDENT
+            || keyword_can_be_name(tok.kind)
+        {
             match next_significant(&mut lx) {
                 Some(SyntaxKind::KW_IN) => is_list_comprehension = true,
                 // `[p = (a)-->(b) | …]`; `[x = 1]` is a list holding a
@@ -1428,7 +1458,15 @@ fn parse_map_entry(p: &mut Parser) {
     } else {
         p.start_node(SyntaxKind::PROPERTY_KEY_NAME);
         p.start_node(SyntaxKind::SYMBOLIC_NAME);
-        if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) || is_keyword_as_name(p) {
+        // Property keys may be any name, including the reserved literals
+        // `null`, `true` and `false` (`{null: 'Mats'}`).
+        if p.at(SyntaxKind::IDENT)
+            || p.at(SyntaxKind::ESCAPED_IDENT)
+            || is_keyword_as_name(p)
+            || p.at(SyntaxKind::NULL_KW)
+            || p.at(SyntaxKind::TRUE_KW)
+            || p.at(SyntaxKind::FALSE_KW)
+        {
             p.bump();
         }
         p.builder.finish_node();
@@ -1642,12 +1680,27 @@ fn parse_set_clause(p: &mut Parser) {
 
 fn parse_set_item(p: &mut Parser) {
     p.start_node(SyntaxKind::SET_ITEM);
-    if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) || is_keyword_as_name(p) {
-        p.start_node(SyntaxKind::VARIABLE);
-        p.start_node(SyntaxKind::SYMBOLIC_NAME);
-        p.bump();
-        p.builder.finish_node();
-        p.builder.finish_node();
+    let has_target =
+        if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) || is_keyword_as_name(p) {
+            p.start_node(SyntaxKind::VARIABLE);
+            p.start_node(SyntaxKind::SYMBOLIC_NAME);
+            p.bump();
+            p.builder.finish_node();
+            p.builder.finish_node();
+            true
+        } else if p.at(SyntaxKind::L_PAREN) {
+            // `SET (n).name = …`: a parenthesised target expression. Only a
+            // property can be set through it, so a `.key` must follow.
+            parse_atom(p);
+            p.skip_trivia();
+            if !p.at(SyntaxKind::DOT) {
+                p.error_here(&[Expected::Symbol(Cow::Borrowed("."))]);
+            }
+            true
+        } else {
+            false
+        };
+    if has_target {
         p.skip_trivia();
         while p.at(SyntaxKind::DOT) {
             p.start_node(SyntaxKind::PROPERTY_LOOKUP);
@@ -1977,6 +2030,9 @@ fn parse_relationship_detail(p: &mut Parser) {
         p.builder.finish_node();
         p.builder.finish_node();
         p.skip_trivia();
+    } else if p.at(SyntaxKind::DOLLAR) {
+        // `[r:FOO $props]`: a parameter supplying the relationship's property map.
+        parse_parameter_properties(p);
     }
     if p.at(SyntaxKind::KW_WHERE) {
         p.start_node(SyntaxKind::WHERE_CLAUSE);
@@ -2033,6 +2089,9 @@ fn parse_node_pattern(p: &mut Parser) {
         p.builder.finish_node();
         p.builder.finish_node();
         p.skip_trivia();
+    } else if p.at(SyntaxKind::DOLLAR) {
+        // `(n $props)`: a parameter supplying the property map.
+        parse_parameter_properties(p);
     }
     if p.at(SyntaxKind::KW_WHERE) {
         p.start_node(SyntaxKind::WHERE_CLAUSE);
@@ -3116,8 +3175,14 @@ fn parse_finish_clause(p: &mut Parser) {
 // ── Helpers ─────────────────────────────────────────────────────
 
 fn is_keyword_as_name(p: &Parser) -> bool {
+    keyword_can_be_name(p.current_kind())
+}
+
+/// Whether the non-reserved keyword `kind` may be used as a name (variable,
+/// alias, label, property key, …).
+fn keyword_can_be_name(kind: SyntaxKind) -> bool {
     matches!(
-        p.current_kind(),
+        kind,
         SyntaxKind::KW_ACCESS
             | SyntaxKind::KW_ADD
             | SyntaxKind::KW_ALL

@@ -407,3 +407,32 @@ fn test_invalid_number_literals() {
         );
     }
 }
+
+/// The legacy `|:` alternation is only valid for relationship types, not for
+/// node labels.
+///
+/// Unit: `parse()`
+/// Precondition: `MATCH (a:A|:B) RETURN a`.
+/// Expectation: Returns a syntax error.
+#[test]
+fn test_legacy_alternation_rejected_for_labels() {
+    check!(parse("MATCH (a:A|:B) RETURN a").is_err());
+}
+
+/// A parenthesised `SET` target can only set a property, so it must be
+/// followed by `.key`; other forms are syntax errors, not internal errors.
+///
+/// Unit: `parse()`
+/// Precondition: `SET (n) = 1` and `SET (n):L`.
+/// Expectation: `ErrorKind::UnexpectedToken` expecting `.`.
+#[test]
+fn test_parenthesised_set_target_requires_property() {
+    for input in ["MATCH (n) SET (n) = 1", "MATCH (n) SET (n):L"] {
+        let err = parse(input).unwrap_err();
+        check!(
+            matches!(err.kind, ErrorKind::UnexpectedToken { .. }),
+            "input: {input}, got: {:?}",
+            err.kind
+        );
+    }
+}

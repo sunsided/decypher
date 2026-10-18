@@ -590,3 +590,70 @@ fn test_number_literals() {
         check_roundtrip(input, printed);
     }
 }
+
+/// Non-reserved keywords can be used as variables, and the reserved literals
+/// as map keys (#64).
+///
+/// Unit: `parse()` / keyword-as-name handling
+/// Precondition: Variables named `node`, `types`, `rows`, `match` and `key`
+///               (including as a list comprehension variable), and map keys
+///               `null`, `true`, `false`.
+/// Expectation: Each query parses and prints back with the same names.
+#[test]
+fn test_keywords_as_names() {
+    for (input, printed) in [
+        ("RETURN node", "RETURN node;"),
+        (
+            "WITH 1 AS node RETURN node.x",
+            "WITH 1 AS node RETURN node.x;",
+        ),
+        (
+            "WITH 1 AS rows RETURN size(rows)",
+            "WITH 1 AS rows RETURN size(rows);",
+        ),
+        (
+            "WITH 1 AS match RETURN match",
+            "WITH 1 AS `match` RETURN `match`;",
+        ),
+        (
+            "WITH [1] AS k RETURN [key IN k | key]",
+            "WITH [1] AS k RETURN [key IN k | key];",
+        ),
+        (
+            "RETURN {null: 1, true: 2, false: 3} AS m",
+            "RETURN {`null`: 1, `true`: 2, `false`: 3} AS m;",
+        ),
+    ] {
+        check_roundtrip(input, printed);
+    }
+}
+
+/// Pattern parameters, legacy relationship-type alternation, parenthesised
+/// `SET` targets and keyword labels in label predicates (#65).
+///
+/// Unit: `parse()`
+/// Precondition: `(n $param)`, `[r:FOO $param]`, `[:A|:B]`, `SET (n).name`,
+///               `RETURN m:TYPE` and `RETURN (-3) - 2`.
+/// Expectation: Each query parses; legacy `|:` prints in the modern form.
+#[test]
+fn test_misc_valid_forms() {
+    for (input, printed) in [
+        ("MATCH (n $param) RETURN n", "MATCH (n $param) RETURN n;"),
+        (
+            "MATCH ()-[r:FOO $param]->() RETURN r",
+            "MATCH ()-[r:FOO $param]->() RETURN r;",
+        ),
+        (
+            "MATCH (a)-[:A|:B]->(b) RETURN b",
+            "MATCH (a)-[:A|B]->(b) RETURN b;",
+        ),
+        (
+            "MATCH (n:A) SET (n).name = 'neo4j' RETURN n",
+            "MATCH (n:A) SET (n).name = 'neo4j' RETURN n;",
+        ),
+        ("MATCH (n) RETURN n:TYPE", "MATCH (n) RETURN n:TYPE;"),
+        ("RETURN (-3) - 2 AS b", "RETURN (-3) - 2 AS b;"),
+    ] {
+        check_roundtrip(input, printed);
+    }
+}

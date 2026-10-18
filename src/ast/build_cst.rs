@@ -1196,6 +1196,11 @@ fn build_properties(p: Properties) -> Result<ast_c::Properties> {
             entries: entries?,
             span: span_of(map.syntax()),
         }))
+    } else if let Some(param) = p.parameter() {
+        match build_parameter(param)? {
+            ast_c::Expression::Parameter(param) => Ok(ast_c::Properties::Parameter(param)),
+            _ => Err(internal("expected parameter", span_of(p.syntax()))),
+        }
     } else {
         Err(internal(
             "unsupported properties shape",
