@@ -16,7 +16,7 @@ use crate::ast::visit::{
     Visit, walk_create, walk_expression, walk_match, walk_merge, walk_single_query,
 };
 use crate::error::CypherError;
-use crate::sema::AggregateRegistry;
+use crate::sema::Catalog;
 use crate::sema::error::SemaError;
 use crate::sema::scope::{ScopeStack, SymbolKind};
 
@@ -31,19 +31,16 @@ pub struct ResolutionResult {
 /// Returns `Ok(())` when every variable reference is bound, or
 /// `Err(errors)` with all resolution violations found.
 pub fn resolve_names(query: &Query) -> Result<(), Vec<CypherError>> {
-    resolve_names_with(query, &AggregateRegistry::default())
+    resolve_names_with(query, &Catalog::default())
 }
 
-/// Run name resolution over `query`, treating the functions in `aggregates`
+/// Run name resolution over `query`, treating the aggregates of `catalog`
 /// as aggregates when deciding what a `WITH`'s `WHERE` and `ORDER BY` see.
 ///
 /// Returns `Ok(())` when every variable reference is bound, or
 /// `Err(errors)` with all resolution violations found.
-pub fn resolve_names_with(
-    query: &Query,
-    aggregates: &AggregateRegistry,
-) -> Result<(), Vec<CypherError>> {
-    let mut resolver = NameResolver::new(aggregates.clone());
+pub fn resolve_names_with(query: &Query, catalog: &Catalog) -> Result<(), Vec<CypherError>> {
+    let mut resolver = NameResolver::new(catalog);
     resolver.visit_query(query);
     if resolver.errors.is_empty() {
         Ok(())
@@ -53,26 +50,26 @@ pub fn resolve_names_with(
 }
 
 /// Visitor that resolves variable references and tracks scope.
-struct NameResolver {
+struct NameResolver<'a> {
     /// Errors accumulated during the walk.
     errors: Vec<CypherError>,
     /// The current lexical scope stack.
     scopes: ScopeStack,
-    /// The functions treated as aggregates.
-    aggregates: AggregateRegistry,
+    /// The functions, which tell aggregates apart.
+    catalog: &'a Catalog,
     /// While visiting the `WHERE` or `ORDER BY` of a projection that
     /// aggregates or is `DISTINCT`: its printed item expressions, which stand
     /// for their columns there (`RETURN n.a, count(*) ORDER BY n.a`).
     projected: Vec<String>,
 }
 
-impl NameResolver {
+impl<'a> NameResolver<'a> {
     /// Create a fresh resolver with an empty scope stack.
-    fn new(aggregates: AggregateRegistry) -> Self {
+    fn new(catalog: &'a Catalog) -> Self {
         Self {
             errors: Vec::new(),
             scopes: ScopeStack::new(),
-            aggregates,
+            catalog,
             projected: Vec::new(),
         }
     }
@@ -93,7 +90,7 @@ impl NameResolver {
     fn has_aggregate(&self, items: &[ProjectionItem]) -> bool {
         items.iter().any(|item| {
             item.expression
-                .contains_aggregate(&|fc| self.aggregates.is_aggregate_call(fc))
+                .contains_aggregate(&|fc| self.catalog.is_aggregate_call(fc))
         })
     }
 
@@ -172,7 +169,7 @@ impl NameResolver {
     }
 }
 
-impl<'ast> Visit<'ast> for NameResolver {
+impl<'ast> Visit<'ast> for NameResolver<'_> {
     fn visit_single_query(&mut self, node: &'ast SingleQuery) {
         // Override to handle WITH scope boundaries in multi-part queries
         match &node.kind {

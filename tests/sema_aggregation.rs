@@ -4,13 +4,13 @@
 //! may only use, outside its aggregates, grouping keys that are variables or
 //! property accesses (#97).
 
-use decypher::sema::{AggregateRegistry, analyze, analyze_with};
+use decypher::sema::{Catalog, analyze, analyze_with};
 use decypher::{ErrorKind, parse};
 
 /// Returns the non-grouping references `sema::analyze` reports for `query`.
-fn non_grouping(query: &str, aggregates: &AggregateRegistry) -> Vec<String> {
+fn non_grouping(query: &str, catalog: &Catalog) -> Vec<String> {
     let parsed = parse(query).expect("should parse");
-    match analyze_with(&parsed, aggregates) {
+    match analyze_with(&parsed, catalog) {
         Ok(()) => Vec::new(),
         Err(diagnostics) => diagnostics
             .errors
@@ -43,7 +43,7 @@ fn computed_grouping_keys_are_accepted() {
         "MATCH (n) WITH n.k AS k, count(*) AS c WITH k, c, k + max(c) AS m RETURN m",
         "MATCH (n) RETURN count(*) + 1 AS c, $p * sum(n.x) AS s",
     ] {
-        let found = non_grouping(query, &AggregateRegistry::default());
+        let found = non_grouping(query, &Catalog::default());
         assert!(found.is_empty(), "query: {query}, got: {found:?}");
     }
 }
@@ -73,7 +73,7 @@ fn implicit_grouping_keys_are_rejected() {
         ),
         ("MATCH (n)-->(m) RETURN n.k, m + count(*)", vec!["m"]),
     ] {
-        let found = non_grouping(query, &AggregateRegistry::default());
+        let found = non_grouping(query, &Catalog::default());
         assert_eq!(found, expected, "query: {query}");
     }
 }
@@ -88,16 +88,16 @@ fn implicit_grouping_keys_are_rejected() {
 ///              the second is rejected only once the function is registered.
 #[test]
 fn registered_aggregates_are_aggregates() {
-    let mut aggregates = AggregateRegistry::default();
-    aggregates.register("apoc.agg.percentiles");
+    let mut catalog = Catalog::default();
+    catalog.register_aggregate("apoc.agg.percentiles");
 
     let query = "MATCH (n) WITH apoc.agg.percentiles(n.score) AS p, count(*) AS c RETURN p, c";
-    assert!(non_grouping(query, &aggregates).is_empty());
+    assert!(non_grouping(query, &catalog).is_empty());
     assert!(analyze(&parse(query).unwrap()).is_ok());
 
     let query = "MATCH (n) RETURN n.x + apoc.agg.percentiles(n.score) AS p";
-    assert_eq!(non_grouping(query, &aggregates), vec!["n.x"]);
-    assert!(non_grouping(query, &AggregateRegistry::default()).is_empty());
+    assert_eq!(non_grouping(query, &catalog), vec!["n.x"]);
+    assert!(non_grouping(query, &Catalog::default()).is_empty());
 }
 
 /// `WITH *` and `RETURN *` project every variable in scope, so all of them
@@ -112,7 +112,7 @@ fn star_variables_are_grouping_keys() {
         "MATCH (n) WITH *, n.x + count(*) AS c RETURN n, c",
         "MATCH (n) RETURN *, n.x + count(*) AS c",
     ] {
-        let found = non_grouping(query, &AggregateRegistry::default());
+        let found = non_grouping(query, &Catalog::default());
         assert!(found.is_empty(), "query: {query}, got: {found:?}");
     }
 }
@@ -131,7 +131,7 @@ fn order_by_implicit_grouping_keys_are_rejected() {
     let query = "MATCH (me)--(you) RETURN me.age + you.age, count(*) AS cnt \
                  ORDER BY me.age + you.age + count(*)";
     assert_eq!(
-        non_grouping(query, &AggregateRegistry::default()),
+        non_grouping(query, &Catalog::default()),
         vec!["me.age", "you.age"]
     );
     for query in [
@@ -139,7 +139,7 @@ fn order_by_implicit_grouping_keys_are_rejected() {
         "MATCH (n) RETURN n.k AS k, count(*) AS c ORDER BY c + count(*), k",
         "MATCH (n) WITH n, count(*) AS c ORDER BY n.x + count(*) RETURN n",
     ] {
-        let found = non_grouping(query, &AggregateRegistry::default());
+        let found = non_grouping(query, &Catalog::default());
         assert!(found.is_empty(), "query: {query}, got: {found:?}");
     }
 }

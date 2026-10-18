@@ -929,3 +929,21 @@ fn rt_bare_and_empty_relationships() {
         check!(parse(query).unwrap().to_cypher() == query);
     }
 }
+
+/// Round-trip calls of functions whose names are also keywords: `point`
+/// (`CREATE POINT INDEX`), `range` and `graph` (`USE graph.byName(…)`).
+///
+/// Unit: `ToCypher::to_cypher` / `parse`
+/// Precondition: Calls of `point`, `point.distance`, `range` and `graph.names`.
+/// Expectation: They parse as function calls and print unchanged.
+#[test]
+fn rt_keyword_named_functions() {
+    for query in [
+        "RETURN point({x: 1, y: 2}).x AS x;",
+        "RETURN point.distance(point({x: 1, y: 2}), point({x: 2, y: 2})) AS d;",
+        "RETURN range(1, 3) AS r, graph.names() AS g;",
+    ] {
+        roundtrip(query);
+        check!(parse(query).unwrap().to_cypher() == query);
+    }
+}

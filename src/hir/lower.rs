@@ -68,13 +68,13 @@ pub fn lower(query: &Query, config: &LowerConfig) -> Result<HirQuery, Diagnostic
     let mut ctx = LoweringContext::new(config);
     let mut parts = Vec::new();
 
-    let is_aggregate = |fc: &FunctionInvocation| config.aggregates.is_aggregate_call(fc);
+    let is_aggregate = |fc: &FunctionInvocation| config.catalog.is_aggregate_call(fc);
     for (function, span) in crate::sema::misplaced_aggregates(query, &is_aggregate) {
         ctx.diagnostics
             .push(HirDiagnostic::AggregateNotAllowed { function, span });
     }
     ctx.diagnostics.extend(
-        crate::sema::structural_errors(query, &is_aggregate)
+        crate::sema::structural_errors(query, &config.catalog)
             .into_iter()
             .map(HirDiagnostic::from),
     );
@@ -1870,7 +1870,7 @@ impl<'cfg> LoweringContext<'cfg> {
     }
 
     fn is_aggregate_call(&self, fc: &crate::ast::expr::FunctionInvocation) -> bool {
-        self.config.aggregates.is_aggregate_call(fc)
+        self.config.catalog.is_aggregate_call(fc)
     }
 
     fn has_aggregate(&self, expr: &Expression) -> bool {
@@ -2375,7 +2375,7 @@ mod tests {
         // A custom qualified aggregate registered in LowerConfig must be routed
         // to AggregateOp, not ProjectOp.
         let mut config = LowerConfig::default();
-        config.aggregates.register("apoc.agg.percentiles");
+        config.catalog.register_aggregate("apoc.agg.percentiles");
 
         let query = parse("MATCH (n) WITH apoc.agg.percentiles(n.value) AS p RETURN p").unwrap();
         let hir = lower(&query, &config).unwrap();

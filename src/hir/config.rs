@@ -1,8 +1,11 @@
-use super::aggregate_registry::AggregateRegistry;
+use crate::sema::Catalog;
 
-#[derive(Default)]
+/// Options for HIR lowering.
+#[derive(Debug, Clone, Default)]
 pub struct LowerConfig {
-    pub aggregates: AggregateRegistry,
+    /// The functions and procedures calls are checked against, and which
+    /// functions aggregate.
+    pub catalog: Catalog,
 }
 
 #[cfg(test)]
@@ -12,14 +15,14 @@ mod tests {
     #[test]
     fn test_default_config_has_builtins() {
         let config = LowerConfig::default();
-        assert!(config.aggregates.contains("COUNT"));
-        assert!(!config.aggregates.contains("apoc.coll.count"));
+        assert!(config.catalog.is_aggregate("COUNT"));
+        assert!(!config.catalog.is_aggregate("apoc.coll.count"));
     }
 
     #[test]
     fn test_custom_aggregate_registration() {
         let mut config = LowerConfig::default();
-        config.aggregates.register("custom.agg");
-        assert!(config.aggregates.contains("custom.agg"));
+        config.catalog.register_aggregate("custom.agg");
+        assert!(config.catalog.is_aggregate("custom.agg"));
     }
 }

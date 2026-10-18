@@ -15,8 +15,9 @@
 //! - Pattern expressions are predicates: they appear in `WHERE`, under
 //!   `NOT` / `AND` / `OR` / `XOR`, in `exists(…)` and as `CASE WHEN`
 //!   conditions, not as values (`RETURN size((n)-->())`).
-//! - A variable is used as one kind of entity only (see
-//!   [`super::variable_types`]).
+//! - Values have the types their operators, clauses and functions accept,
+//!   and calls match their [`Catalog`] signatures; a variable is used as one
+//!   kind of entity only (see [`super::types`]).
 //!
 //! The entry point is [`structural_errors`], shared by
 //! [`crate::sema::analyze`] and HIR lowering.
@@ -31,7 +32,10 @@ use crate::ast::visit::{
     walk_merge, walk_node_pattern, walk_regular_query, walk_relationship_detail, walk_remove,
     walk_return, walk_set,
 };
-use crate::error::{ErrorKind, Span, VariableKind};
+use std::borrow::Cow;
+
+use super::Catalog;
+use crate::error::{ErrorKind, Span, ValueTypes, VariableKind};
 
 /// A violation of a structural rule.
 #[derive(Debug, Clone)]
@@ -57,6 +61,25 @@ pub(crate) enum StructuralError {
     NonDeterministicAggregate { span: Span },
     /// A pattern expression used as a value (`RETURN (n)-->()`).
     PatternExpressionOutsidePredicate { span: Span },
+    /// A value of a type its operator, clause or function does not accept.
+    InvalidArgumentType {
+        context: Cow<'static, str>,
+        expected: ValueTypes,
+        found: ValueTypes,
+        span: Span,
+    },
+    /// A call with too few or too many arguments.
+    InvalidNumberOfArguments {
+        name: String,
+        min: u16,
+        max: Option<u16>,
+        found: u16,
+        span: Span,
+    },
+    /// A function a strict catalog does not know.
+    UnknownFunction { name: String, span: Span },
+    /// A procedure a strict catalog does not know.
+    ProcedureNotFound { name: String, span: Span },
     /// A variable used as two kinds of entity (`MATCH (r) MATCH ()-[r]-()`).
     VariableTypeConflict {
         name: String,
@@ -85,6 +108,32 @@ impl StructuralError {
             Self::PatternExpressionOutsidePredicate { .. } => {
                 ErrorKind::PatternExpressionOutsidePredicate
             }
+            Self::InvalidArgumentType {
+                context,
+                expected,
+                found,
+                ..
+            } => ErrorKind::InvalidArgumentType {
+                context: context.clone(),
+                expected: *expected,
+                found: *found,
+            },
+            Self::InvalidNumberOfArguments {
+                name,
+                min,
+                max,
+                found,
+                ..
+            } => ErrorKind::InvalidNumberOfArguments {
+                name: name.clone(),
+                min: *min,
+                max: *max,
+                found: *found,
+            },
+            Self::UnknownFunction { name, .. } => ErrorKind::UnknownFunction { name: name.clone() },
+            Self::ProcedureNotFound { name, .. } => {
+                ErrorKind::ProcedureNotFound { name: name.clone() }
+            }
             Self::VariableTypeConflict {
                 name,
                 bound_as,
@@ -110,19 +159,20 @@ impl StructuralError {
             | Self::InvalidParameterUse { span }
             | Self::NonDeterministicAggregate { span }
             | Self::PatternExpressionOutsidePredicate { span }
+            | Self::InvalidArgumentType { span, .. }
+            | Self::InvalidNumberOfArguments { span, .. }
+            | Self::UnknownFunction { span, .. }
+            | Self::ProcedureNotFound { span, .. }
             | Self::VariableTypeConflict { span, .. } => *span,
         }
     }
 }
 
-/// The structural violations in `query`. `is_aggregate` tells aggregate
-/// calls apart.
-pub(crate) fn structural_errors(
-    query: &Query,
-    is_aggregate: &dyn Fn(&FunctionInvocation) -> bool,
-) -> Vec<StructuralError> {
+/// The structural and type violations in `query`, checking calls against
+/// `catalog`.
+pub(crate) fn structural_errors(query: &Query, catalog: &Catalog) -> Vec<StructuralError> {
     let mut checker = StructureChecker {
-        is_aggregate,
+        catalog,
         read_only: false,
         creating: false,
         in_aggregate: false,
@@ -131,12 +181,12 @@ pub(crate) fn structural_errors(
     };
     checker.visit_query(query);
     let mut errors = checker.errors;
-    errors.extend(super::variable_types::variable_type_conflicts(query));
+    errors.extend(super::types::type_errors(query, catalog));
     errors
 }
 
 struct StructureChecker<'a> {
-    is_aggregate: &'a dyn Fn(&FunctionInvocation) -> bool,
+    catalog: &'a Catalog,
     /// Whether the clauses being visited belong to an `EXISTS`, `COUNT` or
     /// `COLLECT` subquery, which may not update the graph.
     read_only: bool,
@@ -344,7 +394,7 @@ impl<'ast> Visit<'ast> for StructureChecker<'_> {
                 .push(StructuralError::NonDeterministicAggregate { span: node.span });
         }
         let outer = self.in_aggregate;
-        self.in_aggregate |= (self.is_aggregate)(node);
+        self.in_aggregate |= self.catalog.is_aggregate_call(node);
         walk_function_invocation_expr(self, node);
         self.in_aggregate = outer;
     }

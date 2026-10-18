@@ -54,6 +54,8 @@ const SEMANTIC_ERRORS: &[&str] = &[
     "InvalidParameterUse",
     "VariableTypeConflict",
     "UnexpectedSyntax",
+    "InvalidArgumentType",
+    "UnknownFunction",
 ];
 
 struct TckQuery {
@@ -172,13 +174,21 @@ fn check_query(q: &TckQuery) -> Vec<(&'static str, String)> {
     }
 
     if q.expects_semantic_error {
-        match guarded(|| Ok(decypher::sema::analyze(&ast).is_ok())) {
+        // A strict catalog reports unknown functions (`foo(a)`). The TCK
+        // declares its procedures per scenario, which the corpus does not
+        // record, so procedure signatures are not checked here.
+        let mut catalog = decypher::sema::Catalog::default();
+        catalog.set_strict(true);
+        match guarded(|| Ok(decypher::sema::analyze_with(&ast, &catalog).is_ok())) {
             Ok(true) => failures.push(("reject", "sema::analyze accepts it".into())),
             Ok(false) => {}
             Err(e) => failures.push(("reject", e)),
         }
         #[cfg(feature = "hir")]
-        match guarded(|| Ok(decypher::analyze(q.source.as_str()).is_ok())) {
+        match guarded(|| {
+            let config = decypher::hir::LowerConfig { catalog };
+            Ok(decypher::analyze_with_config(q.source.as_str(), &config).is_ok())
+        }) {
             Ok(true) => failures.push(("reject", "analyze accepts it".into())),
             Ok(false) => {}
             Err(e) => failures.push(("reject", e)),

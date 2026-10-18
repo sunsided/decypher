@@ -351,7 +351,7 @@ fn analyze_return_preserves_qualified_function_name() {
 #[test]
 fn analyze_with_aggregate_preserves_qualified_function_name() {
     let mut config = LowerConfig::default();
-    config.aggregates.register("apoc.coll.count");
+    config.catalog.register_aggregate("apoc.coll.count");
     let query = decypher::parse("MATCH (n) WITH apoc.coll.count(n.name) AS c RETURN c").unwrap();
     let hir = decypher::hir::lower::lower(&query, &config).unwrap();
 
@@ -381,7 +381,7 @@ fn analyze_with_aggregate_preserves_qualified_function_name() {
 #[test]
 fn analyze_return_aggregate_preserves_qualified_function_name() {
     let mut config = LowerConfig::default();
-    config.aggregates.register("apoc.coll.count");
+    config.catalog.register_aggregate("apoc.coll.count");
     let query = decypher::parse("MATCH (n) RETURN apoc.coll.count(n.name) AS c").unwrap();
     let hir = decypher::hir::lower::lower(&query, &config).unwrap();
 
@@ -1160,7 +1160,7 @@ fn analyze_reports_implicit_grouping_keys() {
     let query = "MATCH (n) RETURN n.x + apoc.agg.percentiles(n.score) AS p";
     analyze(query).unwrap();
     let mut config = LowerConfig::default();
-    config.aggregates.register("apoc.agg.percentiles");
+    config.catalog.register_aggregate("apoc.agg.percentiles");
     let err = decypher::analyze_with_config(query, &config).unwrap_err();
     check!(matches!(err.kind, ErrorKind::AggregationMix { .. }));
 }
@@ -1625,5 +1625,158 @@ fn analyze_pattern_expressions_are_predicates() {
         analyze(query).unwrap_or_else(|e| panic!("query: {query}, got: {e}"));
         decypher::sema::analyze(&decypher::parse(query).unwrap())
             .unwrap_or_else(|e| panic!("query: {query}, sema got: {:?}", e.errors));
+    }
+}
+
+/// Static types and catalog signatures (#115): operands, `WHERE` predicates,
+/// `DELETE` targets and function arguments whose type is known statically
+/// must fit, and calls must pass as many arguments as their signature takes.
+///
+/// Unit: `analyze()` / `sema::analyze()`
+/// Precondition: Queries from the openCypher TCK with literal operands,
+///               pattern variables and list elements of a known type; and
+///               valid counterparts whose types are not known statically.
+/// Expectation: Both analyzers report the rule's error kind; the valid
+///              queries pass.
+#[test]
+fn analyze_checks_static_types_and_signatures() {
+    use decypher::{ErrorKind, ValueTypes};
+    let wrong_type = ErrorKind::InvalidArgumentType {
+        context: "".into(),
+        expected: ValueTypes::ANY,
+        found: ValueTypes::ANY,
+    };
+    let wrong_count = ErrorKind::InvalidNumberOfArguments {
+        name: String::new(),
+        min: 0,
+        max: None,
+        found: 0,
+    };
+    let conflict = ErrorKind::VariableTypeConflict {
+        name: String::new(),
+        bound_as: decypher::VariableKind::Node,
+        used_as: decypher::VariableKind::Node,
+    };
+    let same =
+        |a: &ErrorKind, b: &ErrorKind| std::mem::discriminant(a) == std::mem::discriminant(b);
+    for (query, expected) in [
+        ("RETURN NOT 'foo'", &wrong_type),
+        ("RETURN 123.4 AND null", &wrong_type),
+        ("RETURN 1 IN 123", &wrong_type),
+        ("MATCH () DELETE 1 + 1", &wrong_type),
+        ("MATCH (n) WHERE (n) RETURN n", &wrong_type),
+        ("WITH 'string' AS nonMap RETURN nonMap.num", &wrong_type),
+        (
+            "MATCH r = (n)-[*]->() WHERE r.name = 'apa' RETURN r",
+            &wrong_type,
+        ),
+        (
+            "RETURN any(x IN [false, true] WHERE x % 2 = 0) AS r",
+            &wrong_type,
+        ),
+        ("MATCH ()-[r]->() RETURN length(r)", &wrong_type),
+        ("MATCH p = (a) RETURN labels(p) AS l", &wrong_type),
+        ("MATCH (r) RETURN type(r)", &wrong_type),
+        ("RETURN properties([true, false])", &wrong_type),
+        (
+            "MATCH p = ()-->() RETURN head(nodes(p)).x + type(head(nodes(p)))",
+            &wrong_type,
+        ),
+        ("RETURN left('abc')", &wrong_count),
+        ("RETURN toUpper('a', 'b')", &wrong_count),
+        ("UNWIND [1, 2] AS x MATCH (x) RETURN x", &conflict),
+    ] {
+        let err = analyze(query).unwrap_err();
+        check!(same(&err.kind, expected), "query: {query}, got: {err}");
+        let sema = decypher::sema::analyze(&decypher::parse(query).unwrap()).unwrap_err();
+        check!(
+            sema.errors.iter().any(|e| same(&e.kind, expected)),
+            "query: {query}, sema got: {:?}",
+            sema.errors
+        );
+    }
+    for query in [
+        "RETURN null AND true, NOT null, 1 IN null",
+        "MATCH (n) WHERE n.flag AND $p RETURN NOT n.done",
+        "MATCH (n) RETURN size(n.name), labels(n), keys(n), properties(n)",
+        "MATCH p = ()-[r]->() RETURN length(p), type(r), nodes(p)[0].name",
+        "MATCH (n) DETACH DELETE n",
+        "MATCH p = ()-->() DELETE p",
+        "MATCH (n) WITH collect(n) AS ns FOREACH (x IN ns | DELETE x)",
+        "RETURN date().year, duration('P1D').days, point({x: 1, y: 2}).x",
+        "RETURN round(1.5), round(1.55, 1), round(1.55, 1, 'UP'), coalesce(null, 1, 2)",
+        "RETURN substring('abc', 1), substring('abc', 1, 1), range(1, 10, 2)",
+        "RETURN [x IN ['a', 'b'] WHERE x STARTS WITH 'a' | toUpper(x)] AS l",
+        "MATCH (a) RETURN foo(a), apoc.text.join(['a'], ',') AS j",
+        "CALL db.labels() YIELD label RETURN label",
+    ] {
+        analyze(query).unwrap_or_else(|e| panic!("query: {query}, got: {e}"));
+        decypher::sema::analyze(&decypher::parse(query).unwrap())
+            .unwrap_or_else(|e| panic!("query: {query}, sema got: {:?}", e.errors));
+    }
+}
+
+/// A strict catalog reports unknown functions and procedures, and calls of
+/// registered procedures are checked against their signatures (#115).
+///
+/// Unit: `sema::analyze_with()` / `analyze_with_config()`
+/// Precondition: A strict catalog with one registered function and one
+///               registered procedure.
+/// Expectation: Unknown names and mismatched calls are reported by both
+///              analyzers; registered and built-in ones pass.
+#[test]
+fn strict_catalog_reports_unknown_functions_and_procedures() {
+    use decypher::sema::{Catalog, Signature};
+    use decypher::{ErrorKind, ValueTypes};
+    let mut catalog = Catalog::default();
+    catalog
+        .set_strict(true)
+        .register_function(
+            "apoc.text.join",
+            Signature::new(&[ValueTypes::LIST, ValueTypes::STRING]).returns(ValueTypes::STRING),
+        )
+        .register_procedure("test.my.proc", Signature::new(&[ValueTypes::STRING]));
+    let config = decypher::hir::LowerConfig {
+        catalog: catalog.clone(),
+    };
+    let first_error = |query: &str| {
+        let hir = decypher::analyze_with_config(query, &config)
+            .err()
+            .map(|e| e.kind);
+        let sema = decypher::sema::analyze_with(&decypher::parse(query).unwrap(), &catalog)
+            .err()
+            .map(|d| d.errors[0].kind.clone());
+        check!(hir == sema, "query: {query}");
+        hir
+    };
+    check!(
+        first_error("MATCH (a) RETURN foo(a)")
+            == Some(ErrorKind::UnknownFunction { name: "foo".into() })
+    );
+    check!(
+        first_error("CALL test.other.proc()")
+            == Some(ErrorKind::ProcedureNotFound {
+                name: "test.other.proc".into()
+            })
+    );
+    check!(
+        first_error("CALL test.my.proc('a', 'b')")
+            == Some(ErrorKind::InvalidNumberOfArguments {
+                name: "test.my.proc".into(),
+                min: 1,
+                max: Some(1),
+                found: 2,
+            })
+    );
+    check!(matches!(
+        first_error("CALL test.my.proc(true)"),
+        Some(ErrorKind::InvalidArgumentType { .. })
+    ));
+    for query in [
+        "CALL test.my.proc('Dobby')",
+        "CALL test.my.proc",
+        "RETURN apoc.text.join(['a'], ',') AS j, toUpper('a') AS u",
+    ] {
+        check!(first_error(query).is_none(), "query: {query}");
     }
 }

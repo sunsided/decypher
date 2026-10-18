@@ -176,6 +176,96 @@ impl fmt::Display for VariableKind {
     }
 }
 
+/// A set of Cypher value types, as reported by
+/// [`ErrorKind::InvalidArgumentType`] and used by
+/// [`crate::sema::Signature`].
+///
+/// Combine types with `|`: `ValueTypes::STRING | ValueTypes::LIST`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ValueTypes(u16);
+
+impl ValueTypes {
+    /// `true` / `false`.
+    pub const BOOLEAN: Self = Self(1);
+    /// 64-bit integers.
+    pub const INTEGER: Self = Self(1 << 1);
+    /// Floating-point numbers.
+    pub const FLOAT: Self = Self(1 << 2);
+    /// Strings.
+    pub const STRING: Self = Self(1 << 3);
+    /// Lists.
+    pub const LIST: Self = Self(1 << 4);
+    /// Maps.
+    pub const MAP: Self = Self(1 << 5);
+    /// Nodes.
+    pub const NODE: Self = Self(1 << 6);
+    /// Relationships.
+    pub const RELATIONSHIP: Self = Self(1 << 7);
+    /// Paths.
+    pub const PATH: Self = Self(1 << 8);
+    /// Spatial points.
+    pub const POINT: Self = Self(1 << 9);
+    /// Dates, times and datetimes.
+    pub const TEMPORAL: Self = Self(1 << 10);
+    /// Durations.
+    pub const DURATION: Self = Self(1 << 11);
+    /// Integers and floats.
+    pub const NUMBER: Self = Self(Self::INTEGER.0 | Self::FLOAT.0);
+    /// Every type; also the type of `null` and of values not known
+    /// statically.
+    pub const ANY: Self = Self((1 << 12) - 1);
+
+    /// Whether the two sets share a type.
+    pub const fn intersects(self, other: Self) -> bool {
+        self.0 & other.0 != 0
+    }
+
+    /// Whether every type of `other` is in this set.
+    pub const fn contains(self, other: Self) -> bool {
+        self.0 & other.0 == other.0
+    }
+
+    const NAMES: [&'static str; 12] = [
+        "a Boolean",
+        "an Integer",
+        "a Float",
+        "a String",
+        "a List",
+        "a Map",
+        "a Node",
+        "a Relationship",
+        "a Path",
+        "a Point",
+        "a temporal value",
+        "a Duration",
+    ];
+}
+
+impl std::ops::BitOr for ValueTypes {
+    type Output = Self;
+
+    fn bitor(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+}
+
+impl fmt::Display for ValueTypes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if *self == Self::ANY {
+            return f.write_str("any value");
+        }
+        let names: Vec<_> = (0..Self::NAMES.len())
+            .filter(|bit| self.0 & (1 << bit) != 0)
+            .map(|bit| Self::NAMES[bit])
+            .collect();
+        match names.as_slice() {
+            [] => f.write_str("no value"),
+            [one] => f.write_str(one),
+            [rest @ .., last] => write!(f, "{} or {last}", rest.join(", ")),
+        }
+    }
+}
+
 /// The structured kind of a parse/AST error.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
@@ -245,6 +335,35 @@ pub enum ErrorKind {
     /// A non-deterministic function inside an aggregate, such as
     /// `count(rand())` (semantic).
     NonDeterministicAggregate,
+    /// An operand or argument whose type is known statically and is not one
+    /// the operator, clause or function accepts, such as `NOT 'a'` or
+    /// `labels(p)` on a path (semantic).
+    InvalidArgumentType {
+        /// What takes the value: `NOT`, `WHERE`, ``argument 1 of `labels()` ``.
+        context: Cow<'static, str>,
+        /// The types accepted there.
+        expected: ValueTypes,
+        /// The types the value can have.
+        found: ValueTypes,
+    },
+    /// A call with too few or too many arguments for the function or
+    /// procedure's signature (semantic).
+    InvalidNumberOfArguments {
+        /// The dot-joined function or procedure name.
+        name: String,
+        /// The fewest arguments accepted.
+        min: u16,
+        /// The most arguments accepted, or `None` when unbounded.
+        max: Option<u16>,
+        /// The number of arguments passed.
+        found: u16,
+    },
+    /// A function the [`crate::sema::Catalog`] does not know, reported only
+    /// by a strict catalog (semantic).
+    UnknownFunction { name: String },
+    /// A procedure the [`crate::sema::Catalog`] does not know, reported only
+    /// by a strict catalog (semantic).
+    ProcedureNotFound { name: String },
     /// A pattern expression used as a value rather than a predicate, such
     /// as `RETURN size((n)-->())` (semantic).
     PatternExpressionOutsidePredicate,
@@ -327,6 +446,31 @@ impl fmt::Display for ErrorKind {
                 f,
                 "parameter maps cannot be used in MATCH or MERGE patterns; use a literal map such as {{key: $value}}"
             ),
+            ErrorKind::InvalidArgumentType {
+                context,
+                expected,
+                found,
+            } => write!(f, "{context} expects {expected}, but got {found}"),
+            ErrorKind::InvalidNumberOfArguments {
+                name,
+                min,
+                max,
+                found,
+            } => {
+                let takes = match max {
+                    Some(max) if max == min => format!("{min}"),
+                    Some(max) => format!("{min} to {max}"),
+                    None => format!("at least {min}"),
+                };
+                let s = if *min == 1 && *max == Some(1) {
+                    ""
+                } else {
+                    "s"
+                };
+                write!(f, "`{name}` takes {takes} argument{s}, but got {found}")
+            }
+            ErrorKind::UnknownFunction { name } => write!(f, "unknown function `{name}`"),
+            ErrorKind::ProcedureNotFound { name } => write!(f, "unknown procedure `{name}`"),
             ErrorKind::PatternExpressionOutsidePredicate => write!(
                 f,
                 "a pattern expression can only be used as a predicate; use COUNT {{ … }} to count matches or a pattern comprehension to collect them"
