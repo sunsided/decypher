@@ -267,50 +267,31 @@ fn projection_column_name(item: &ProjectionItem) -> Option<String> {
     }
 }
 
-/// Return `true` if `expr` contains or is an aggregate function call.
+/// Return `true` if `expr` contains an aggregate function call anywhere outside
+/// a subquery (`count(n)`, `abs(sum(n.x))`, `reduce(… collect(x) …)`).
 fn has_aggregate(expr: &Expression) -> bool {
-    match expr {
-        Expression::FunctionCall(fc) => {
-            // Check for aggregate functions (COUNT, SUM, AVG, MIN, MAX, COLLECT, etc.)
-            let name = fc
-                .name
-                .last()
-                .map(|s| s.name.to_uppercase())
-                .unwrap_or_default();
-            matches!(
-                name.as_str(),
-                "COUNT"
-                    | "SUM"
-                    | "AVG"
-                    | "MIN"
-                    | "MAX"
-                    | "COLLECT"
-                    | "PERCENTILE_CONT"
-                    | "PERCENTILE_DISC"
-                    | "STDEV"
-                    | "STDEVP"
-                    | "VAR"
-                    | "VARP"
-            )
-        }
-        Expression::CountStar { .. } => true,
-        Expression::BinaryOp {
-            op: _, lhs, rhs, ..
-        } => has_aggregate(lhs) || has_aggregate(rhs),
-        Expression::UnaryOp { op: _, operand, .. } => has_aggregate(operand),
-        Expression::Comparison { lhs, operators, .. } => {
-            has_aggregate(lhs) || operators.iter().any(|(_, rhs)| has_aggregate(rhs))
-        }
-        Expression::Case(case) => {
-            case.alternatives
-                .iter()
-                .any(|alt| has_aggregate(&alt.when) || has_aggregate(&alt.then))
-                || case.scrutinee.as_ref().is_some_and(|s| has_aggregate(s))
-                || case.default.as_ref().is_some_and(|d| has_aggregate(d))
-        }
-        Expression::Parenthesized(inner) => has_aggregate(inner),
-        _ => false,
-    }
+    expr.contains_aggregate(&|fc| {
+        let name = fc
+            .name
+            .last()
+            .map(|s| s.name.to_uppercase())
+            .unwrap_or_default();
+        matches!(
+            name.as_str(),
+            "COUNT"
+                | "SUM"
+                | "AVG"
+                | "MIN"
+                | "MAX"
+                | "COLLECT"
+                | "PERCENTILE_CONT"
+                | "PERCENTILE_DISC"
+                | "STDEV"
+                | "STDEVP"
+                | "VAR"
+                | "VARP"
+        )
+    })
 }
 
 /// Return `true` if `expr` is a literal value or a query parameter.
