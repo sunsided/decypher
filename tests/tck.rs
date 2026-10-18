@@ -157,12 +157,16 @@ fn check_query(q: &TckQuery) -> Vec<(&'static str, String)> {
     }
 
     if q.expects_semantic_error {
-        if guarded(|| Ok(decypher::sema::analyze(&ast).is_ok())) == Ok(true) {
-            failures.push(("reject", "sema::analyze accepts it".into()));
+        match guarded(|| Ok(decypher::sema::analyze(&ast).is_ok())) {
+            Ok(true) => failures.push(("reject", "sema::analyze accepts it".into())),
+            Ok(false) => {}
+            Err(e) => failures.push(("reject", e)),
         }
         #[cfg(feature = "hir")]
-        if guarded(|| Ok(decypher::analyze(q.source.as_str()).is_ok())) == Ok(true) {
-            failures.push(("reject", "analyze accepts it".into()));
+        match guarded(|| Ok(decypher::analyze(q.source.as_str()).is_ok())) {
+            Ok(true) => failures.push(("reject", "analyze accepts it".into())),
+            Ok(false) => {}
+            Err(e) => failures.push(("reject", e)),
         }
     }
 
