@@ -16,6 +16,28 @@ Invalid Cypher never throws. `parse`, `validate` and `format` return
 `{ ok: true, ... }` or `{ ok: false, errors }`; `cst` always returns a tree
 plus whatever `errors` it found.
 
+## Installation
+
+The package is published to this repository's
+[GitHub Packages](https://github.com/sunsided/decypher/pkgs/npm/decypher)
+npm registry. Point the `@sunsided` scope at it in your project's `.npmrc`:
+
+```ini
+@sunsided:registry=https://npm.pkg.github.com
+```
+
+GitHub Packages requires authentication even for public packages: log in
+with `npm login --scope=@sunsided --auth-type=legacy --registry=https://npm.pkg.github.com`
+using a token with the `read:packages` scope as password, or add
+`//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}` to `.npmrc`. Then:
+
+```sh
+npm install @sunsided/decypher@alpha
+```
+
+Pre-releases are published under their dist-tag (`alpha`), so name it until
+a stable version exists.
+
 ## Usage
 
 ```js
@@ -117,9 +139,9 @@ Deno) at the web build.
 The tarball is self-contained, so you can hand it to anyone:
 
 ```sh
-npm install ./sunsided-decypher-0.2.0-alpha.8.tgz
+npm install ./sunsided-decypher-0.2.0-alpha.9.tgz
 # or reference it from package.json:
-#   "dependencies": { "@sunsided/decypher": "file:../path/to/sunsided-decypher-0.2.0-alpha.8.tgz" }
+#   "dependencies": { "@sunsided/decypher": "file:../path/to/sunsided-decypher-0.2.0-alpha.9.tgz" }
 ```
 
 While working on the bindings themselves, depend on the build directory

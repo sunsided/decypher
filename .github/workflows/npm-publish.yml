@@ -1,0 +1,60 @@
+name: Publish npm package
+
+# Publishes the WebAssembly bindings as `@sunsided/decypher` to this
+# repository's GitHub Packages npm registry when a release is published.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    name: Build, test and publish @sunsided/decypher
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          target: wasm32-unknown-unknown
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack
+      - uses: actions/setup-node@v7
+        with:
+          node-version: lts/*
+          registry-url: https://npm.pkg.github.com
+          scope: "@sunsided"
+      - name: Build npm package
+        working-directory: bindings/wasm
+        run: node scripts/build.mjs
+      - name: Test npm package
+        working-directory: bindings/wasm
+        run: node --test tests/*.test.mjs
+      - name: Check the version against the release tag
+        if: github.event_name == 'release'
+        working-directory: bindings/wasm
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          version=$(node -p 'require("./pkg/package.json").version')
+          if [ "v$version" != "$TAG" ]; then
+            echo "package version $version does not match release tag $TAG" >&2
+            exit 1
+          fi
+      - name: Publish
+        working-directory: bindings/wasm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version=$(node -p 'require("./pkg/package.json").version')
+          # A pre-release (0.2.0-alpha.9) goes to its own dist-tag (alpha),
+          # so it never becomes `latest` by accident.
+          case "$version" in
+            *-*) tag=$(echo "${version#*-}" | cut -d. -f1) ;;
+            *) tag=latest ;;
+          esac
+          npm publish ./pkg --tag "$tag"
