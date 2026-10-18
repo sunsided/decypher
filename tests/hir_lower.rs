@@ -1128,3 +1128,40 @@ fn analyze_with_keeps_projected_and_readable_variables() {
         }
     }
 }
+
+/// Lowering reports aggregating items that use references which are not
+/// grouping keys (#98), deciding what is an aggregate with the registry.
+///
+/// Unit: `analyze()` / `analyze_with_config()`
+/// Precondition: `n.x + count(n)` without and with `n.x` as a grouping key;
+///               an ungrouped property next to a registered aggregate.
+/// Expectation: `AggregationMix` naming `n.x` where `n.x` is not a grouping
+///              key; success otherwise.
+#[test]
+fn analyze_reports_implicit_grouping_keys() {
+    use decypher::ErrorKind;
+    for query in [
+        "MATCH (n) RETURN n.x + count(n)",
+        "MATCH (n) WITH n.x + count(n) AS y RETURN y",
+        "CALL { MATCH (n) RETURN n.x + count(n) AS y } RETURN y",
+    ] {
+        let err = analyze(query).unwrap_err();
+        check!(
+            err.kind
+                == ErrorKind::AggregationMix {
+                    non_grouping: vec!["n.x".into()]
+                },
+            "query: {query}, got: {err}"
+        );
+    }
+    analyze("MATCH (n) RETURN n.x, n.x + count(n) AS y").unwrap();
+    analyze("MATCH (n) RETURN n, n.x + count(n) AS y").unwrap();
+    analyze("MATCH (n) WITH toUpper(n.name) AS k, count(*) AS c RETURN k, c").unwrap();
+
+    let query = "MATCH (n) RETURN n.x + apoc.agg.percentiles(n.score) AS p";
+    analyze(query).unwrap();
+    let mut config = LowerConfig::default();
+    config.aggregates.register("apoc.agg.percentiles");
+    let err = decypher::analyze_with_config(query, &config).unwrap_err();
+    check!(matches!(err.kind, ErrorKind::AggregationMix { .. }));
+}

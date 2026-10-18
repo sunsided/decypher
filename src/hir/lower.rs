@@ -1779,9 +1779,7 @@ impl<'cfg> LoweringContext<'cfg> {
     }
 
     fn is_aggregate_call(&self, fc: &crate::ast::expr::FunctionInvocation) -> bool {
-        self.config
-            .aggregates
-            .contains(&Self::qualified_function_name(fc))
+        self.config.aggregates.is_aggregate_call(fc)
     }
 
     fn has_aggregate(&self, expr: &Expression) -> bool {
@@ -1804,6 +1802,11 @@ impl<'cfg> LoweringContext<'cfg> {
         kind: BindingKind,
     ) -> Vec<BindingId> {
         self.report_duplicate_columns(items);
+        let is_aggregate = |fc: &FunctionInvocation| self.is_aggregate_call(fc);
+        for (span, non_grouping) in crate::sema::implicit_grouping_keys(items, &is_aggregate) {
+            self.diagnostics
+                .push(HirDiagnostic::InvalidAggregation { non_grouping, span });
+        }
 
         let alias_of = |this: &Self, pi: &crate::ast::clause::ProjectionItem| match &pi.alias {
             Some(a) => (a.name.name.clone(), a.name.span),
