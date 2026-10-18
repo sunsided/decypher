@@ -12,7 +12,10 @@
 //!   which the idempotency check cannot see once the first print has lost them;
 //! - `sema`: queries the TCK expects to compile without error also pass
 //!   `sema::analyze`;
-//! - `analyze` (with the `hir` feature): such queries also pass HIR lowering.
+//! - `analyze` (with the `hir` feature): such queries also pass HIR lowering;
+//! - `reject`: queries the TCK expects to fail at compile time with one of
+//!   the [`SEMANTIC_ERRORS`] that semantic analysis covers fail
+//!   `sema::analyze` and, with the `hir` feature, `analyze`.
 //!
 //! Known failures are listed in `tests/tck/known_failures.txt`. The test fails
 //! on any failure not in the list and on any listed entry that now passes, so
@@ -29,12 +32,23 @@ use decypher::ast::ToCypher;
 /// Number of hex digits of the query hash used as its id.
 const ID_LEN: usize = 16;
 
+/// Compile-time TCK error details that both semantic analyzers detect.
+const SEMANTIC_ERRORS: &[&str] = &[
+    "UndefinedVariable",
+    "InvalidAggregation",
+    "NestedAggregation",
+    "AmbiguousAggregationExpression",
+    "ColumnNameConflict",
+];
+
 struct TckQuery {
     id: String,
     source: String,
     accept: bool,
     /// Whether any TCK scenario using this query expects an error.
     expects_error: bool,
+    /// Whether a TCK scenario expects one of the [`SEMANTIC_ERRORS`].
+    expects_semantic_error: bool,
 }
 
 fn tck_dir() -> PathBuf {
@@ -46,6 +60,7 @@ fn load_queries() -> Vec<TckQuery> {
         .expect("tests/tck/TCK_SYNTAX.jsonl is missing");
     let mut queries = BTreeMap::new();
     let mut errors = BTreeSet::new();
+    let mut semantic_errors = BTreeSet::new();
     for line in text.lines() {
         let record: serde_json::Value = serde_json::from_str(line).expect("invalid JSONL record");
         let str_field = |name: &str| record[name].as_str().map(str::to_owned);
@@ -57,12 +72,20 @@ fn load_queries() -> Vec<TckQuery> {
                     source: str_field("source").expect("query without source"),
                     accept: str_field("expectation").as_deref() == Some("accept"),
                     expects_error: false,
+                    expects_semantic_error: false,
                 };
                 queries.insert(id, query);
             }
             Some("occurrence") if !record["upstream_error"].is_null() => {
                 let id = str_field("query_id").expect("occurrence without query_id");
-                errors.insert(id.trim_start_matches("query:").to_owned());
+                let id = id.trim_start_matches("query:").to_owned();
+                let error = &record["upstream_error"];
+                if error["phase"] == "compile time"
+                    && SEMANTIC_ERRORS.contains(&error["detail"].as_str().unwrap_or_default())
+                {
+                    semantic_errors.insert(id.clone());
+                }
+                errors.insert(id);
             }
             _ => {}
         }
@@ -71,6 +94,7 @@ fn load_queries() -> Vec<TckQuery> {
         .into_iter()
         .map(|(sha, mut q)| {
             q.expects_error = errors.contains(&sha);
+            q.expects_semantic_error = semantic_errors.contains(&sha);
             q
         })
         .collect()
@@ -129,6 +153,16 @@ fn check_query(q: &TckQuery) -> Vec<(&'static str, String)> {
         });
         if let Err(e) = analyzed {
             failures.push(("sema", e));
+        }
+    }
+
+    if q.expects_semantic_error {
+        if guarded(|| Ok(decypher::sema::analyze(&ast).is_ok())) == Ok(true) {
+            failures.push(("reject", "sema::analyze accepts it".into()));
+        }
+        #[cfg(feature = "hir")]
+        if guarded(|| Ok(decypher::analyze(q.source.as_str()).is_ok())) == Ok(true) {
+            failures.push(("reject", "analyze accepts it".into()));
         }
     }
 
