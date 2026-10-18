@@ -26,7 +26,6 @@
 //! - Graph patterns are flattened into node/relationship lists.
 //! - Queries are decomposed into a sequence of [`QueryPart`] pipelines.
 
-pub mod aggregate_registry;
 pub mod arena;
 pub mod binding;
 pub mod diagnostic;
@@ -34,7 +33,7 @@ pub mod expr;
 pub mod lower;
 pub mod ops;
 pub mod pattern;
-pub use aggregate_registry::AggregateRegistry;
+pub use crate::sema::{Catalog, Signature};
 pub mod config;
 pub use config::LowerConfig;
 

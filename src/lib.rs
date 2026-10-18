@@ -91,7 +91,7 @@ pub mod cst {
 
 pub use crate::ast::query::Query;
 pub use crate::error::{
-    CypherError, Diagnostics, ErrorKind, Expected, Note, Result, Span, VariableKind,
+    CypherError, Diagnostics, ErrorKind, Expected, Note, Result, Span, ValueTypes, VariableKind,
 };
 pub use crate::parser::Parse;
 pub use crate::recover::{ParseOptions, parse_with_options};
@@ -358,7 +358,7 @@ where
 ///
 /// Identical to [`analyze`] except the caller supplies a [`hir::LowerConfig`]
 /// to control lowering behaviour — for example, to register user-defined or
-/// plugin aggregate functions via [`hir::AggregateRegistry`].
+/// plugin aggregate functions via [`hir::Catalog`].
 ///
 /// # Errors
 ///
@@ -368,7 +368,7 @@ where
 ///
 /// ```
 /// let mut config = decypher::hir::LowerConfig::default();
-/// config.aggregates.register("apoc.agg.percentiles");
+/// config.catalog.register_aggregate("apoc.agg.percentiles");
 /// let hir = decypher::analyze_with_config(
 ///     "MATCH (n) WITH apoc.agg.percentiles(n.score) AS p RETURN p",
 ///     &config,

@@ -18,7 +18,7 @@ use crate::ast::names::Variable;
 use crate::ast::query::*;
 use crate::ast::visit::{Visit, walk_expression};
 use crate::error::{Diagnostics, Span};
-use crate::sema::AggregateRegistry;
+use crate::sema::Catalog;
 use crate::sema::error::SemaError;
 use std::collections::HashSet;
 
@@ -33,41 +33,37 @@ pub struct AggregationViolation;
 ///
 /// Appends any violations found to `diagnostics`.
 pub fn check_aggregation(query: &Query, diagnostics: &mut Diagnostics) {
-    check_aggregation_with(query, &AggregateRegistry::default(), diagnostics);
+    check_aggregation_with(query, &Catalog::default(), diagnostics);
 }
 
 /// Check aggregation rules for all statements in `query`, treating the
-/// functions in `aggregates` as aggregates.
+/// aggregates of `catalog` as aggregates.
 ///
 /// Appends any violations found to `diagnostics`.
 ///
 /// # Example
 ///
 /// ```
-/// use decypher::sema::{AggregateRegistry, check_aggregation_with};
+/// use decypher::sema::{Catalog, check_aggregation_with};
 /// use decypher::{Diagnostics, parse};
 ///
 /// let query = parse("MATCH (n) RETURN n.a + apoc.agg.median(n.b)").unwrap();
-/// let mut aggregates = AggregateRegistry::default();
-/// aggregates.register("apoc.agg.median");
+/// let mut catalog = Catalog::default();
+/// catalog.register_aggregate("apoc.agg.median");
 /// let mut diagnostics = Diagnostics { errors: Vec::new() };
-/// check_aggregation_with(&query, &aggregates, &mut diagnostics);
+/// check_aggregation_with(&query, &catalog, &mut diagnostics);
 /// // `n.a` is used next to an aggregate without being a grouping key.
 /// assert_eq!(diagnostics.len(), 1);
 /// ```
-pub fn check_aggregation_with(
-    query: &Query,
-    aggregates: &AggregateRegistry,
-    diagnostics: &mut Diagnostics,
-) {
-    let is_aggregate = |fc: &FunctionInvocation| aggregates.is_aggregate_call(fc);
+pub fn check_aggregation_with(query: &Query, catalog: &Catalog, diagnostics: &mut Diagnostics) {
+    let is_aggregate = |fc: &FunctionInvocation| catalog.is_aggregate_call(fc);
     for (function, span) in misplaced_aggregates(query, &is_aggregate) {
         diagnostics
             .errors
             .push(SemaError::AggregateNotAllowed { function, span }.into_error());
     }
     let mut checker = AggregationChecker {
-        aggregates,
+        catalog,
         diagnostics,
     };
     for stmt in &query.statements {
@@ -89,8 +85,8 @@ pub fn check_aggregation_with(
 
 /// Internal checker that walks the query and emits aggregation diagnostics.
 struct AggregationChecker<'a> {
-    /// The functions treated as aggregates.
-    aggregates: &'a AggregateRegistry,
+    /// The functions, which tell aggregates apart.
+    catalog: &'a Catalog,
     /// The diagnostics collector to which violations are appended.
     diagnostics: &'a mut Diagnostics,
 }
@@ -130,7 +126,7 @@ impl AggregationChecker<'_> {
         order: Option<&Order>,
         span: Span,
     ) {
-        let is_aggregate = |fc: &FunctionInvocation| self.aggregates.is_aggregate_call(fc);
+        let is_aggregate = |fc: &FunctionInvocation| self.catalog.is_aggregate_call(fc);
         let mut violations = implicit_grouping_keys(items, star, &is_aggregate);
         if let Some(order) = order {
             violations.extend(implicit_grouping_keys_in_order(

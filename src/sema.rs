@@ -14,23 +14,23 @@
 //!    aggregating items of `WITH` and `RETURN` projections use no variables or
 //!    properties outside their aggregates that are not grouping keys
 //!    (`RETURN n.a + count(*)`). [`check_aggregation_with`] and
-//!    [`analyze_with`] take an [`AggregateRegistry`] for user-defined
+//!    [`analyze_with`] take a [`Catalog`] for user-defined
 //!    aggregates.
 
-mod aggregate_registry;
 mod aggregation;
+mod catalog;
 mod error;
 mod resolve;
 mod scope;
 mod structure;
-mod variable_types;
+mod types;
 
-pub use aggregate_registry::AggregateRegistry;
 pub use aggregation::{AggregationViolation, check_aggregation, check_aggregation_with};
 #[cfg(feature = "hir")]
 pub(crate) use aggregation::{
     implicit_grouping_keys, implicit_grouping_keys_in_order, misplaced_aggregates,
 };
+pub use catalog::{Catalog, Signature};
 pub use error::SemaError;
 pub use resolve::{ResolutionResult, resolve_names, resolve_names_with};
 pub use scope::{ScopeStack, SymbolKind};
@@ -58,13 +58,14 @@ use crate::error::Diagnostics;
 /// assert!(sema::analyze(&query).is_ok());
 /// ```
 pub fn analyze(query: &Query) -> Result<(), Diagnostics> {
-    analyze_with(query, &AggregateRegistry::default())
+    analyze_with(query, &Catalog::default())
 }
 
-/// Perform full semantic analysis on `query`, treating the functions in
-/// `aggregates` as aggregates.
+/// Perform full semantic analysis on `query`, checking calls against
+/// `catalog`.
 ///
-/// Identical to [`analyze`] except for user-defined or plugin aggregates.
+/// Identical to [`analyze`] except for user-defined or plugin functions and
+/// procedures, or a [strict](Catalog::set_strict) catalog.
 ///
 /// # Example
 ///
@@ -72,24 +73,23 @@ pub fn analyze(query: &Query) -> Result<(), Diagnostics> {
 /// use decypher::{parse, sema};
 ///
 /// let query = parse("MATCH (n) RETURN n.k, apoc.agg.median(n.v) AS m").unwrap();
-/// let mut aggregates = sema::AggregateRegistry::default();
-/// aggregates.register("apoc.agg.median");
-/// assert!(sema::analyze_with(&query, &aggregates).is_ok());
+/// let mut catalog = sema::Catalog::default();
+/// catalog.register_aggregate("apoc.agg.median");
+/// assert!(sema::analyze_with(&query, &catalog).is_ok());
 /// ```
-pub fn analyze_with(query: &Query, aggregates: &AggregateRegistry) -> Result<(), Diagnostics> {
+pub fn analyze_with(query: &Query, catalog: &Catalog) -> Result<(), Diagnostics> {
     let mut diagnostics = Diagnostics { errors: Vec::new() };
 
     // Phase 1: Name resolution
-    if let Err(errs) = resolve_names_with(query, aggregates) {
+    if let Err(errs) = resolve_names_with(query, catalog) {
         diagnostics.errors.extend(errs);
     }
 
     // Phase 2: Aggregation rules
-    check_aggregation_with(query, aggregates, &mut diagnostics);
+    check_aggregation_with(query, catalog, &mut diagnostics);
 
     // Phase 3: Structural rules
-    let is_aggregate = |fc: &crate::ast::expr::FunctionInvocation| aggregates.is_aggregate_call(fc);
-    for error in structure::structural_errors(query, &is_aggregate) {
+    for error in structure::structural_errors(query, catalog) {
         diagnostics.errors.push(crate::error::CypherError {
             kind: error.kind(),
             span: error.span(),

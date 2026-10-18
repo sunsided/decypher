@@ -4,7 +4,9 @@
 //! pass detects. They can be converted into [`crate::error::CypherError`]
 //! for use in public error reporting.
 
-use crate::error::{CypherError, ErrorKind, Span, VariableKind};
+use std::borrow::Cow;
+
+use crate::error::{CypherError, ErrorKind, Span, ValueTypes, VariableKind};
 
 /// A semantic diagnostic produced during HIR lowering.
 ///
@@ -113,11 +115,42 @@ pub enum HirDiagnostic {
         /// Source location of the conflicting use.
         span: Span,
     },
-    /// A called function is not known to the lowering pass. Not reported yet
-    /// (see #110).
+    /// A function a strict [`crate::sema::Catalog`] does not know.
     UnknownFunction {
-        /// The function name.
+        /// The dot-joined function name.
         name: String,
+        /// Source location of the call.
+        span: Span,
+    },
+    /// A procedure a strict [`crate::sema::Catalog`] does not know.
+    ProcedureNotFound {
+        /// The dot-joined procedure name.
+        name: String,
+        /// Source location of the call.
+        span: Span,
+    },
+    /// A value of a type its operator, clause or function does not accept
+    /// (`NOT 'a'`, `labels(p)` on a path).
+    InvalidArgumentType {
+        /// What takes the value: `NOT`, ``argument 1 of `labels()` ``.
+        context: Cow<'static, str>,
+        /// The types accepted there.
+        expected: ValueTypes,
+        /// The types the value can have.
+        found: ValueTypes,
+        /// Source location of the value.
+        span: Span,
+    },
+    /// A call with too few or too many arguments.
+    InvalidNumberOfArguments {
+        /// The dot-joined function or procedure name.
+        name: String,
+        /// The fewest arguments accepted.
+        min: u16,
+        /// The most arguments accepted, or `None` when unbounded.
+        max: Option<u16>,
+        /// The number of arguments passed.
+        found: u16,
         /// Source location of the call.
         span: Span,
     },
@@ -158,6 +191,32 @@ impl From<crate::sema::StructuralError> for HirDiagnostic {
             E::PatternExpressionOutsidePredicate { span } => {
                 HirDiagnostic::PatternExpressionOutsidePredicate { span }
             }
+            E::InvalidArgumentType {
+                context,
+                expected,
+                found,
+                span,
+            } => HirDiagnostic::InvalidArgumentType {
+                context,
+                expected,
+                found,
+                span,
+            },
+            E::InvalidNumberOfArguments {
+                name,
+                min,
+                max,
+                found,
+                span,
+            } => HirDiagnostic::InvalidNumberOfArguments {
+                name,
+                min,
+                max,
+                found,
+                span,
+            },
+            E::UnknownFunction { name, span } => HirDiagnostic::UnknownFunction { name, span },
+            E::ProcedureNotFound { name, span } => HirDiagnostic::ProcedureNotFound { name, span },
             E::VariableTypeConflict {
                 name,
                 bound_as,
@@ -233,8 +292,33 @@ impl HirDiagnostic {
                 used_as: *used_as,
             },
             HirDiagnostic::UnionColumnMismatch { .. } => ErrorKind::UnionColumnMismatch,
-            HirDiagnostic::UnknownFunction { .. } => ErrorKind::Internal {
-                message: format!("{:?}", self),
+            HirDiagnostic::UnknownFunction { name, .. } => {
+                ErrorKind::UnknownFunction { name: name.clone() }
+            }
+            HirDiagnostic::ProcedureNotFound { name, .. } => {
+                ErrorKind::ProcedureNotFound { name: name.clone() }
+            }
+            HirDiagnostic::InvalidArgumentType {
+                context,
+                expected,
+                found,
+                ..
+            } => ErrorKind::InvalidArgumentType {
+                context: context.clone(),
+                expected: *expected,
+                found: *found,
+            },
+            HirDiagnostic::InvalidNumberOfArguments {
+                name,
+                min,
+                max,
+                found,
+                ..
+            } => ErrorKind::InvalidNumberOfArguments {
+                name: name.clone(),
+                min: *min,
+                max: *max,
+                found: *found,
             },
         }
     }
@@ -256,6 +340,9 @@ impl HirDiagnostic {
             HirDiagnostic::PatternExpressionOutsidePredicate { span } => *span,
             HirDiagnostic::VariableTypeConflict { span, .. } => *span,
             HirDiagnostic::UnknownFunction { span, .. } => *span,
+            HirDiagnostic::ProcedureNotFound { span, .. } => *span,
+            HirDiagnostic::InvalidArgumentType { span, .. } => *span,
+            HirDiagnostic::InvalidNumberOfArguments { span, .. } => *span,
             HirDiagnostic::UnsupportedFeature { span, .. } => *span,
             HirDiagnostic::UnionColumnMismatch { span } => *span,
             HirDiagnostic::AggregateNotAllowed { span, .. } => *span,

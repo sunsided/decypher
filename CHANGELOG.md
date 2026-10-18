@@ -17,11 +17,28 @@ are marked **Breaking** below.
   runnable Node.js and browser examples.
 - The `serde` feature now derives `Serialize` for every AST node and for
   `Span` / `Spanned`; previously it was declared but had no effect.
-- `sema::check_aggregation_with` and `sema::analyze_with` take an
-  `AggregateRegistry`, so user-defined aggregates count as aggregates in
-  semantic analysis too. The registry now lives in `sema` and is re-exported
-  as `hir::AggregateRegistry` (#97). `sema::resolve_names_with` takes it as
-  well (#105).
+- `sema::check_aggregation_with`, `sema::analyze_with` and
+  `sema::resolve_names_with` take a `sema::Catalog` (see below), so
+  user-defined aggregates count as aggregates in semantic analysis too (#97,
+  #105).
+- `sema::Catalog` and `sema::Signature` (re-exported from `hir`): the
+  functions and procedures analysis knows, seeded with the built-in
+  functions of Neo4j 5 and GQL. Plugin functions, aggregates and procedures
+  are registered by the caller (`register_function`, `register_aggregate`,
+  `register_procedure`). Both analyzers check calls of known functions and
+  procedures against their signatures: `ErrorKind::InvalidNumberOfArguments`
+  (`left('a')`) and `ErrorKind::InvalidArgumentType` (`labels(p)` on a path).
+  Unknown functions and procedures pass unless the catalog is strict
+  (`set_strict(true)`), which reports `ErrorKind::UnknownFunction` and
+  `ErrorKind::ProcedureNotFound` (#115).
+- Static type checks in both analyzers, reported as
+  `ErrorKind::InvalidArgumentType` with the new public `ValueTypes`: operands
+  of `NOT` / `AND` / `OR` / `XOR`, `IN`, arithmetic and property access,
+  `WHERE` predicates and `DELETE` targets whose type is known from literals,
+  pattern variables, list elements or function results (`NOT 'a'`,
+  `1 IN 2`, `WHERE (n)`, `DELETE 1 + 1`, `WITH 'a' AS s RETURN s.x`,
+  `any(x IN ['a'] WHERE x % 2 = 0)`). Values whose type is not known
+  statically are never reported (#115).
 - `ErrorKind::AggregateNotAllowed` (with `hir::HirDiagnostic` and
   `sema::SemaError` variants): both analyzers report aggregates outside
   projection items and the `WHERE` / `ORDER BY` of an aggregating projection,
@@ -58,6 +75,12 @@ are marked **Breaking** below.
   `reason`; new variants `InvalidClauseComposition`, `MissingAlias` and
   `NoVariablesInScope`; the never-reported `VariableOutOfScope` and
   `InvalidMergePattern` are removed (#109).
+- **Breaking:** `sema::Catalog` replaces `AggregateRegistry` (formerly
+  `hir::AggregateRegistry`): `register(name)` is `register_aggregate(name)`,
+  `contains(name)` is `is_aggregate(name)`, and `hir::LowerConfig::aggregates`
+  is `hir::LowerConfig::catalog`. `HirDiagnostic::UnknownFunction` is now
+  reported, and there are new `ProcedureNotFound`, `InvalidArgumentType` and
+  `InvalidNumberOfArguments` variants (#115).
 - **Breaking:** new `hir::HirDiagnostic` variants `InvalidSkipLimit`,
   `InvalidParameterUse`, `NonDeterministicAggregate` and
   `VariableTypeConflict` (#110), and `PatternExpressionOutsidePredicate`
@@ -119,6 +142,8 @@ are marked **Breaking** below.
   with `UNION` failed to parse. The printer no longer writes a double space
   after a subquery part that ends without `RETURN`
   (`EXISTS { MATCH (n)-->(m) }`).
+- `point(…)` and `graph.names()` / `graph.byName(…)` failed to parse, since
+  `point` and `graph` are also keywords (#115).
 - The printer wrote relationships without a detail block as `-[]->`, so the
   reparsed AST differed, and printed `<-->` / `<-[…]->` as undirected
   `-[…]-`. Bare relationships now print as `-->`, `<--`, `--` and `<-->`,
