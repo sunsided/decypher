@@ -60,6 +60,12 @@ pub fn check_aggregation_with(
     aggregates: &AggregateRegistry,
     diagnostics: &mut Diagnostics,
 ) {
+    let is_aggregate = |fc: &FunctionInvocation| aggregates.is_aggregate_call(fc);
+    for (function, span) in misplaced_aggregates(query, &is_aggregate) {
+        diagnostics
+            .errors
+            .push(SemaError::AggregateNotAllowed { function, span }.into_error());
+    }
     let mut checker = AggregationChecker {
         aggregates,
         diagnostics,
@@ -96,7 +102,8 @@ impl AggregationChecker<'_> {
             SingleQueryKind::SinglePart(sp) => self.check_body(&sp.body),
             SingleQueryKind::MultiPart(mp) => {
                 for part in &mp.parts {
-                    self.check_projection(&part.with.items, part.with.star, part.with.span);
+                    let with = &part.with;
+                    self.check_projection(&with.items, with.star, with.order.as_ref(), with.span);
                 }
                 self.check_body(&mp.final_part.body);
             }
@@ -111,14 +118,29 @@ impl AggregationChecker<'_> {
             SinglePartBody::Finish(_) => None,
         };
         if let Some(ret) = ret {
-            self.check_projection(&ret.items, ret.star, ret.span);
+            self.check_projection(&ret.items, ret.star, ret.order.as_ref(), ret.span);
         }
     }
 
     /// Report the implicit grouping keys of a `WITH` or `RETURN` item list.
-    fn check_projection(&mut self, items: &[ProjectionItem], star: bool, span: Span) {
+    fn check_projection(
+        &mut self,
+        items: &[ProjectionItem],
+        star: bool,
+        order: Option<&Order>,
+        span: Span,
+    ) {
         let is_aggregate = |fc: &FunctionInvocation| self.aggregates.is_aggregate_call(fc);
-        let non_grouping: Vec<String> = implicit_grouping_keys(items, star, &is_aggregate)
+        let mut violations = implicit_grouping_keys(items, star, &is_aggregate);
+        if let Some(order) = order {
+            violations.extend(implicit_grouping_keys_in_order(
+                items,
+                star,
+                order,
+                &is_aggregate,
+            ));
+        }
+        let non_grouping: Vec<String> = violations
             .into_iter()
             .flat_map(|(_, names)| names)
             .collect();
@@ -142,33 +164,88 @@ pub(crate) fn implicit_grouping_keys(
     star: bool,
     is_aggregate: &dyn Fn(&FunctionInvocation) -> bool,
 ) -> Vec<(Span, Vec<String>)> {
-    let (aggregating, keys): (Vec<_>, Vec<_>) = items
+    if !items
         .iter()
-        .partition(|item| item.expression.contains_aggregate(is_aggregate));
-    if aggregating.is_empty() {
+        .any(|item| item.expression.contains_aggregate(is_aggregate))
+    {
         return Vec::new();
     }
-    let keys: HashSet<String> = keys
+    let keys = grouping_keys(items, is_aggregate);
+    items
         .iter()
+        .filter_map(|item| ungrouped_references(&item.expression, &keys, star, is_aggregate))
+        .collect()
+}
+
+/// For each `ORDER BY` item of an aggregating projection that contains an
+/// aggregate, the references it makes outside its aggregate calls that are
+/// neither grouping keys nor columns of the projection, with the sort item's
+/// span (`RETURN n.a + n.b, count(*) ORDER BY n.a + n.b + count(*)` yields
+/// `n.a` and `n.b`).
+pub(crate) fn implicit_grouping_keys_in_order(
+    items: &[ProjectionItem],
+    star: bool,
+    order: &Order,
+    is_aggregate: &dyn Fn(&FunctionInvocation) -> bool,
+) -> Vec<(Span, Vec<String>)> {
+    if !items
+        .iter()
+        .any(|item| item.expression.contains_aggregate(is_aggregate))
+    {
+        return Vec::new();
+    }
+    let mut keys = grouping_keys(items, is_aggregate);
+    keys.extend(
+        items
+            .iter()
+            .filter_map(|item| match (&item.alias, &item.expression) {
+                (Some(alias), _) => Some(alias.name.name.clone()),
+                (None, Expression::Variable(v)) => Some(v.name.name.clone()),
+                _ => None,
+            }),
+    );
+    order
+        .items
+        .iter()
+        .filter_map(|sort| ungrouped_references(&sort.expression, &keys, star, is_aggregate))
+        .collect()
+}
+
+/// The printed grouping-key expressions of a projection: its non-aggregate
+/// items that are variables or property accesses.
+fn grouping_keys(
+    items: &[ProjectionItem],
+    is_aggregate: &dyn Fn(&FunctionInvocation) -> bool,
+) -> HashSet<String> {
+    items
+        .iter()
+        .filter(|item| !item.expression.contains_aggregate(is_aggregate))
         .map(|item| unparenthesized(&item.expression))
         .filter(|expr| is_reference(expr))
         .map(|expr| expr.to_cypher())
-        .collect();
-
-    aggregating
-        .into_iter()
-        .filter_map(|item| {
-            let mut finder = UngroupedReferences {
-                is_aggregate,
-                star,
-                keys: &keys,
-                locals: Vec::new(),
-                found: Vec::new(),
-            };
-            finder.visit_expression(&item.expression);
-            (!finder.found.is_empty()).then(|| (item.expression.span(), finder.found))
-        })
         .collect()
+}
+
+/// The references `expr` makes outside its aggregate calls that are not in
+/// `keys`, with its span, if it contains an aggregate and any such reference.
+fn ungrouped_references(
+    expr: &Expression,
+    keys: &HashSet<String>,
+    star: bool,
+    is_aggregate: &dyn Fn(&FunctionInvocation) -> bool,
+) -> Option<(Span, Vec<String>)> {
+    if !expr.contains_aggregate(is_aggregate) {
+        return None;
+    }
+    let mut finder = UngroupedReferences {
+        is_aggregate,
+        star,
+        keys,
+        locals: Vec::new(),
+        found: Vec::new(),
+    };
+    finder.visit_expression(expr);
+    (!finder.found.is_empty()).then(|| (expr.span(), finder.found))
 }
 
 fn unparenthesized(mut expr: &Expression) -> &Expression {
@@ -271,5 +348,165 @@ impl<'ast> Visit<'ast> for UngroupedReferences<'_> {
             | Expression::CollectSubquery(_) => {}
             _ => walk_expression(self, node),
         }
+    }
+}
+
+/// The aggregate calls of `query` in positions that do not allow them, by
+/// dot-joined function name and span.
+///
+/// Aggregates may appear in `WITH` and `RETURN` items, and in the `WHERE`
+/// and `ORDER BY` of a projection that aggregates. They may not appear
+/// anywhere else (`MATCH … WHERE count(n) > 1`, `CALL p(count(n))`), inside
+/// the arguments of another aggregate (`count(count(*))`), or in the body of
+/// a comprehension (`[x IN list | count(*)]`).
+pub(crate) fn misplaced_aggregates(
+    query: &Query,
+    is_aggregate: &dyn Fn(&FunctionInvocation) -> bool,
+) -> Vec<(String, Span)> {
+    let mut placement = AggregatePlacement {
+        is_aggregate,
+        allowed: false,
+        found: Vec::new(),
+    };
+    placement.visit_query(query);
+    placement.found
+}
+
+/// Collects aggregate calls outside the positions that allow them.
+struct AggregatePlacement<'a> {
+    is_aggregate: &'a dyn Fn(&FunctionInvocation) -> bool,
+    /// Whether the expression being visited may contain an aggregate.
+    allowed: bool,
+    /// Offending aggregate calls, by function name and span.
+    found: Vec<(String, Span)>,
+}
+
+impl AggregatePlacement<'_> {
+    /// Runs `visit` with aggregates `allowed` or not.
+    fn with_allowed(&mut self, allowed: bool, visit: impl FnOnce(&mut Self)) {
+        let outer = std::mem::replace(&mut self.allowed, allowed);
+        visit(self);
+        self.allowed = outer;
+    }
+
+    fn visit_projection<'ast>(
+        &mut self,
+        items: &'ast [ProjectionItem],
+        filters: &[Option<&'ast Expression>],
+        order: Option<&'ast Order>,
+        counts: &[Option<&'ast Expression>],
+    ) {
+        let aggregating = items
+            .iter()
+            .any(|item| item.expression.contains_aggregate(self.is_aggregate));
+        self.with_allowed(true, |this| {
+            for item in items {
+                this.visit_expression(&item.expression);
+            }
+        });
+        self.with_allowed(aggregating, |this| {
+            for filter in filters.iter().flatten() {
+                this.visit_expression(filter);
+            }
+            if let Some(order) = order {
+                this.visit_order(order);
+            }
+        });
+        self.with_allowed(false, |this| {
+            for count in counts.iter().flatten() {
+                this.visit_expression(count);
+            }
+        });
+    }
+}
+
+impl<'ast> Visit<'ast> for AggregatePlacement<'_> {
+    fn visit_with(&mut self, node: &'ast With) {
+        self.visit_projection(
+            &node.items,
+            &[node.where_clause.as_ref()],
+            node.order.as_ref(),
+            &[node.skip.as_ref(), node.limit.as_ref()],
+        );
+    }
+
+    fn visit_return(&mut self, node: &'ast Return) {
+        self.visit_projection(
+            &node.items,
+            &[],
+            node.order.as_ref(),
+            &[node.skip.as_ref(), node.limit.as_ref()],
+        );
+    }
+
+    fn visit_expression(&mut self, node: &'ast Expression) {
+        let (name, span) = match node {
+            Expression::CountStar { span } => ("count".to_string(), *span),
+            Expression::FunctionCall(fc) if (self.is_aggregate)(fc) => {
+                let name = fc
+                    .name
+                    .iter()
+                    .map(|segment| segment.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(".");
+                (name, fc.span)
+            }
+            _ => return walk_expression(self, node),
+        };
+        if !self.allowed {
+            self.found.push((name, span));
+        }
+        self.with_allowed(false, |this| walk_expression(this, node));
+    }
+
+    fn visit_list_comprehension(&mut self, node: &'ast ListComprehension) {
+        self.visit_expression(&node.collection);
+        self.with_allowed(false, |this| {
+            if let Some(filter) = &node.filter {
+                this.visit_expression(filter);
+            }
+            if let Some(map) = &node.map {
+                this.visit_expression(map);
+            }
+        });
+    }
+
+    fn visit_filter_expression(&mut self, node: &'ast FilterExpression) {
+        self.visit_expression(&node.collection);
+        if let Some(predicate) = &node.predicate {
+            self.with_allowed(false, |this| this.visit_expression(predicate));
+        }
+    }
+
+    fn visit_reduce_expression(&mut self, node: &'ast ReduceExpression) {
+        self.visit_expression(&node.init);
+        self.visit_expression(&node.list);
+        self.with_allowed(false, |this| this.visit_expression(&node.expression));
+    }
+
+    fn visit_pattern_comprehension(&mut self, node: &'ast PatternComprehension) {
+        self.with_allowed(false, |this| {
+            crate::ast::visit::walk_pattern_comprehension(this, node)
+        });
+    }
+
+    // Subqueries start without aggregates allowed; their own projections
+    // allow them again.
+    fn visit_exists_expression(&mut self, node: &'ast ExistsExpression) {
+        self.with_allowed(false, |this| {
+            crate::ast::visit::walk_exists_expression(this, node)
+        });
+    }
+
+    fn visit_count_subquery_expression(&mut self, node: &'ast CountSubqueryExpression) {
+        self.with_allowed(false, |this| {
+            crate::ast::visit::walk_count_subquery_expression(this, node)
+        });
+    }
+
+    fn visit_collect_subquery_expression(&mut self, node: &'ast CollectSubqueryExpression) {
+        self.with_allowed(false, |this| {
+            crate::ast::visit::walk_collect_subquery_expression(this, node)
+        });
     }
 }

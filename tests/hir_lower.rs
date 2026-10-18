@@ -1237,3 +1237,111 @@ fn analyze_reports_redeclared_clause_variables() {
     }
     analyze("MATCH (n) WITH n.x AS x UNWIND [1] AS n RETURN n, x").unwrap();
 }
+
+/// Aggregates are only allowed in projection items and in the `WHERE` and
+/// `ORDER BY` of an aggregating projection (#103).
+///
+/// Unit: `analyze()` / `sema::analyze()`
+/// Precondition: Aggregates in `MATCH … WHERE`, in `ORDER BY` after a
+///               projection without aggregates, in a list comprehension
+///               body, in procedure arguments and nested in an aggregate.
+/// Expectation: Both analyzers report `AggregateNotAllowed`; aggregates in
+///              their allowed places still pass.
+#[test]
+fn analyze_reports_misplaced_aggregates() {
+    use decypher::ErrorKind;
+    for (query, function) in [
+        ("MATCH (a) WHERE count(a) > 10 RETURN a", "count"),
+        ("MATCH (n) RETURN n.num1 ORDER BY max(n.num2)", "max"),
+        (
+            "MATCH (n) WITH n.num1 AS foo ORDER BY count(n) RETURN foo",
+            "count",
+        ),
+        ("MATCH (n) RETURN [x IN [1, 2] | count(*)]", "count"),
+        (
+            "MATCH (n) CALL test.labels(count(n)) YIELD label RETURN label",
+            "count",
+        ),
+        ("MATCH (n) RETURN count(count(*))", "count"),
+        ("MATCH (n) SET n.c = count(*)", "count"),
+    ] {
+        let expected = ErrorKind::AggregateNotAllowed {
+            function: function.into(),
+        };
+        let err = analyze(query).unwrap_err();
+        check!(err.kind == expected, "query: {query}, got: {err}");
+        let parsed = decypher::parse(query).unwrap();
+        let sema = decypher::sema::analyze(&parsed).unwrap_err();
+        check!(
+            sema.errors.iter().any(|e| e.kind == expected),
+            "query: {query}, sema got: {:?}",
+            sema.errors
+        );
+    }
+    for query in [
+        "MATCH (n) RETURN n.k, count(*) AS c ORDER BY count(*) DESC",
+        "MATCH (n) WITH n.k AS k, count(*) AS c WHERE c > 1 RETURN k",
+        "MATCH (n) RETURN reduce(s = 0, x IN collect(n.v) | s + x) AS t",
+        "MATCH (n) WHERE COUNT { MATCH (n)-->() } > 1 RETURN n",
+        "MATCH (n) WHERE EXISTS { MATCH (n)-->(m) RETURN count(m) AS c } RETURN n",
+        "MATCH (n) RETURN CASE WHEN count(*) > 1 THEN 'many' ELSE 'one' END AS c",
+    ] {
+        if let Err(err) = analyze(query) {
+            panic!("query: {query}, got: {err}");
+        }
+    }
+}
+
+/// Aggregating `ORDER BY` items may not use implicit grouping keys either.
+///
+/// Unit: `analyze()`
+/// Precondition: TCK `ReturnOrderBy6 [5]` / `WithOrderBy4 [20]` queries and
+///               a valid `ORDER BY` over a grouping key and a column.
+/// Expectation: `AggregationMix` for the first two; success for the third.
+#[test]
+fn analyze_reports_implicit_grouping_keys_in_order_by() {
+    use decypher::ErrorKind;
+    for query in [
+        "MATCH (me)--(you) RETURN me.age + you.age, count(*) AS cnt \
+         ORDER BY me.age + you.age + count(*)",
+        "MATCH (me)--(you) WITH me.age + you.age, count(*) AS cnt \
+         ORDER BY me.age + you.age + count(*) RETURN *",
+    ] {
+        let err = analyze(query).unwrap_err();
+        check!(
+            matches!(err.kind, ErrorKind::AggregationMix { .. }),
+            "query: {query}, got: {err}"
+        );
+    }
+    analyze("MATCH (n) RETURN n.k AS k, count(*) AS c ORDER BY k, c + count(*)").unwrap();
+}
+
+/// A pattern predicate cannot introduce variables: every named node or
+/// relationship must already be bound (#104, TCK `Pattern1 [10]`).
+///
+/// Unit: `analyze()`
+/// Precondition: Pattern predicates naming unbound nodes and relationships,
+///               and ones over bound variables only.
+/// Expectation: The first report the unbound name; the others pass and do
+///              not leak bindings.
+#[test]
+fn analyze_pattern_predicates_need_bound_variables() {
+    for (query, var) in [
+        ("MATCH (n) WHERE (n)-[r]->(a) RETURN n", "a"),
+        ("MATCH (n) WHERE (a)-->(n) RETURN n", "a"),
+        ("MATCH (n) WHERE ()-[r]-() RETURN n", "r"),
+        (
+            "MATCH (n) WHERE (n)-[:REL]->(:C)<-[s:REL]-(a {num: 5}) RETURN n",
+            "a",
+        ),
+    ] {
+        let err = analyze(query).unwrap_err();
+        check!(
+            err.to_string()
+                .contains(&format!("unresolved variable `{var}`")),
+            "query: {query}, got: {err}"
+        );
+    }
+    analyze("MATCH (n), (m) WHERE (n)-->(m) RETURN n").unwrap();
+    analyze("MATCH (n)-[r]->(m) WHERE NOT (m)-[r]->(n) RETURN size((n)-->()) AS d").unwrap();
+}

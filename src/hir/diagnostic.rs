@@ -44,6 +44,14 @@ pub enum HirDiagnostic {
         /// Source location of the invalid aggregation expression.
         span: Span,
     },
+    /// An aggregate called where aggregation is not allowed
+    /// (`MATCH … WHERE count(n) > 1`, `[x IN list | count(*)]`).
+    AggregateNotAllowed {
+        /// The dot-joined name of the aggregate function.
+        function: String,
+        /// Source location of the call.
+        span: Span,
+    },
     /// A `DELETE` target expression is not a valid node or relationship reference.
     InvalidDeleteTarget {
         /// Source location of the invalid target.
@@ -106,6 +114,9 @@ impl HirDiagnostic {
             HirDiagnostic::InvalidAggregation { non_grouping, .. } => ErrorKind::AggregationMix {
                 non_grouping: non_grouping.clone(),
             },
+            HirDiagnostic::AggregateNotAllowed { function, .. } => ErrorKind::AggregateNotAllowed {
+                function: function.clone(),
+            },
             HirDiagnostic::UnsupportedFeature { feature, .. } => ErrorKind::Unsupported {
                 production: std::borrow::Cow::Owned(feature.clone()),
             },
@@ -128,6 +139,7 @@ impl HirDiagnostic {
             HirDiagnostic::UnsupportedFeature { span, .. } => *span,
             HirDiagnostic::UnionColumnMismatch { span } => *span,
             HirDiagnostic::InvalidMergePattern { span } => *span,
+            HirDiagnostic::AggregateNotAllowed { span, .. } => *span,
         }
     }
 }

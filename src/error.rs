@@ -186,6 +186,9 @@ pub enum ErrorKind {
     AggregationMix { non_grouping: Vec<String> },
     /// DISTINCT used where it is not allowed (semantic).
     DistinctNotAllowed,
+    /// An aggregate function called where aggregation is not allowed, such
+    /// as `MATCH … WHERE count(n) > 1` (semantic).
+    AggregateNotAllowed { function: String },
     /// Invalid reference in ORDER BY / WHERE after WITH (semantic).
     InvalidReference { name: String, reason: &'static str },
 }
@@ -244,6 +247,9 @@ impl fmt::Display for ErrorKind {
             }
             ErrorKind::DistinctNotAllowed => {
                 write!(f, "DISTINCT is not allowed in this context")
+            }
+            ErrorKind::AggregateNotAllowed { function } => {
+                write!(f, "aggregate function `{function}` is not allowed here")
             }
             ErrorKind::InvalidReference { name, reason } => {
                 write!(f, "invalid reference to `{}`: {}", name, reason)

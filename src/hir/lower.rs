@@ -68,6 +68,12 @@ pub fn lower(query: &Query, config: &LowerConfig) -> Result<HirQuery, Diagnostic
     let mut ctx = LoweringContext::new(config);
     let mut parts = Vec::new();
 
+    let is_aggregate = |fc: &FunctionInvocation| config.aggregates.is_aggregate_call(fc);
+    for (function, span) in crate::sema::misplaced_aggregates(query, &is_aggregate) {
+        ctx.diagnostics
+            .push(HirDiagnostic::AggregateNotAllowed { function, span });
+    }
+
     for stmt in &query.statements {
         let stmt_parts = ctx.lower_query_body(stmt);
         parts.extend(stmt_parts);
@@ -776,6 +782,7 @@ impl<'cfg> LoweringContext<'cfg> {
         self.lower_order_skip_limit(
             &w.items,
             &columns,
+            w.star,
             w.distinct,
             w.order.as_ref(),
             w.skip.as_ref(),
@@ -801,6 +808,7 @@ impl<'cfg> LoweringContext<'cfg> {
         self.lower_order_skip_limit(
             &r.items,
             &columns,
+            r.star,
             r.distinct,
             r.order.as_ref(),
             r.skip.as_ref(),
@@ -822,6 +830,7 @@ impl<'cfg> LoweringContext<'cfg> {
         &mut self,
         items: &[crate::ast::clause::ProjectionItem],
         columns: &[BindingId],
+        star: bool,
         distinct: bool,
         order: Option<&Order>,
         skip: Option<&Expression>,
@@ -829,6 +838,13 @@ impl<'cfg> LoweringContext<'cfg> {
         outer: ScopeMark,
     ) {
         if let Some(order) = order {
+            let is_aggregate = |fc: &FunctionInvocation| self.is_aggregate_call(fc);
+            for (span, non_grouping) in
+                crate::sema::implicit_grouping_keys_in_order(items, star, order, &is_aggregate)
+            {
+                self.diagnostics
+                    .push(HirDiagnostic::InvalidAggregation { non_grouping, span });
+            }
             let narrow = distinct || self.has_any_aggregate(items);
             let sort_items = self.lower_after_projection(items, columns, narrow, outer, |this| {
                 order
@@ -1201,7 +1217,30 @@ impl<'cfg> LoweringContext<'cfg> {
                 return self.lower_expr(inner);
             }
             Expression::Pattern(rp) => {
+                // A pattern predicate can only match variables that are
+                // already bound (`WHERE (n)-->(m)` needs `m`).
+                let variables = std::iter::once(&rp.start)
+                    .chain(rp.chains.iter().map(|chain| &chain.node))
+                    .filter_map(|node| node.variable.as_ref())
+                    .chain(rp.chains.iter().filter_map(|chain| {
+                        chain
+                            .relationship
+                            .detail
+                            .as_ref()
+                            .and_then(|detail| detail.variable.as_ref())
+                    }));
+                for v in variables {
+                    if self.scope_stack.resolve(&v.name.name).is_none() {
+                        self.diagnostics.push(HirDiagnostic::UnknownVariable {
+                            name: v.name.name.clone(),
+                            span: v.name.span,
+                        });
+                    }
+                }
+                // Unknown names are bound locally so that lowering continues.
+                self.scope_stack.push_scope(&mut self.arenas);
                 let pattern = self.lower_relationships_pattern(rp);
+                self.scope_stack.pop_scope();
                 ExprKind::PatternExpr(pattern)
             }
             Expression::Exists(exists) => {

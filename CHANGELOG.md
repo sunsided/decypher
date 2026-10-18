@@ -20,7 +20,17 @@ are marked **Breaking** below.
 - `sema::check_aggregation_with` and `sema::analyze_with` take an
   `AggregateRegistry`, so user-defined aggregates count as aggregates in
   semantic analysis too. The registry now lives in `sema` and is re-exported
-  as `hir::AggregateRegistry` (#97).
+  as `hir::AggregateRegistry` (#97). `sema::resolve_names_with` takes it as
+  well (#105).
+- `ErrorKind::AggregateNotAllowed` (with `hir::HirDiagnostic` and
+  `sema::SemaError` variants): both analyzers report aggregates outside
+  projection items and the `WHERE` / `ORDER BY` of an aggregating projection,
+  such as `MATCH (a) WHERE count(a) > 10`, `[x IN l | count(*)]`,
+  `CALL p(count(n))` and `count(count(*))` (#103).
+- The TCK gate also checks that `sema::analyze` accepts every query the TCK
+  expects to compile, and that both analyzers reject queries the TCK expects
+  to fail with an undefined variable, an invalid, nested or ambiguous
+  aggregation, or a column name conflict.
 
 ### Changed
 
@@ -41,12 +51,29 @@ are marked **Breaking** below.
   non-aggregate item is a grouping key, whatever its expression, so
   `WITH toUpper(n.name) AS k, count(*) AS c` is accepted, while
   `RETURN n.a + n.b, n.a + n.b + count(*)` is rejected as in Neo4j (#97).
+- Both analyzers apply the grouping rule to the aggregating `ORDER BY`
+  items of an aggregating projection too, so
+  `RETURN a + b, count(*) ORDER BY a + b + count(*)`-style queries are
+  rejected (#103).
+- `analyze` reports a redeclaration when `UNWIND`, `YIELD`, `LOAD CSV`,
+  `FOREACH` or a `CALL { … }` column rebinds a visible name.
+- **Breaking:** `hir::HirDiagnostic` gains `AggregateNotAllowed`.
+- `sema::analyze` lets the `WHERE` and `ORDER BY` of a `WITH` (and the
+  `ORDER BY` of a `RETURN`) see the variables the projection read, matching
+  `analyze` and the TCK; it rejected 43 valid TCK queries before (#105).
+- `analyze` reports unbound variables in pattern predicates
+  (`WHERE (n)-[r]->(a)`), which it bound silently and leaked into later
+  clauses (#104).
 - The wasm `validate()` relies on HIR lowering alone and now also reports
   invalid aggregations.
 
 ### Fixed
 
 - `RETURN *, n.x AS x` dropped the explicit items in HIR.
+- Variables passed through by `WITH *` / `RETURN *` are grouping keys: the
+  `Aggregate` of `RETURN DISTINCT *, count(*)` grouped by nothing, and
+  `WITH *, n.x + count(*)` was rejected.
+- `task wasm:test` ran no Node.js tests (#106).
 
 ## [0.2.0-alpha.8] - 2026-10-18
 

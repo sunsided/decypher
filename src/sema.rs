@@ -24,11 +24,13 @@ mod resolve;
 mod scope;
 
 pub use aggregate_registry::AggregateRegistry;
-#[cfg(feature = "hir")]
-pub(crate) use aggregation::implicit_grouping_keys;
 pub use aggregation::{AggregationViolation, check_aggregation, check_aggregation_with};
+#[cfg(feature = "hir")]
+pub(crate) use aggregation::{
+    implicit_grouping_keys, implicit_grouping_keys_in_order, misplaced_aggregates,
+};
 pub use error::SemaError;
-pub use resolve::{ResolutionResult, resolve_names};
+pub use resolve::{ResolutionResult, resolve_names, resolve_names_with};
 pub use scope::{ScopeStack, SymbolKind};
 
 use crate::ast::query::Query;
@@ -74,7 +76,7 @@ pub fn analyze_with(query: &Query, aggregates: &AggregateRegistry) -> Result<(),
     let mut diagnostics = Diagnostics { errors: Vec::new() };
 
     // Phase 1: Name resolution
-    if let Err(errs) = resolve_names(query) {
+    if let Err(errs) = resolve_names_with(query, aggregates) {
         diagnostics.errors.extend(errs);
     }
 
