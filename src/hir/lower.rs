@@ -438,24 +438,51 @@ impl<'cfg> LoweringContext<'cfg> {
         }
     }
 
-    fn lower_call_subquery(&mut self, c: &CallSubquery) {
-        let imported = self
-            .scope_stack
-            .bindings_by_name
-            .iter()
-            .rev()
-            .flat_map(|m| m.values())
-            .copied()
-            .collect();
-        let query_ast = Query {
-            statements: vec![QueryBody::Regular(c.query.clone())],
-            span: Span::new(0, 0),
-        };
-        let query = lower(&query_ast, self.config).unwrap_or_else(|_| HirQuery {
-            arenas: HirArenas::new(),
-            parts: Vec::new(),
+    /// Lowers the body of a `CALL`, `EXISTS`, `COUNT` or `COLLECT` subquery.
+    ///
+    /// The subquery gets its own arenas, but the outer variables visible at
+    /// the call site are seeded into its root scope, so correlated references
+    /// such as `CALL { WITH x … }` resolve. Diagnostics from the subquery are
+    /// reported on the enclosing query instead of being dropped. Returns the
+    /// lowered subquery and the outer bindings visible to it.
+    fn lower_subquery(&mut self, query: &RegularQuery) -> (HirQuery, Vec<BindingId>) {
+        // Innermost binding wins for shadowed names.
+        let mut visible: HashMap<String, BindingId> = HashMap::new();
+        for frame in &self.scope_stack.bindings_by_name {
+            for (name, &id) in frame {
+                visible.insert(name.clone(), id);
+            }
+        }
+        let mut visible: Vec<(String, BindingId)> = visible.into_iter().collect();
+        visible.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let mut inner = LoweringContext::new(self.config);
+        inner.scope_stack.push_scope(&mut inner.arenas);
+        for (name, id) in &visible {
+            let outer = self.arenas.bindings.get(*id);
+            let (kind, span) = (outer.kind, outer.introduced_at);
+            inner.scope_stack.bind(&mut inner.arenas, name, kind, span);
+        }
+        let parts = inner.lower_regular_query(query);
+        self.diagnostics.extend(inner.diagnostics);
+        let query = HirQuery {
+            arenas: inner.arenas,
+            parts,
             diagnostics: Vec::new(),
-        });
+        };
+        (query, visible.into_iter().map(|(_, id)| id).collect())
+    }
+
+    fn lower_call_subquery(&mut self, c: &CallSubquery) {
+        let (query, imported) = self.lower_subquery(&c.query);
+        // The subquery's returned columns become variables of the outer query.
+        let exported = subquery_columns(&c.query)
+            .into_iter()
+            .map(|(name, span)| {
+                self.scope_stack
+                    .bind(&mut self.arenas, &name, BindingKind::Value, span)
+            })
+            .collect();
         let in_transactions = c.in_transactions.as_ref().map(|it| HirInTransactions {
             of_rows: it.of_rows.as_ref().map(|e| self.lower_expr(e)),
             on_error: match it.on_error {
@@ -468,6 +495,7 @@ impl<'cfg> LoweringContext<'cfg> {
         self.current_part_ops
             .push(Operation::CallSubquery(CallSubqueryOp {
                 imported_bindings: imported,
+                exported_bindings: exported,
                 query: Box::new(query),
                 in_transactions,
             }));
@@ -1401,7 +1429,9 @@ impl<'cfg> LoweringContext<'cfg> {
     fn lower_exists_inner(&mut self, inner: &ExistsInner) -> ExistsSubquery {
         match inner {
             ExistsInner::Pattern(pat, where_clause) => {
-                // Convert pattern+where to a minimal query
+                // Convert pattern+where to a minimal query. Variables the
+                // pattern introduces are local to the predicate.
+                let scope = self.scope_stack.push_scope(&mut self.arenas);
                 let pattern = self.lower_pattern(pat);
                 let mut ops = vec![Operation::Match(MatchOp {
                     pattern,
@@ -1415,7 +1445,6 @@ impl<'cfg> LoweringContext<'cfg> {
                     items: Vec::new(),
                     distinct: false,
                 }));
-                let scope = self.scope_stack.push_scope(&mut self.arenas);
                 let out_scope = self.scope_stack.push_scope(&mut self.arenas);
                 let query = HirQuery {
                     arenas: HirArenas::new(),
@@ -1434,22 +1463,7 @@ impl<'cfg> LoweringContext<'cfg> {
                 }
             }
             ExistsInner::RegularQuery(rq) => {
-                let imported: Vec<BindingId> = self
-                    .scope_stack
-                    .bindings_by_name
-                    .iter()
-                    .rev()
-                    .flat_map(|m| m.values().copied())
-                    .collect();
-                let query_ast = Query {
-                    statements: vec![QueryBody::Regular((**rq).clone())],
-                    span: Span::new(0, 0),
-                };
-                let query = lower(&query_ast, self.config).unwrap_or_else(|_| HirQuery {
-                    arenas: HirArenas::new(),
-                    parts: Vec::new(),
-                    diagnostics: Vec::new(),
-                });
+                let (query, imported) = self.lower_subquery(rq);
                 ExistsSubquery {
                     query: Box::new(query),
                     imported_bindings: imported,
@@ -1459,22 +1473,7 @@ impl<'cfg> LoweringContext<'cfg> {
     }
 
     fn lower_count_subquery(&mut self, query: &RegularQuery) -> CountSubquery {
-        let imported: Vec<BindingId> = self
-            .scope_stack
-            .bindings_by_name
-            .iter()
-            .rev()
-            .flat_map(|m| m.values().copied())
-            .collect();
-        let query_ast = Query {
-            statements: vec![QueryBody::Regular(query.clone())],
-            span: Span::new(0, 0),
-        };
-        let q = lower(&query_ast, self.config).unwrap_or_else(|_| HirQuery {
-            arenas: HirArenas::new(),
-            parts: Vec::new(),
-            diagnostics: Vec::new(),
-        });
+        let (q, imported) = self.lower_subquery(query);
         CountSubquery {
             query: Box::new(q),
             imported_bindings: imported,
@@ -1482,22 +1481,7 @@ impl<'cfg> LoweringContext<'cfg> {
     }
 
     fn lower_collect_subquery(&mut self, query: &RegularQuery) -> CollectSubquery {
-        let imported: Vec<BindingId> = self
-            .scope_stack
-            .bindings_by_name
-            .iter()
-            .rev()
-            .flat_map(|m| m.values().copied())
-            .collect();
-        let query_ast = Query {
-            statements: vec![QueryBody::Regular(query.clone())],
-            span: Span::new(0, 0),
-        };
-        let q = lower(&query_ast, self.config).unwrap_or_else(|_| HirQuery {
-            arenas: HirArenas::new(),
-            parts: Vec::new(),
-            diagnostics: Vec::new(),
-        });
+        let (q, imported) = self.lower_subquery(query);
         CollectSubquery {
             query: Box::new(q),
             imported_bindings: imported,
@@ -1859,6 +1843,38 @@ impl<'cfg> LoweringContext<'cfg> {
             _ => false,
         }
     }
+}
+
+/// The columns a subquery returns, as `(name, span)`: the `AS` alias or the
+/// variable/property name of each final `RETURN` item. A unit subquery (no
+/// `RETURN`) returns none; `RETURN *` is not expanded.
+fn subquery_columns(query: &RegularQuery) -> Vec<(String, Span)> {
+    let body = match &query.single_query.kind {
+        SingleQueryKind::SinglePart(sp) => &sp.body,
+        SingleQueryKind::MultiPart(mp) => &mp.final_part.body,
+    };
+    let ret = match body {
+        SinglePartBody::Return(ret) => Some(ret),
+        SinglePartBody::Updating { return_clause, .. } => return_clause.as_ref(),
+        SinglePartBody::Finish(_) => None,
+    };
+    ret.map(|ret| {
+        ret.items
+            .iter()
+            .map(|item| match &item.alias {
+                Some(alias) => (alias.name.name.clone(), alias.name.span),
+                None => {
+                    let name = match &item.expression {
+                        Expression::Variable(v) => v.name.name.clone(),
+                        Expression::PropertyLookup { property, .. } => property.name.name.clone(),
+                        other => crate::ast::ToCypher::to_cypher(other),
+                    };
+                    (name, expr_span(&item.expression))
+                }
+            })
+            .collect()
+    })
+    .unwrap_or_default()
 }
 
 fn expr_span(expr: &Expression) -> Span {

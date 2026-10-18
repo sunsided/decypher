@@ -289,6 +289,8 @@ pub struct DeleteOp {
 pub struct CallSubqueryOp {
     /// Bindings from the outer scope imported into the subquery.
     pub imported_bindings: Vec<BindingId>,
+    /// Outer-query bindings for the columns the subquery returns.
+    pub exported_bindings: Vec<BindingId>,
     /// The inner subquery.
     pub query: Box<super::HirQuery>,
     /// Optional `IN TRANSACTIONS` modifier.
