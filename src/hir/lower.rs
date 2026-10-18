@@ -767,10 +767,8 @@ impl<'cfg> LoweringContext<'cfg> {
         };
         let outer = self.scope_stack.mark();
         let scope = self.scope_stack.push_scope(&mut self.arenas);
-        for (name, id) in &passed_through {
-            self.scope_stack.import(&mut self.arenas, name, *id);
-        }
-        let columns = self.lower_projection(&w.items, w.distinct, BindingKind::WithAlias);
+        let columns =
+            self.lower_projection(passed_through, &w.items, w.distinct, BindingKind::WithAlias);
         self.scope_stack.hide_outer();
 
         if let Some(where_expr) = &w.where_clause {
@@ -804,40 +802,8 @@ impl<'cfg> LoweringContext<'cfg> {
         };
         let outer = self.scope_stack.mark();
         let scope = self.scope_stack.push_scope(&mut self.arenas);
-        // `RETURN *` passes every visible variable through, next to any
-        // further items (`RETURN *, n.x AS x`).
-        let passed_through: Vec<ProjectionItem> = visible
-            .into_iter()
-            .map(|(name, binding_id)| {
-                self.scope_stack.import(&mut self.arenas, &name, binding_id);
-                ProjectionItem {
-                    expression: self.arenas.expressions.alloc(HirExpr {
-                        kind: ExprKind::Binding(binding_id),
-                        span: Span::new(0, 0),
-                    }),
-                    alias: binding_id,
-                }
-            })
-            .collect();
-        let columns = if r.items.is_empty() {
-            self.current_part_ops.push(Operation::Project(ProjectOp {
-                items: passed_through,
-                distinct: r.distinct,
-            }));
-            Vec::new()
-        } else {
-            let columns = self.lower_projection(&r.items, r.distinct, BindingKind::ReturnAlias);
-            match self.current_part_ops.last_mut() {
-                Some(Operation::Project(project)) => {
-                    project.items.splice(0..0, passed_through);
-                }
-                Some(Operation::Aggregate(aggregate)) => {
-                    aggregate.grouping_keys.splice(0..0, passed_through);
-                }
-                _ => unreachable!("a projection ends with Project or Aggregate"),
-            }
-            columns
-        };
+        let columns =
+            self.lower_projection(visible, &r.items, r.distinct, BindingKind::ReturnAlias);
         self.scope_stack.hide_outer();
 
         self.lower_order_skip_limit(
@@ -1797,13 +1763,16 @@ impl<'cfg> LoweringContext<'cfg> {
     /// and applies `DISTINCT`.
     fn lower_projection(
         &mut self,
+        passed_through: Vec<(String, BindingId)>,
         items: &[crate::ast::clause::ProjectionItem],
         distinct: bool,
         kind: BindingKind,
     ) -> Vec<BindingId> {
         self.report_duplicate_columns(items);
+        let star = !passed_through.is_empty();
         let is_aggregate = |fc: &FunctionInvocation| self.is_aggregate_call(fc);
-        for (span, non_grouping) in crate::sema::implicit_grouping_keys(items, &is_aggregate) {
+        for (span, non_grouping) in crate::sema::implicit_grouping_keys(items, star, &is_aggregate)
+        {
             self.diagnostics
                 .push(HirDiagnostic::InvalidAggregation { non_grouping, span });
         }
@@ -1819,12 +1788,36 @@ impl<'cfg> LoweringContext<'cfg> {
             ),
         };
 
+        // `WITH *` / `RETURN *` pass every visible variable through, ahead
+        // of any further items (`RETURN *, n.x AS x`); they group an
+        // aggregating projection like any other non-aggregate item.
+        let passed_through: Vec<BindingId> = passed_through
+            .into_iter()
+            .map(|(name, id)| {
+                self.scope_stack.import(&mut self.arenas, &name, id);
+                id
+            })
+            .collect();
+        let pass_through = |this: &mut Self| -> Vec<ProjectionItem> {
+            passed_through
+                .iter()
+                .map(|&alias| ProjectionItem {
+                    expression: this.arenas.expressions.alloc(HirExpr {
+                        kind: ExprKind::Binding(alias),
+                        span: Span::new(0, 0),
+                    }),
+                    alias,
+                })
+                .collect()
+        };
+
         if !items.iter().any(|pi| self.has_aggregate(&pi.expression)) {
             // Evaluate every expression before any alias becomes visible.
             let exprs: Vec<ExprId> = items
                 .iter()
                 .map(|pi| self.lower_expr(&pi.expression))
                 .collect();
+            let mut projected = pass_through(self);
             let items: Vec<ProjectionItem> = items
                 .iter()
                 .zip(exprs)
@@ -1835,8 +1828,11 @@ impl<'cfg> LoweringContext<'cfg> {
                 })
                 .collect();
             let aliases = items.iter().map(|item| item.alias).collect();
-            self.current_part_ops
-                .push(Operation::Project(ProjectOp { items, distinct }));
+            projected.extend(items);
+            self.current_part_ops.push(Operation::Project(ProjectOp {
+                items: projected,
+                distinct,
+            }));
             return aliases;
         }
 
@@ -1874,7 +1870,7 @@ impl<'cfg> LoweringContext<'cfg> {
             columns.push((column, alias_of(self, pi)));
         }
 
-        let mut grouping_keys = Vec::new();
+        let mut grouping_keys = pass_through(self);
         let mut aggregates = Vec::new();
         let mut computed = Vec::new();
         let mut outputs = Vec::new();
@@ -1933,6 +1929,7 @@ impl<'cfg> LoweringContext<'cfg> {
         }
 
         let mut computed = computed.into_iter();
+        let mut projected = pass_through(self);
         let items: Vec<ProjectionItem> = outputs
             .into_iter()
             .map(|output| match output {
@@ -1952,8 +1949,11 @@ impl<'cfg> LoweringContext<'cfg> {
             })
             .collect();
         let aliases = items.iter().map(|item| item.alias).collect();
-        self.current_part_ops
-            .push(Operation::Project(ProjectOp { items, distinct }));
+        projected.extend(items);
+        self.current_part_ops.push(Operation::Project(ProjectOp {
+            items: projected,
+            distinct,
+        }));
         aliases
     }
 

@@ -99,3 +99,20 @@ fn registered_aggregates_are_aggregates() {
     assert_eq!(non_grouping(query, &aggregates), vec!["n.x"]);
     assert!(non_grouping(query, &AggregateRegistry::default()).is_empty());
 }
+
+/// `WITH *` and `RETURN *` project every variable in scope, so all of them
+/// are grouping keys (#102 review).
+///
+/// Unit: `sema::analyze()`
+/// Precondition: `*` next to an aggregating item over a matched variable.
+/// Expectation: Analysis succeeds.
+#[test]
+fn star_variables_are_grouping_keys() {
+    for query in [
+        "MATCH (n) WITH *, n.x + count(*) AS c RETURN n, c",
+        "MATCH (n) RETURN *, n.x + count(*) AS c",
+    ] {
+        let found = non_grouping(query, &AggregateRegistry::default());
+        assert!(found.is_empty(), "query: {query}, got: {found:?}");
+    }
+}

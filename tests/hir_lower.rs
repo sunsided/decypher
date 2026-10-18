@@ -1165,3 +1165,49 @@ fn analyze_reports_implicit_grouping_keys() {
     let err = decypher::analyze_with_config(query, &config).unwrap_err();
     check!(matches!(err.kind, ErrorKind::AggregationMix { .. }));
 }
+
+/// Variables passed through by `WITH *` / `RETURN *` are grouping keys of an
+/// aggregating projection: the `Aggregate` groups by them and a trailing
+/// `Project` still outputs them, and expressions over them are not implicit
+/// grouping keys (#102 review).
+///
+/// Unit: `analyze()`
+/// Precondition: `*` next to `count(*)`, `count(*) + 1` and `n.x + count(*)`.
+/// Expectation: Lowering succeeds; every `Aggregate` groups by `n`.
+#[test]
+fn analyze_star_variables_are_grouping_keys() {
+    for query in [
+        "MATCH (n) RETURN DISTINCT *, count(*) AS c",
+        "MATCH (n) RETURN *, count(*) + 1 AS c",
+        "MATCH (n) RETURN *, n.x + count(*) AS c",
+        "MATCH (n) WITH *, n.x + count(*) AS c RETURN n, c",
+        "MATCH (n) WITH *, count(*) AS c RETURN n, c",
+    ] {
+        let hir = analyze(query).unwrap_or_else(|e| panic!("query: {query}, got: {e}"));
+        let ops = &hir.parts[0].operations;
+        let aggregate = ops
+            .iter()
+            .find_map(|op| match op {
+                Operation::Aggregate(a) => Some(a),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("expected an Aggregate operation: {query}"));
+        let keys: Vec<_> = aggregate
+            .grouping_keys
+            .iter()
+            .map(|key| hir.arenas.bindings.get(key.alias).name.as_str())
+            .collect();
+        check!(keys == ["n"], "query: {query}");
+        if let Some(Operation::Project(project)) = ops
+            .iter()
+            .rev()
+            .find(|op| matches!(op, Operation::Project(_)))
+        {
+            check!(
+                project.items[0].alias == aggregate.grouping_keys[0].alias,
+                "query: {query}"
+            );
+        }
+    }
+}
+

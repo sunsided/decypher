@@ -96,7 +96,7 @@ impl AggregationChecker<'_> {
             SingleQueryKind::SinglePart(sp) => self.check_body(&sp.body),
             SingleQueryKind::MultiPart(mp) => {
                 for part in &mp.parts {
-                    self.check_projection(&part.with.items, part.with.span);
+                    self.check_projection(&part.with.items, part.with.star, part.with.span);
                 }
                 self.check_body(&mp.final_part.body);
             }
@@ -111,14 +111,14 @@ impl AggregationChecker<'_> {
             SinglePartBody::Finish(_) => None,
         };
         if let Some(ret) = ret {
-            self.check_projection(&ret.items, ret.span);
+            self.check_projection(&ret.items, ret.star, ret.span);
         }
     }
 
     /// Report the implicit grouping keys of a `WITH` or `RETURN` item list.
-    fn check_projection(&mut self, items: &[ProjectionItem], span: Span) {
+    fn check_projection(&mut self, items: &[ProjectionItem], star: bool, span: Span) {
         let is_aggregate = |fc: &FunctionInvocation| self.aggregates.is_aggregate_call(fc);
-        let non_grouping: Vec<String> = implicit_grouping_keys(items, &is_aggregate)
+        let non_grouping: Vec<String> = implicit_grouping_keys(items, star, &is_aggregate)
             .into_iter()
             .flat_map(|(_, names)| names)
             .collect();
@@ -135,8 +135,11 @@ impl AggregationChecker<'_> {
 /// item's span. Items without such references are left out.
 ///
 /// `RETURN n.a + count(*)` yields `n.a`; `RETURN n, n.a + count(*)` nothing.
+/// With `star` (`WITH *` / `RETURN *`) every variable in scope is projected,
+/// so every variable is a grouping key.
 pub(crate) fn implicit_grouping_keys(
     items: &[ProjectionItem],
+    star: bool,
     is_aggregate: &dyn Fn(&FunctionInvocation) -> bool,
 ) -> Vec<(Span, Vec<String>)> {
     let (aggregating, keys): (Vec<_>, Vec<_>) = items
@@ -157,6 +160,7 @@ pub(crate) fn implicit_grouping_keys(
         .filter_map(|item| {
             let mut finder = UngroupedReferences {
                 is_aggregate,
+                star,
                 keys: &keys,
                 locals: Vec::new(),
                 found: Vec::new(),
@@ -188,6 +192,8 @@ fn is_reference(expr: &Expression) -> bool {
 /// aggregate calls, that are neither grouping keys nor local variables.
 struct UngroupedReferences<'a> {
     is_aggregate: &'a dyn Fn(&FunctionInvocation) -> bool,
+    /// Whether every variable is a grouping key (`WITH *`, `RETURN *`).
+    star: bool,
     /// The printed grouping-key expressions.
     keys: &'a HashSet<String>,
     /// Variables bound inside the expression (comprehensions, `reduce`).
@@ -213,7 +219,10 @@ impl<'ast> Visit<'ast> for UngroupedReferences<'_> {
             Expression::CountStar { .. } => {}
             Expression::FunctionCall(fc) if (self.is_aggregate)(fc) => {}
             Expression::Variable(v) => {
-                if !self.keys.contains(&node.to_cypher()) && !self.locals.contains(&v.name.name) {
+                if !self.star
+                    && !self.keys.contains(&node.to_cypher())
+                    && !self.locals.contains(&v.name.name)
+                {
                     self.found.push(v.name.name.clone());
                 }
             }
