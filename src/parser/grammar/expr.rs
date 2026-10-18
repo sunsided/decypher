@@ -229,8 +229,10 @@ fn parse_is_null(p: &mut Parser) {
 }
 
 /// Words that may appear in a GQL value type (`INTEGER`, `LIST<STRING>`,
-/// `ZONED DATETIME`, `PROPERTY VALUE`, …).
+/// `ZONED DATETIME`, `UNSIGNED INTEGER32`, `DOUBLE PRECISION`, …): the
+/// Neo4j type names plus GQL's exact and approximate numeric types.
 const TYPE_WORDS: &[&str] = &[
+    // Neo4j / common
     "ANY",
     "NOTHING",
     "NULL",
@@ -241,12 +243,7 @@ const TYPE_WORDS: &[&str] = &[
     "INT",
     "INTEGER",
     "SIGNED",
-    "INTEGER8",
-    "INTEGER16",
-    "INTEGER32",
-    "INTEGER64",
     "FLOAT",
-    "FLOAT64",
     "DATE",
     "LOCAL",
     "ZONED",
@@ -265,6 +262,42 @@ const TYPE_WORDS: &[&str] = &[
     "PATH",
     "PROPERTY",
     "VALUE",
+    // GQL exact numeric types
+    "UNSIGNED",
+    "INTEGER8",
+    "INTEGER16",
+    "INTEGER32",
+    "INTEGER64",
+    "INTEGER128",
+    "INTEGER256",
+    "INT8",
+    "INT16",
+    "INT32",
+    "INT64",
+    "INT128",
+    "INT256",
+    "UINT",
+    "UINT8",
+    "UINT16",
+    "UINT32",
+    "UINT64",
+    "UINT128",
+    "UINT256",
+    "SMALLINT",
+    "BIGINT",
+    "USMALLINT",
+    "UBIGINT",
+    "DECIMAL",
+    "DEC",
+    // GQL approximate numeric types
+    "FLOAT16",
+    "FLOAT32",
+    "FLOAT64",
+    "FLOAT128",
+    "FLOAT256",
+    "REAL",
+    "DOUBLE",
+    "PRECISION",
 ];
 
 /// The text of the current token.

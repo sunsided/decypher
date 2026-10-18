@@ -738,6 +738,10 @@ fn test_normalization_and_type_predicates() {
             "RETURN 1 IS :: TIME WITH TIME ZONE;",
         ),
         (
+            "RETURN 1 IS :: UNSIGNED INTEGER32 | DOUBLE PRECISION AS t",
+            "RETURN 1 IS :: UNSIGNED INTEGER32 | DOUBLE PRECISION AS t;",
+        ),
+        (
             "WITH 1 AS x WHERE x IS :: INTEGER AND x > 0 RETURN x",
             "WITH 1 AS x WHERE x IS :: INTEGER AND x > 0 RETURN x;",
         ),
