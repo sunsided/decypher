@@ -158,14 +158,23 @@ fn parse_property_lookup(p: &mut Parser) {
     p.start_node(SyntaxKind::PROPERTY_LOOKUP);
     p.bump(); // DOT
     p.skip_trivia();
+    parse_property_lookup_key(p);
+    p.builder.finish_node();
+}
+
+/// The key after the `.` of a property lookup. Any name works as a key,
+/// keywords included (`n.count`); a missing one is reported here rather than
+/// leaving an empty lookup behind.
+fn parse_property_lookup_key(p: &mut Parser) {
     if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) || is_keyword_as_name(p) {
         p.start_node(SyntaxKind::PROPERTY_KEY_NAME);
         p.start_node(SyntaxKind::SYMBOLIC_NAME);
         p.bump();
         p.builder.finish_node();
         p.builder.finish_node();
+    } else {
+        p.error_here(&[Expected::Category(Cow::Borrowed("property name"))]);
     }
-    p.builder.finish_node();
 }
 
 fn parse_list_index(p: &mut Parser) {
@@ -1938,13 +1947,7 @@ fn parse_set_item(p: &mut Parser) {
             p.start_node(SyntaxKind::PROPERTY_LOOKUP);
             p.bump();
             p.skip_trivia();
-            if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) || is_keyword_as_name(p) {
-                p.start_node(SyntaxKind::PROPERTY_KEY_NAME);
-                p.start_node(SyntaxKind::SYMBOLIC_NAME);
-                p.bump();
-                p.builder.finish_node();
-                p.builder.finish_node();
-            }
+            parse_property_lookup_key(p);
             p.builder.finish_node();
             p.skip_trivia();
         }
@@ -2028,13 +2031,7 @@ fn parse_remove_item(p: &mut Parser) {
             p.start_node(SyntaxKind::PROPERTY_LOOKUP);
             p.bump();
             p.skip_trivia();
-            if p.at(SyntaxKind::IDENT) {
-                p.start_node(SyntaxKind::PROPERTY_KEY_NAME);
-                p.start_node(SyntaxKind::SYMBOLIC_NAME);
-                p.bump();
-                p.builder.finish_node();
-                p.builder.finish_node();
-            }
+            parse_property_lookup_key(p);
             p.builder.finish_node();
             p.skip_trivia();
         }
@@ -3099,13 +3096,7 @@ fn parse_constraint_property(p: &mut Parser) {
             p.start_node(SyntaxKind::PROPERTY_LOOKUP);
             p.bump();
             p.skip_trivia();
-            if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) {
-                p.start_node(SyntaxKind::PROPERTY_KEY_NAME);
-                p.start_node(SyntaxKind::SYMBOLIC_NAME);
-                p.bump();
-                p.builder.finish_node();
-                p.builder.finish_node();
-            }
+            parse_property_lookup_key(p);
             p.builder.finish_node();
             p.skip_trivia();
         }

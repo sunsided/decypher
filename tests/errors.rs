@@ -510,3 +510,39 @@ fn test_stray_tokens_are_reported() {
     }
     check!(parse("USE 'db' RETURN 1").unwrap_err().kind == ErrorKind::InvalidGraphReference);
 }
+
+/// A `.` without a property name after it is a syntax error at the token
+/// that follows, not an internal error from building the AST.
+///
+/// Unit: `parse()`
+/// Precondition: Property lookups with no key in `RETURN`, `SET` and `REMOVE`.
+/// Expectation: `UnexpectedToken` expecting a property name, found the next token.
+#[test]
+fn test_missing_property_key() {
+    for (input, found) in [
+        ("MATCH (m) RETURN m.;", ";"),
+        ("MATCH (m) RETURN m.", "<end of input>"),
+        ("MATCH (n) SET n. = 1", "="),
+        ("MATCH (n) REMOVE n.", "<end of input>"),
+    ] {
+        let err = parse(input).unwrap_err();
+        check!(
+            matches!(
+                &err.kind,
+                ErrorKind::UnexpectedToken { expected, found: f }
+                    if f == found && expected.iter().any(|e| e.to_string() == "property name")
+            ),
+            "input: {input}, got: {:?}",
+            err.kind
+        );
+    }
+}
+
+/// `REMOVE` accepts the same property keys as every other lookup: escaped
+/// names and keywords.
+#[test]
+fn test_remove_accepts_any_property_key() {
+    for input in ["MATCH (n) REMOVE n.`x y`", "MATCH (n) REMOVE n.count"] {
+        check!(parse(input).is_ok(), "input: {input}");
+    }
+}

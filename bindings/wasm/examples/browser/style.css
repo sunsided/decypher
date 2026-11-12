@@ -56,6 +56,21 @@ h1 {
   font-size: 1.1rem;
 }
 
+.example-picker {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.example-picker select {
+  font: inherit;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.15rem 0.4rem;
+}
+
 #version {
   color: var(--muted);
   font-family: var(--mono);
@@ -193,5 +208,182 @@ nav button[aria-selected="true"] {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--panel);
-  font: 12.5px/1.5 var(--mono);
 }
+
+#output h3 {
+  margin: 1rem 0 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+#output h3:first-child {
+  margin-top: 0;
+}
+
+#output .code {
+  margin: 0;
+  font: 12.5px/1.5 var(--mono);
+  white-space: pre;
+}
+
+#output .notice {
+  margin: 0.5rem 0;
+  color: var(--muted);
+}
+
+#output button,
+#output input {
+  font: inherit;
+  color: inherit;
+}
+
+/* Editor marks driven by hovering the output pane or by the caret. */
+#highlight .mark-def { background: color-mix(in srgb, var(--parameter) 30%, transparent); border-radius: 2px; }
+#highlight .mark-ref { background: color-mix(in srgb, var(--parameter) 16%, transparent); border-radius: 2px; }
+#highlight .mark-hover { background: color-mix(in srgb, var(--keyword) 16%, transparent); }
+
+/* AST explorer */
+.toolbar {
+  display: inline-flex;
+  gap: 0.3rem;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.ast {
+  font: 12.5px/1.6 var(--mono);
+}
+
+.ast details > :not(summary) {
+  margin-left: 1.1rem;
+}
+
+.ast summary {
+  cursor: default;
+  border-radius: 3px;
+}
+
+.ast .ast-key { color: var(--keyword); }
+.ast .ast-leaf .ast-key { color: var(--muted); }
+.ast .ast-meta { color: var(--muted); font-size: 0.85em; }
+.ast .selectable { cursor: pointer; }
+.ast .selectable:hover { text-decoration: underline; }
+.ast .ast-current { background: color-mix(in srgb, var(--keyword) 18%, transparent); }
+
+/* Symbols */
+.symbols {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.symbols li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  padding: 0.3rem 0.5rem;
+  border-radius: 6px;
+}
+
+.symbols li:hover {
+  background: color-mix(in srgb, var(--parameter) 8%, transparent);
+}
+
+.var-name {
+  font-family: var(--mono) !important;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+
+.symbols input {
+  font-family: var(--mono) !important;
+  width: 10rem;
+  padding: 0.05rem 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+}
+
+.var-meta {
+  flex: 1;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.rename,
+.chip {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.05rem 0.6rem;
+  font-size: 0.85rem !important;
+  cursor: pointer;
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.chip {
+  font-family: var(--mono) !important;
+}
+
+.chip .count {
+  margin-left: 0.4rem;
+  color: var(--muted);
+}
+
+/* Parameters */
+.params {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.param {
+  display: grid;
+  grid-template-columns: minmax(6rem, max-content) 1fr;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.param-name {
+  font-family: var(--mono);
+  color: var(--parameter);
+}
+
+.param input {
+  font-family: var(--mono) !important;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  min-width: 0;
+}
+
+/* Pattern graph */
+.graph {
+  width: 100%;
+  max-height: 32rem;
+  font: 12px var(--mono);
+}
+
+.graph marker path { fill: var(--muted); }
+.graph .edge { fill: none; stroke: var(--muted); stroke-width: 1.5; }
+.graph .edge-hit { fill: none; stroke: transparent; stroke-width: 14; }
+.graph .edge.variable-length { stroke-dasharray: 5 4; }
+.graph .optional { opacity: 0.55; }
+.graph .edge-label { fill: var(--label); text-anchor: middle; paint-order: stroke; stroke: var(--panel); stroke-width: 4px; }
+.graph .node circle { fill: color-mix(in srgb, var(--parameter) 14%, var(--panel)); stroke: var(--parameter); stroke-width: 1.5; }
+.graph .node-name { fill: var(--text); text-anchor: middle; font-weight: 600; }
+.graph .node-labels { fill: var(--label); text-anchor: middle; font-size: 10px; }
+.graph g:hover circle,
+.graph .edge-group:hover .edge { stroke-width: 3; }

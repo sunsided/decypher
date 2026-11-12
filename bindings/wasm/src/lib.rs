@@ -13,7 +13,12 @@
 
 use decypher::CypherError;
 use decypher::ast::ToCypher;
-use decypher::syntax::{SyntaxElement, SyntaxNode};
+use decypher::hir::arena::{Id, Interner};
+use decypher::hir::{
+    BindingId, BindingKind, ExprKind, GraphPattern, HirQuery, LabelExpr, Operation,
+    RelationshipDirection, RelationshipLength,
+};
+use decypher::syntax::{SyntaxElement, SyntaxKind, SyntaxNode};
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
 
@@ -69,6 +74,47 @@ export interface Query {
 
 export interface FormatOutput {
   cypher: string;
+}
+
+/** A variable and every place it occurs, as UTF-16 ranges. */
+export interface Variable {
+  name: string;
+  /** How it was bound, e.g. `"PatternBound"`, `"WithAlias"`, `"UnwindBound"`. */
+  kind: string;
+  definition: Span;
+  /** References after the definition, including ones in nested subqueries. */
+  uses: Span[];
+}
+
+export interface GraphNode {
+  variable: string | null;
+  /** Label names, or one entry with the label expression as text (`"A|B"`, `"!A"`, `"%"`). */
+  labels: string[];
+}
+
+export interface GraphRel {
+  variable: string | null;
+  /** Type names, or one entry with the type expression as text (`"!R"`). */
+  types: string[];
+  /** `"right"` for `-->`, `"left"` for `<--`, `"none"` for `--`, `"both"` for `<-->`. */
+  direction: "right" | "left" | "none" | "both";
+  /** Index into the pattern's `nodes`. */
+  from: number;
+  /** Index into the pattern's `nodes`. */
+  to: number;
+  variableLength: boolean;
+}
+
+export interface Pattern {
+  clause: "MATCH" | "OPTIONAL MATCH" | "CREATE" | "MERGE";
+  nodes: GraphNode[];
+  relationships: GraphRel[];
+}
+
+export interface AnalyzeOutput {
+  /** Ordered by definition. */
+  variables: Variable[];
+  patterns: Pattern[];
 }
 
 export interface CstNode {
@@ -324,6 +370,326 @@ pub fn cst(source: &str) -> Result<JsValue, JsError> {
     })
 }
 
+#[derive(Serialize)]
+struct Variable {
+    name: String,
+    kind: String,
+    definition: Span,
+    uses: Vec<Span>,
+}
+
+#[derive(Serialize)]
+struct GraphNode {
+    variable: Option<String>,
+    labels: Vec<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GraphRel {
+    variable: Option<String>,
+    types: Vec<String>,
+    direction: &'static str,
+    from: usize,
+    to: usize,
+    variable_length: bool,
+}
+
+#[derive(Serialize)]
+struct Pattern {
+    clause: &'static str,
+    nodes: Vec<GraphNode>,
+    relationships: Vec<GraphRel>,
+}
+
+#[derive(Serialize)]
+struct AnalyzeOutput {
+    variables: Vec<Variable>,
+    patterns: Vec<Pattern>,
+}
+
+/// Collects variables and graph patterns from a lowered query and its nested
+/// subqueries. Spans are kept as byte offsets until [`Collector::finish`].
+struct Collector {
+    /// `(name, kind, definition, uses)`; one entry per distinct variable.
+    variables: Vec<(String, String, decypher::Span, Vec<decypher::Span>)>,
+    patterns: Vec<Pattern>,
+}
+
+impl Collector {
+    fn variable(&mut self, name: &str, kind: BindingKind, span: decypher::Span) -> usize {
+        // Subqueries re-bind imported variables with the outer definition span,
+        // so `(name, span)` identifies one variable across nested queries.
+        if let Some(index) = self
+            .variables
+            .iter()
+            .position(|(n, _, def, _)| n == name && *def == span)
+        {
+            return index;
+        }
+        self.variables
+            .push((name.to_string(), format!("{kind:?}"), span, Vec::new()));
+        self.variables.len() - 1
+    }
+
+    fn query(&mut self, query: &HirQuery) {
+        let arenas = &query.arenas;
+        let mut by_binding = std::collections::HashMap::new();
+        for (id, binding) in arenas.bindings.iter() {
+            let index = self.variable(&binding.name, binding.kind, binding.introduced_at);
+            by_binding.insert(id, index);
+        }
+        for (_, expr) in arenas.expressions.iter() {
+            match &expr.kind {
+                ExprKind::Binding(id) => {
+                    if let Some(&index) = by_binding.get(id) {
+                        self.variables[index].3.push(expr.span);
+                    }
+                }
+                ExprKind::ExistsSubquery(sub) => self.query(&sub.query),
+                ExprKind::CountSubquery(sub) => self.query(&sub.query),
+                ExprKind::CollectSubquery(sub) => self.query(&sub.query),
+                _ => {}
+            }
+        }
+        for part in &query.parts {
+            self.operations(&part.operations, query);
+        }
+    }
+
+    fn operations(&mut self, operations: &[Operation], query: &HirQuery) {
+        for operation in operations {
+            match operation {
+                Operation::Match(op) => self.pattern("MATCH", &op.pattern, query),
+                Operation::OptionalMatch(op) => self.pattern("OPTIONAL MATCH", &op.pattern, query),
+                Operation::Create(op) => self.pattern("CREATE", &op.pattern, query),
+                Operation::Merge(op) => self.pattern("MERGE", &op.pattern, query),
+                Operation::Foreach(op) => self.operations(&op.operations, query),
+                Operation::CallSubquery(op) => self.query(&op.query),
+                Operation::Union(op) => op.branches.iter().for_each(|branch| self.query(branch)),
+                _ => {}
+            }
+        }
+    }
+
+    fn pattern(&mut self, clause: &'static str, pattern: &GraphPattern, query: &HirQuery) {
+        let arenas = &query.arenas;
+        let name = |id: Option<BindingId>| id.map(|id| arenas.bindings.get(id).name.clone());
+        self.patterns.push(Pattern {
+            clause,
+            nodes: pattern
+                .nodes
+                .iter()
+                .map(|node| GraphNode {
+                    variable: name(node.binding),
+                    labels: match &node.label_expression {
+                        Some(expr) => vec![label_expression_text(expr, &arenas.labels)],
+                        None => node
+                            .labels
+                            .iter()
+                            .filter_map(|&id| arenas.labels.name_of(id).map(str::to_string))
+                            .collect(),
+                    },
+                })
+                .collect(),
+            relationships: pattern
+                .relationships
+                .iter()
+                .map(|rel| GraphRel {
+                    variable: name(rel.binding),
+                    types: match &rel.type_expression {
+                        Some(expr) => vec![label_expression_text(expr, &arenas.relationship_types)],
+                        None => rel
+                            .types
+                            .iter()
+                            .filter_map(|&id| {
+                                arenas.relationship_types.name_of(id).map(str::to_string)
+                            })
+                            .collect(),
+                    },
+                    direction: match rel.direction {
+                        RelationshipDirection::LeftToRight => "right",
+                        RelationshipDirection::RightToLeft => "left",
+                        RelationshipDirection::Undirected => "none",
+                        RelationshipDirection::Both => "both",
+                    },
+                    from: rel.left,
+                    to: rel.right,
+                    variable_length: matches!(rel.length, RelationshipLength::Variable { .. }),
+                })
+                .collect(),
+        });
+    }
+
+    fn finish(self, source: &str) -> AnalyzeOutput {
+        // `WITH b` and `RETURN b` re-bind `b` under the same name, with the
+        // new binding defined at the old one's use. Fold such chains into one
+        // variable so a rename covers every occurrence.
+        let mut found = self.variables;
+        // An unaliased `RETURN n.name` or `count(*)` binds a column named
+        // after the expression; it is no variable anyone wrote or can rename.
+        found.retain(|(name, _, definition, _)| {
+            let text = &source[definition.start..definition.end];
+            is_name(text) && unquote(text) == *name
+        });
+        found.sort_by_key(|(_, _, definition, _)| definition.start);
+        let mut variables: Vec<(String, String, decypher::Span, Vec<decypher::Span>)> = Vec::new();
+        let mut owner: std::collections::HashMap<(usize, usize), usize> =
+            std::collections::HashMap::new();
+        for (name, kind, definition, uses) in found {
+            let index = match owner.get(&(definition.start, definition.end)) {
+                Some(&index) if variables[index].0 == name => index,
+                _ => {
+                    variables.push((name, kind, definition, Vec::new()));
+                    variables.len() - 1
+                }
+            };
+            for span in uses {
+                owner.insert((span.start, span.end), index);
+                variables[index].3.push(span);
+            }
+        }
+
+        // The HIR keeps no span for a pattern that refers to an already bound
+        // variable (`NOT (b)-->(a)`, `EXISTS { MATCH (n)-->() }`). Take those
+        // from the syntax tree and attach each to the closest earlier
+        // definition of the same name.
+        let known: std::collections::HashSet<_> = variables
+            .iter()
+            .flat_map(|(_, _, definition, uses)| uses.iter().chain([definition]))
+            .map(|span| (span.start, span.end))
+            .collect();
+        for (name, span) in variable_tokens(source) {
+            if known.contains(&(span.start, span.end)) {
+                continue;
+            }
+            if let Some(variable) = variables
+                .iter_mut()
+                .filter(|(n, _, definition, _)| *n == name && definition.start <= span.start)
+                .max_by_key(|(_, _, definition, _)| definition.start)
+            {
+                variable.3.push(span);
+            }
+        }
+
+        let range = |span: decypher::Span| Span {
+            start: utf16_offset(source, span.start),
+            end: utf16_offset(source, span.end),
+        };
+        AnalyzeOutput {
+            variables: variables
+                .into_iter()
+                .map(|(name, kind, definition, mut uses)| {
+                    uses.sort_by_key(|span| span.start);
+                    uses.dedup();
+                    Variable {
+                        name,
+                        kind,
+                        definition: range(definition),
+                        uses: uses.into_iter().map(range).collect(),
+                    }
+                })
+                .collect(),
+            patterns: self.patterns,
+        }
+    }
+}
+
+/// A label or relationship-type expression as text (`A|B`, `!A`, `%`,
+/// `$(…)`), parenthesising `|` inside `&` and binary operands of `!`.
+fn label_expression_text(expr: &LabelExpr, names: &Interner<Id>) -> String {
+    let operand = |inner: &LabelExpr, parenthesise: bool| {
+        let text = label_expression_text(inner, names);
+        if parenthesise {
+            format!("({text})")
+        } else {
+            text
+        }
+    };
+    match expr {
+        LabelExpr::Name(id) => names.name_of(*id).unwrap_or("?").to_string(),
+        LabelExpr::Dynamic(_) => "$(…)".to_string(),
+        LabelExpr::Wildcard => "%".to_string(),
+        LabelExpr::Or(a, b) => format!("{}|{}", operand(a, false), operand(b, false)),
+        LabelExpr::And(a, b) => {
+            let or = |e: &LabelExpr| matches!(e, LabelExpr::Or(..));
+            format!("{}&{}", operand(a, or(a)), operand(b, or(b)))
+        }
+        LabelExpr::Not(inner) => {
+            let binary = matches!(**inner, LabelExpr::Or(..) | LabelExpr::And(..));
+            format!("!{}", operand(inner, binary))
+        }
+    }
+}
+
+/// Every `VARIABLE` node in the syntax tree as `(name, identifier span)`.
+fn variable_tokens(source: &str) -> Vec<(String, decypher::Span)> {
+    decypher::parse_cst(source)
+        .tree
+        .descendants()
+        .filter(|node| node.kind() == SyntaxKind::VARIABLE)
+        .filter_map(|node| {
+            let token = node
+                .descendants_with_tokens()
+                .filter_map(|element| element.into_token())
+                // Keyword-named variables (`from`, `count`) lex as keywords.
+                .find(|token| {
+                    !matches!(token.kind(), SyntaxKind::WHITESPACE | SyntaxKind::COMMENT)
+                })?;
+            let range = token.text_range();
+            Some((
+                unquote(token.text()),
+                decypher::Span::new(range.start().into(), range.end().into()),
+            ))
+        })
+        .collect()
+}
+
+/// Whether `text` is a single name: an identifier or a backticked name.
+fn is_name(text: &str) -> bool {
+    let quoted = text.len() >= 2 && text.starts_with('`') && text.ends_with('`');
+    let plain = text
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_alphabetic() || c == '_')
+        && text.chars().all(|c| c.is_alphanumeric() || c == '_');
+    quoted || plain
+}
+
+/// A name as written in the source, without its backticks if it has them.
+fn unquote(text: &str) -> String {
+    match text.strip_prefix('`').and_then(|t| t.strip_suffix('`')) {
+        Some(inner) => inner.replace("``", "`"),
+        None => text.to_string(),
+    }
+}
+
+fn analyze_query(source: &str) -> Outcome<AnalyzeOutput> {
+    let query = match parse_recovering(source) {
+        Ok(query) => query,
+        Err(errors) => return Outcome::err(errors),
+    };
+    match decypher::hir::lower::lower(&query, &Default::default()) {
+        Ok(hir) => {
+            let mut collector = Collector {
+                variables: Vec::new(),
+                patterns: Vec::new(),
+            };
+            collector.query(&hir);
+            Outcome::ok(collector.finish(source))
+        }
+        Err(errors) => Outcome::err(diagnostics(errors.iter(), source)),
+    }
+}
+
+/// Resolve a query's variables (where each is defined and every place it is
+/// used, as UTF-16 ranges) and flatten its graph patterns into nodes and
+/// relationships. Fails like [`validate`] when the query has errors.
+#[wasm_bindgen(unchecked_return_type = "Result<AnalyzeOutput>")]
+pub fn analyze(source: &str) -> Result<JsValue, JsError> {
+    to_js(&analyze_query(source))
+}
+
 /// The version of these bindings (kept in lockstep with the `decypher` crate).
 #[wasm_bindgen]
 pub fn version() -> String {
@@ -332,7 +698,157 @@ pub fn version() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::utf16_offset;
+    use super::{AnalyzeOutput, Outcome, analyze_query, utf16_offset};
+
+    fn analyzed(source: &str) -> AnalyzeOutput {
+        match analyze_query(source) {
+            Outcome::Ok { value, .. } => value,
+            Outcome::Err { errors, .. } => panic!("{}", errors[0].rendered),
+        }
+    }
+
+    /// Every occurrence of `name` (definition first), as source slices.
+    fn occurrences<'a>(
+        source: &'a str,
+        output: &AnalyzeOutput,
+        name: &str,
+    ) -> Vec<(usize, &'a str)> {
+        let variable = output.variables.iter().find(|v| v.name == name).unwrap();
+        // The spans are UTF-16 offsets; map them to bytes to slice `source`.
+        let byte = |utf16: usize| {
+            let mut units = 0;
+            source
+                .char_indices()
+                .find(|(_, c)| {
+                    let before = units;
+                    units += c.len_utf16();
+                    before >= utf16
+                })
+                .map_or(source.len(), |(i, _)| i)
+        };
+        std::iter::once(&variable.definition)
+            .chain(&variable.uses)
+            .map(|span| (span.start, &source[byte(span.start)..byte(span.end)]))
+            .collect()
+    }
+
+    #[test]
+    fn variables_follow_with_and_pattern_references() {
+        let source = "MATCH (a)-->(b) WHERE NOT (b)-->(a) WITH b, count(*) AS n RETURN b.x AS x, n";
+        let output = analyzed(source);
+        let names: Vec<_> = output.variables.iter().map(|v| v.name.as_str()).collect();
+        assert_eq!(names, ["a", "b", "n", "x"]);
+        assert_eq!(occurrences(source, &output, "a"), [(7, "a"), (33, "a")]);
+        // `WITH b` re-binds `b`; it stays one variable across the boundary.
+        assert_eq!(
+            occurrences(source, &output, "b"),
+            [(13, "b"), (27, "b"), (41, "b"), (65, "b")]
+        );
+        assert_eq!(occurrences(source, &output, "n"), [(56, "n"), (75, "n")]);
+    }
+
+    #[test]
+    fn subquery_uses_belong_to_the_outer_variable() {
+        let source = "MATCH (n) WHERE EXISTS { MATCH (n)-->(m) } CALL { WITH n RETURN n.x AS y } RETURN n, y";
+        let output = analyzed(source);
+        assert_eq!(
+            occurrences(source, &output, "n"),
+            [(7, "n"), (32, "n"), (55, "n"), (64, "n"), (82, "n")]
+        );
+        assert_eq!(occurrences(source, &output, "y"), [(71, "y"), (85, "y")]);
+    }
+
+    #[test]
+    fn pattern_subqueries_resolve_imported_variables() {
+        let source = "MATCH (m) WHERE EXISTS { (m)-->(x) } RETURN COUNT { (m)<--() } AS n";
+        let output = analyzed(source);
+        assert_eq!(
+            occurrences(source, &output, "m"),
+            [(7, "m"), (26, "m"), (53, "m")]
+        );
+        assert_eq!(output.patterns.len(), 3);
+    }
+
+    #[test]
+    fn keyword_named_variables_are_found_in_patterns() {
+        let source = "MATCH (from)-->(to) MATCH (from)-->(x) RETURN x";
+        let output = analyzed(source);
+        assert_eq!(
+            occurrences(source, &output, "from"),
+            [(7, "from"), (27, "from")]
+        );
+    }
+
+    #[test]
+    fn patterns_list_nodes_and_relationships() {
+        let output = analyzed("OPTIONAL MATCH (a:Person)<-[r:KNOWS*2]-(:Robot) RETURN a, r");
+        let pattern = &output.patterns[0];
+        assert_eq!(pattern.clause, "OPTIONAL MATCH");
+        assert_eq!(pattern.nodes[0].labels, ["Person"]);
+        assert_eq!(pattern.nodes[1].variable, None);
+        let rel = &pattern.relationships[0];
+        assert_eq!(
+            (rel.variable.as_deref(), rel.direction),
+            (Some("r"), "left")
+        );
+        assert_eq!((rel.from, rel.to, rel.variable_length), (0, 1, true));
+        assert_eq!(rel.types, ["KNOWS"]);
+    }
+
+    #[test]
+    fn variable_ranges_are_utf16() {
+        let source = "WITH '😀' AS s RETURN s";
+        let output = analyzed(source);
+        let s = &output.variables[0];
+        let utf16: Vec<u16> = source.encode_utf16().collect();
+        for span in std::iter::once(&s.definition).chain(&s.uses) {
+            assert_eq!(
+                String::from_utf16(&utf16[span.start..span.end]).unwrap(),
+                "s"
+            );
+        }
+    }
+
+    #[test]
+    fn unaliased_columns_are_not_variables() {
+        let source = "MATCH (`my n`) RETURN `my n`.name, count(*), `my n`";
+        let output = analyzed(source);
+        let names: Vec<_> = output.variables.iter().map(|v| v.name.as_str()).collect();
+        assert_eq!(names, ["my n"]);
+        assert_eq!(
+            occurrences(source, &output, "my n"),
+            [(7, "`my n`"), (22, "`my n`"), (45, "`my n`")]
+        );
+    }
+
+    #[test]
+    fn label_and_type_expressions_are_kept() {
+        let output = analyzed("MATCH (n:A|B)-[:!R]->(m:(A|B)&!C), (:%) RETURN n, m");
+        let pattern = &output.patterns[0];
+        let labels: Vec<_> = pattern.nodes.iter().map(|n| n.labels.clone()).collect();
+        assert_eq!(labels, [vec!["A|B"], vec!["(A|B)&!C"], vec!["%"]]);
+        assert_eq!(pattern.relationships[0].types, ["!R"]);
+    }
+
+    #[test]
+    fn occurrences_after_multibyte_text() {
+        let source = "WITH '😀' AS s RETURN s";
+        let output = analyzed(source);
+        // `s` sits after a 4-byte, 2-unit emoji: byte and UTF-16 offsets differ.
+        assert_eq!(occurrences(source, &output, "s"), [(13, "s"), (22, "s")]);
+    }
+
+    #[test]
+    fn analyze_reports_errors() {
+        assert!(matches!(
+            analyze_query("MATCH (n) RETURN m"),
+            Outcome::Err { .. }
+        ));
+        assert!(matches!(
+            analyze_query("MATCH (n RETURN n"),
+            Outcome::Err { .. }
+        ));
+    }
 
     #[test]
     fn utf16_offsets_account_for_multibyte_characters() {
