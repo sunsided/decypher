@@ -14,11 +14,15 @@ impl Prec {
     const AND: Self = Self(3);
     const NOT: Self = Self(4);
     const COMPARISON: Self = Self(5);
-    const ADD_SUB: Self = Self(6);
-    const MUL_DIV_MOD: Self = Self(7);
-    const POWER: Self = Self(8);
-    const UNARY_ADD_SUB: Self = Self(9);
-    const POSTFIX: Self = Self(10);
+    /// `IN`, `STARTS WITH` / `ENDS WITH` / `CONTAINS` and the `IS …`
+    /// predicates: looser than arithmetic (`[1]+2 IN [3]+4` tests `[1, 2]`),
+    /// tighter than comparison (`a = b IS NULL` is `a = (b IS NULL)`).
+    const PREDICATE: Self = Self(6);
+    const ADD_SUB: Self = Self(7);
+    const MUL_DIV_MOD: Self = Self(8);
+    const POWER: Self = Self(9);
+    const UNARY_ADD_SUB: Self = Self(10);
+    const POSTFIX: Self = Self(11);
 }
 
 fn expr_bp(p: &mut Parser, min_bp: Prec) {
@@ -62,28 +66,28 @@ fn expr_bp(p: &mut Parser, min_bp: Prec) {
             }
             parse_list_index(p);
         } else if p.at(SyntaxKind::KW_IS) && is_label_predicate_after_is(p) {
-            if Prec::POSTFIX < min_bp {
+            if Prec::PREDICATE < min_bp {
                 break;
             }
             parse_is_label(p);
         } else if p.at(SyntaxKind::KW_IS) {
-            if Prec::POSTFIX < min_bp {
+            if Prec::PREDICATE < min_bp {
                 break;
             }
             parse_is_null(p);
         } else if is_string_op(p) {
-            if Prec::POSTFIX < min_bp {
+            if Prec::PREDICATE < min_bp {
                 break;
             }
             parse_string_op(p);
         } else if p.at(SyntaxKind::KW_IN) {
-            if Prec::POSTFIX < min_bp {
+            if Prec::PREDICATE < min_bp {
                 break;
             }
             p.start_node(SyntaxKind::LIST_OP_EXPR);
             p.bump();
             p.skip_trivia();
-            expr_bp(p, Prec::POSTFIX);
+            expr_bp(p, Prec::ADD_SUB);
             p.builder.finish_node();
         } else if p.at(SyntaxKind::COLON) && is_label_check_follow(p) {
             if Prec::POSTFIX < min_bp {
@@ -146,11 +150,9 @@ fn parse_infix_tail(p: &mut Parser, bp: Prec) {
     p.bump();
     p.skip_trivia();
 
-    let rhs_bp = match op {
-        SyntaxKind::POW => bp, // right-associative
-        _ => Prec(bp.0 + 1),   // left-associative
-    };
-    expr_bp(p, rhs_bp);
+    // Every infix operator is left-associative, `^` included (openCypher:
+    // `2 ^ 3 ^ 2` is `(2 ^ 3) ^ 2`).
+    expr_bp(p, Prec(bp.0 + 1));
     p.builder.finish_node();
 }
 
@@ -403,7 +405,7 @@ fn parse_string_op(p: &mut Parser) {
         p.expect(SyntaxKind::KW_WITH);
     }
     p.skip_trivia();
-    expr_bp(p, Prec::POSTFIX);
+    expr_bp(p, Prec::ADD_SUB);
     p.builder.finish_node();
 }
 

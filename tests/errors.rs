@@ -511,6 +511,31 @@ fn test_stray_tokens_are_reported() {
     check!(parse("USE 'db' RETURN 1").unwrap_err().kind == ErrorKind::InvalidGraphReference);
 }
 
+/// Input that does not start a statement is a syntax error at its first
+/// token, not an internal error, and junk after a valid statement is no
+/// longer dropped silently.
+#[test]
+fn test_non_statement_input() {
+    for (input, found) in [
+        ("THIS IS NOT VALID CYPHER !!!", "THIS"),
+        ("RETURN 1; FOO BAR", "FOO"),
+        ("MATCH (n) RETURN n; !!!", "!"),
+    ] {
+        let err = parse(input).unwrap_err();
+        check!(
+            matches!(&err.kind, ErrorKind::UnexpectedToken { found: f, .. } if f == found),
+            "input: {input}, got: {:?}",
+            err.kind
+        );
+    }
+    for input in ["// only a comment", ";;"] {
+        check!(
+            parse(input).unwrap_err().kind == ErrorKind::EmptyInput,
+            "input: {input}"
+        );
+    }
+}
+
 /// A `.` without a property name after it is a syntax error at the token
 /// that follows, not an internal error from building the AST.
 ///

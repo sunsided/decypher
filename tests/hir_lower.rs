@@ -1805,6 +1805,83 @@ fn strict_catalog_reports_unknown_functions_and_procedures() {
     }
 }
 
+/// `UNION` lowers to one `Union` operation holding every branch as its own
+/// query, with `distinct` telling `UNION` from `UNION ALL`.
+#[test]
+fn union_lowers_to_a_union_operation() {
+    for (query, branches, distinct) in [
+        ("RETURN 1 AS x UNION ALL RETURN 2 AS x", 2, false),
+        (
+            "MATCH (n) RETURN n.a AS x UNION MATCH (m) RETURN m.b AS x UNION RETURN 3 AS x",
+            3,
+            true,
+        ),
+    ] {
+        let hir = analyze(query).unwrap();
+        check!(hir.parts.len() == 1);
+        let [Operation::Union(union)] = hir.parts[0].operations.as_slice() else {
+            panic!("expected a single Union operation for {query}");
+        };
+        check!(union.branches.len() == branches);
+        check!(union.distinct == distinct);
+        // Each branch resolves its own variables in its own arenas.
+        for branch in &union.branches {
+            check!(
+                branch
+                    .parts
+                    .iter()
+                    .any(|p| matches!(p.operations.last(), Some(Operation::Return(_))))
+            );
+        }
+    }
+    let hir = analyze("MATCH (n) RETURN n.a AS x UNION MATCH (m) RETURN m.b AS x").unwrap();
+    let Operation::Union(union) = &hir.parts[0].operations[0] else {
+        unreachable!()
+    };
+    let names: Vec<_> = union
+        .branches
+        .iter()
+        .map(|b| {
+            b.arenas
+                .bindings
+                .iter()
+                .map(|(_, b)| b.name.clone())
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    check!(names[0].contains(&"n".to_string()) && !names[0].contains(&"m".to_string()));
+    check!(names[1].contains(&"m".to_string()) && !names[1].contains(&"n".to_string()));
+}
+
+/// An unaliased `RETURN` item names its column by the expression as written,
+/// as openCypher does (`n.name`, `coUnt( dIstInct n )`), and the binding's
+/// span covers that text.
+#[test]
+fn unaliased_columns_are_named_by_their_text() {
+    let source = "MATCH (n) RETURN n.name, coUnt( dIstInct n ), n";
+    let hir = analyze(source).unwrap();
+    let columns: Vec<_> = hir
+        .arenas
+        .bindings
+        .iter()
+        .filter(|(_, b)| b.kind == decypher::hir::BindingKind::ReturnAlias)
+        .map(|(_, b)| {
+            (
+                b.name.as_str(),
+                &source[b.introduced_at.start..b.introduced_at.end],
+            )
+        })
+        .collect();
+    check!(
+        columns
+            == [
+                ("n.name", "n.name"),
+                ("coUnt( dIstInct n )", "coUnt( dIstInct n )"),
+                ("n", "n")
+            ]
+    );
+}
+
 /// The pattern forms of `EXISTS { … }` and `COUNT { … }` lower into a nested
 /// query whose binding IDs resolve in that query's own arenas, like the full
 /// `EXISTS { MATCH … }` form, with outer variables imported.

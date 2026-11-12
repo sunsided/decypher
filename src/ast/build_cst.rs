@@ -144,6 +144,39 @@ fn internal(msg: &str, sp: Span) -> CypherError {
     }
 }
 
+/// `lhs op rhs` for a relational operator. `a < b < c` means
+/// `a < b AND b < c`, so a chain of them is one `Comparison` with several
+/// operators; `(a < b) < c` keeps its `Parenthesized` left side and stays
+/// nested, which tells the two apart.
+fn chain_comparison(
+    lhs: ast_c::Expression,
+    op: ast_c::ComparisonOperator,
+    rhs: ast_c::Expression,
+    sp: Span,
+) -> ast_c::Expression {
+    use ast_c::ComparisonOperator::{Eq, Ge, Gt, Le, Lt, Ne};
+    let relational = |op: &ast_c::ComparisonOperator| matches!(op, Eq | Ne | Lt | Gt | Le | Ge);
+    match lhs {
+        ast_c::Expression::Comparison {
+            lhs: first,
+            mut operators,
+            span,
+        } if operators.iter().all(|(op, _)| relational(op)) => {
+            operators.push((op, Box::new(rhs)));
+            ast_c::Expression::Comparison {
+                lhs: first,
+                operators,
+                span: Span::new(span.start.min(sp.start), sp.end),
+            }
+        }
+        lhs => ast_c::Expression::Comparison {
+            lhs: Box::new(lhs),
+            operators: vec![(op, Box::new(rhs))],
+            span: sp,
+        },
+    }
+}
+
 // ── Entry point ──────────────────────────────────────────────────────
 
 pub fn build_source_file(src: SourceFile) -> Result<ast_c::Query> {
@@ -158,8 +191,15 @@ pub fn build_source_file(src: SourceFile) -> Result<ast_c::Query> {
         statements.extend(build_statement(stmt)?);
     }
 
+    // Only comments and `;` (anything else is a syntax error by now).
     if statements.is_empty() {
-        return Err(internal("empty source file", sp));
+        return Err(CypherError {
+            kind: ErrorKind::EmptyInput,
+            span: sp,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
+        });
     }
 
     Ok(ast_c::Query {
@@ -757,9 +797,23 @@ fn build_projection_item(item: ProjectionItem) -> Result<ast_c::ProjectionItem> 
         }
     };
     let alias = item.as_name().map(build_top_variable);
+    // Everything before `AS`, without surrounding whitespace and comments.
+    let range = item
+        .syntax()
+        .children_with_tokens()
+        .take_while(|c| c.kind() != SyntaxKind::KW_AS)
+        .filter(|c| !matches!(c.kind(), SyntaxKind::WHITESPACE | SyntaxKind::COMMENT))
+        .map(|c| c.text_range())
+        .reduce(|a, b| a.cover(b))
+        .unwrap_or_else(|| item.syntax().text_range());
+    let base = item.syntax().text_range().start();
+    let text = item.syntax().text().to_string();
     Ok(ast_c::ProjectionItem {
         expression: expr,
         alias,
+        expression_text: text[usize::from(range.start() - base)..usize::from(range.end() - base)]
+            .to_string(),
+        expression_span: Span::new(range.start().into(), range.end().into()),
     })
 }
 
@@ -1368,36 +1422,42 @@ fn build_binary_expr(b: BinaryExpr) -> Result<ast_c::Expression> {
                     rhs: Box::new(rhs),
                     span: sp,
                 }),
-                Some(BinOp::Eq) => Ok(ast_c::Expression::Comparison {
-                    lhs: Box::new(lhs),
-                    operators: vec![(ast_c::ComparisonOperator::Eq, Box::new(rhs))],
-                    span: sp,
-                }),
-                Some(BinOp::Ne) => Ok(ast_c::Expression::Comparison {
-                    lhs: Box::new(lhs),
-                    operators: vec![(ast_c::ComparisonOperator::Ne, Box::new(rhs))],
-                    span: sp,
-                }),
-                Some(BinOp::Lt) => Ok(ast_c::Expression::Comparison {
-                    lhs: Box::new(lhs),
-                    operators: vec![(ast_c::ComparisonOperator::Lt, Box::new(rhs))],
-                    span: sp,
-                }),
-                Some(BinOp::Gt) => Ok(ast_c::Expression::Comparison {
-                    lhs: Box::new(lhs),
-                    operators: vec![(ast_c::ComparisonOperator::Gt, Box::new(rhs))],
-                    span: sp,
-                }),
-                Some(BinOp::Le) => Ok(ast_c::Expression::Comparison {
-                    lhs: Box::new(lhs),
-                    operators: vec![(ast_c::ComparisonOperator::Le, Box::new(rhs))],
-                    span: sp,
-                }),
-                Some(BinOp::Ge) => Ok(ast_c::Expression::Comparison {
-                    lhs: Box::new(lhs),
-                    operators: vec![(ast_c::ComparisonOperator::Ge, Box::new(rhs))],
-                    span: sp,
-                }),
+                Some(BinOp::Eq) => Ok(chain_comparison(
+                    lhs,
+                    ast_c::ComparisonOperator::Eq,
+                    rhs,
+                    sp,
+                )),
+                Some(BinOp::Ne) => Ok(chain_comparison(
+                    lhs,
+                    ast_c::ComparisonOperator::Ne,
+                    rhs,
+                    sp,
+                )),
+                Some(BinOp::Lt) => Ok(chain_comparison(
+                    lhs,
+                    ast_c::ComparisonOperator::Lt,
+                    rhs,
+                    sp,
+                )),
+                Some(BinOp::Gt) => Ok(chain_comparison(
+                    lhs,
+                    ast_c::ComparisonOperator::Gt,
+                    rhs,
+                    sp,
+                )),
+                Some(BinOp::Le) => Ok(chain_comparison(
+                    lhs,
+                    ast_c::ComparisonOperator::Le,
+                    rhs,
+                    sp,
+                )),
+                Some(BinOp::Ge) => Ok(chain_comparison(
+                    lhs,
+                    ast_c::ComparisonOperator::Ge,
+                    rhs,
+                    sp,
+                )),
                 Some(BinOp::RegexMatch) => Ok(ast_c::Expression::Comparison {
                     lhs: Box::new(lhs),
                     operators: vec![(ast_c::ComparisonOperator::RegexMatch, Box::new(rhs))],

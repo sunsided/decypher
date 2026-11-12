@@ -364,9 +364,11 @@ pub struct ForeachOp {
 /// `UNION [ALL]` operation.
 #[derive(Debug, Clone)]
 pub struct UnionOp {
-    /// The branches to union.
+    /// The branches to union, in source order. Each is a query of its own
+    /// with its own arenas, importing the variables visible where the union
+    /// starts (none at the top level, the imported ones in a subquery).
     pub branches: Vec<super::HirQuery>,
-    /// `false` for `UNION` (deduplicate); `true` for `UNION ALL`.
+    /// `true` for `UNION` (duplicate rows removed); `false` for `UNION ALL`.
     pub distinct: bool,
 }
 
