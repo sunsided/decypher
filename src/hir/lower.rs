@@ -46,7 +46,7 @@ use super::ops::{
     ForeachOp, InTransactions as HirInTransactions, LimitOp, LoadCsvOp, MatchOp, MergeOp,
     OnErrorBehavior as HirOnErrorBehavior, Operation, ProcedureYield, ProjectOp, ProjectionItem,
     RemoveItem as HirRemoveItem, RemoveOp, ReturnOp, SetItem as HirSetItem, SetOp, SkipOp,
-    SortDirection, SortItem, SortOp, UnwindOp,
+    SortDirection, SortItem, SortOp, UnionOp, UnwindOp,
 };
 use super::pattern::{
     GraphPattern, LabelExpr as HirLabelExpr, NodeIndex, NodePattern as HirNodePattern, PathBinding,
@@ -318,13 +318,31 @@ impl<'cfg> LoweringContext<'cfg> {
     }
 
     fn lower_regular_query(&mut self, rq: &RegularQuery) -> Vec<QueryPart> {
-        let mut parts = self.lower_single_query(&rq.single_query);
-        for union in &rq.unions {
-            let union_parts = self.lower_single_query(&union.single_query);
-            // TODO: proper union handling
-            parts.extend(union_parts);
+        if rq.unions.is_empty() {
+            return self.lower_single_query(&rq.single_query);
         }
-        parts
+        // Each branch is a query of its own over the scope the union starts
+        // from, so it gets its own arenas like a subquery.
+        let branches = std::iter::once(&rq.single_query)
+            .chain(rq.unions.iter().map(|u| &u.single_query))
+            .map(|branch| {
+                let (mut inner, _) = self.subquery_context();
+                let parts = inner.lower_single_query(branch);
+                self.finish_subquery(inner, parts)
+            })
+            .collect();
+        let scope = self.scope_stack.push_scope(&mut self.arenas);
+        self.scope_stack.pop_scope();
+        vec![QueryPart {
+            input_scope: scope,
+            operations: vec![Operation::Union(UnionOp {
+                branches,
+                // Mixing `UNION` and `UNION ALL` is reported by the structural
+                // checks; the first one decides.
+                distinct: !rq.unions[0].all,
+            })],
+            output_scope: scope,
+        }]
     }
 
     fn lower_single_query(&mut self, sq: &SingleQuery) -> Vec<QueryPart> {
@@ -503,9 +521,11 @@ impl<'cfg> LoweringContext<'cfg> {
     /// such as `CALL { WITH x … }` resolve. Diagnostics from the subquery are
     /// reported on the enclosing query instead of being dropped. Returns the
     /// lowered subquery and the outer bindings visible to it.
-    fn lower_subquery(&mut self, query: &RegularQuery) -> (HirQuery, Vec<BindingId>) {
+    /// A context for lowering a subquery into its own [`HirQuery`], with
+    /// every variable visible here re-bound in its arenas. Returns the outer
+    /// IDs of those imported variables alongside.
+    fn subquery_context(&self) -> (LoweringContext<'cfg>, Vec<BindingId>) {
         let visible = self.scope_stack.visible();
-
         let mut inner = LoweringContext::new(self.config);
         inner.scope_stack.push_scope(&mut inner.arenas);
         for (name, id) in &visible {
@@ -513,14 +533,23 @@ impl<'cfg> LoweringContext<'cfg> {
             let (kind, span) = (outer.kind, outer.introduced_at);
             inner.scope_stack.bind(&mut inner.arenas, name, kind, span);
         }
-        let parts = inner.lower_regular_query(query);
+        (inner, visible.into_iter().map(|(_, id)| id).collect())
+    }
+
+    /// Package a subquery lowered by [`Self::subquery_context`]'s context.
+    fn finish_subquery(&mut self, inner: LoweringContext<'cfg>, parts: Vec<QueryPart>) -> HirQuery {
         self.diagnostics.extend(inner.diagnostics);
-        let query = HirQuery {
+        HirQuery {
             arenas: inner.arenas,
             parts,
             diagnostics: Vec::new(),
-        };
-        (query, visible.into_iter().map(|(_, id)| id).collect())
+        }
+    }
+
+    fn lower_subquery(&mut self, query: &RegularQuery) -> (HirQuery, Vec<BindingId>) {
+        let (mut inner, imported) = self.subquery_context();
+        let parts = inner.lower_regular_query(query);
+        (self.finish_subquery(inner, parts), imported)
     }
 
     fn lower_call_subquery(&mut self, c: &CallSubquery) {
@@ -1853,22 +1882,6 @@ impl<'cfg> LoweringContext<'cfg> {
             .join("\x00")
     }
 
-    fn infer_alias_name(&self, expr: &Expression) -> String {
-        match expr {
-            Expression::Variable(v) => v.name.name.clone(),
-            Expression::PropertyLookup { property, .. } => property.name.name.clone(),
-            Expression::FunctionCall(fc) => {
-                let name = Self::qualified_function_name(fc);
-                if name.is_empty() {
-                    "expr".to_string()
-                } else {
-                    name
-                }
-            }
-            _ => "expr".to_string(),
-        }
-    }
-
     fn is_aggregate_call(&self, fc: &crate::ast::expr::FunctionInvocation) -> bool {
         self.config.catalog.is_aggregate_call(fc)
     }
@@ -1901,17 +1914,6 @@ impl<'cfg> LoweringContext<'cfg> {
             self.diagnostics
                 .push(HirDiagnostic::InvalidAggregation { non_grouping, span });
         }
-
-        let alias_of = |this: &Self, pi: &crate::ast::clause::ProjectionItem| match &pi.alias {
-            Some(a) => (a.name.name.clone(), a.name.span),
-            // `WITH n.name` does not bind `name`: later clauses can only
-            // refer to the column by an alias.
-            None if kind == BindingKind::WithAlias => pi.column(),
-            None => (
-                this.infer_alias_name(&pi.expression),
-                expr_span(&pi.expression),
-            ),
-        };
 
         // `WITH *` / `RETURN *` pass every visible variable through, ahead
         // of any further items (`RETURN *, n.x AS x`); they group an
@@ -1947,7 +1949,9 @@ impl<'cfg> LoweringContext<'cfg> {
                 .iter()
                 .zip(exprs)
                 .map(|(pi, expression)| {
-                    let (name, span) = alias_of(self, pi);
+                    // Unaliased items are named by their text (`n.name`, `count(*)`), so
+                    // later clauses can only refer to them through an alias.
+                    let (name, span) = pi.column();
                     let alias = self.scope_stack.bind(&mut self.arenas, &name, kind, span);
                     ProjectionItem { expression, alias }
                 })
@@ -1992,7 +1996,7 @@ impl<'cfg> LoweringContext<'cfg> {
                 }
                 Column::Computed(rewritten)
             };
-            columns.push((column, alias_of(self, pi)));
+            columns.push((column, pi.column()));
         }
 
         let mut grouping_keys = pass_through(self);
@@ -2310,7 +2314,7 @@ mod tests {
     }
 
     #[test]
-    fn test_infer_alias_name_uses_full_qualified_name() {
+    fn test_unaliased_column_is_named_by_its_text() {
         let query = parse("RETURN apoc.text.distance('hello', 'world')").unwrap();
         let hir = lower(&query, &LowerConfig::default()).unwrap();
         let ops = &hir.parts[0].operations;
@@ -2320,7 +2324,10 @@ mod tests {
             _ => panic!("Expected ProjectOp"),
         };
 
-        assert_eq!(hir.arenas.bindings.get(alias_id).name, "apoc.text.distance");
+        assert_eq!(
+            hir.arenas.bindings.get(alias_id).name,
+            "apoc.text.distance('hello', 'world')"
+        );
     }
 
     #[test]

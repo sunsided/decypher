@@ -6,6 +6,8 @@
 //! - Round-tripping (parse → `to_cypher` → re-parse) preserves the AST.
 
 use decypher::ast::ToCypher;
+use decypher::ast::clause::ProjectionItem;
+use decypher::ast::visit::{VisitMut, walk_projection_item_mut};
 use decypher::cst::AstNode;
 use decypher::{cst, parse};
 use proptest::prelude::*;
@@ -235,6 +237,20 @@ proptest! {
         let emitted = parsed.to_cypher();
         let reparsed = parse(&emitted)
             .unwrap_or_else(|err| panic!("AST reparse failed for emitted `{emitted}` from `{query}`: {err}"));
-        prop_assert_eq!(parsed, reparsed);
+        prop_assert_eq!(without_source_text(parsed), without_source_text(reparsed));
     }
+}
+
+/// The AST with each projection item's source text blanked: printing
+/// canonicalises it (`null` → `NULL`), the structure must survive.
+fn without_source_text(mut query: decypher::ast::query::Query) -> decypher::ast::query::Query {
+    struct Blank;
+    impl VisitMut for Blank {
+        fn visit_projection_item(&mut self, node: &mut ProjectionItem) {
+            node.expression_text.clear();
+            walk_projection_item_mut(self, node);
+        }
+    }
+    Blank.visit_query(&mut query);
+    query
 }

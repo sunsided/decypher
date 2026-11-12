@@ -8,6 +8,38 @@ are marked **Breaking** below.
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** operator precedence follows openCypher. `^` is
+  left-associative (`2 ^ 3 ^ 2` is `(2 ^ 3) ^ 2`), and `IN`, `STARTS WITH` /
+  `ENDS WITH` / `CONTAINS` and the `IS …` predicates bind looser than
+  arithmetic but tighter than comparison: `[1] + 2 IN [3] + 4` is
+  `([1] + 2) IN ([3] + 4)`, not `[1] + (2 IN [3]) + 4`.
+- **Breaking:** a chain of relational operators (`1 < n.num < 3`) is one
+  `Expression::Comparison` / `ExprKind::Comparison` with several operators,
+  as the type already allowed, instead of a comparison nested in another.
+  `(1 < n.num) < 3` keeps its parentheses and stays nested, so the two are
+  distinguishable in the HIR.
+- **Breaking:** HIR lowering turns `UNION` / `UNION ALL` into one
+  `Operation::Union`, whose `branches` are separate `HirQuery`s with their
+  own arenas, instead of concatenating the branches' parts. `distinct` is
+  `true` for `UNION` (its doc comment had it backwards).
+- **Breaking:** an unaliased `RETURN` / `WITH` item names its column by the
+  expression as written (`n.name`, `coUnt( dIstInct p )`), as openCypher
+  does, instead of a guess like `name` or `expr`. `ProjectionItem` has the
+  new fields `expression_text` and `expression_span`, and
+  `ProjectionItem::column()` is public.
+
+### Fixed
+
+- Input that does not start with a clause is a syntax error at its first
+  token (``unexpected token `THIS`, expected clause``) instead of
+  `internal error: empty source file`, and junk after a valid statement
+  (`RETURN 1; FOO BAR`) is reported instead of dropped silently. Input of
+  only comments or `;` reports `EmptyInput`. The unparsed tail of a schema
+  command (`IF NOT EXISTS`, `OPTIONS`) is still skipped, now only up to the
+  next `;` instead of dropping every statement after it.
+
 ## [0.2.0-alpha.9] - 2026-10-19
 
 ### Added

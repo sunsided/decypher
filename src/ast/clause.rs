@@ -212,17 +212,23 @@ pub struct ProjectionItem {
     pub expression: Expression,
     /// Optional `AS alias` rename.
     pub alias: Option<Variable>,
+    /// The expression exactly as written in the source (`coUnt( * )`),
+    /// which names the column when there is no alias.
+    pub expression_text: String,
+    /// Byte-offset span of [`Self::expression_text`].
+    pub expression_span: Span,
 }
 
 impl ProjectionItem {
     /// The name and span of the column this item produces: its `AS` alias,
     /// its variable for a bare variable, or otherwise the expression's text
-    /// (`count(*)`, `a.name`). Two items with the same column name conflict.
-    pub(crate) fn column(&self) -> (String, Span) {
+    /// as written (`count(*)`, `a.name`), as openCypher names result
+    /// columns. Two items with the same column name conflict.
+    pub fn column(&self) -> (String, Span) {
         match (&self.alias, &self.expression) {
             (Some(alias), _) => (alias.name.name.clone(), alias.name.span),
             (None, Expression::Variable(v)) => (v.name.name.clone(), v.name.span),
-            (None, expr) => (crate::ast::ToCypher::to_cypher(expr), expr.span()),
+            (None, _) => (self.expression_text.clone(), self.expression_span),
         }
     }
 }

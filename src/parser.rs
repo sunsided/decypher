@@ -90,6 +90,7 @@ impl<'a> Parser<'a> {
             .start_node(CypherLang::kind_to_raw(SyntaxKind::SOURCE_FILE));
 
         // Parse statements, supporting UNION between query bodies
+        let mut after_schema_command = false;
         loop {
             self.skip_trivia();
             if self.current_len() == 0 {
@@ -97,6 +98,7 @@ impl<'a> Parser<'a> {
             }
             if self.at(SyntaxKind::SEMICOLON) {
                 self.bump();
+                after_schema_command = false;
                 continue;
             }
 
@@ -127,6 +129,7 @@ impl<'a> Parser<'a> {
             // below.
             if self.at(SyntaxKind::KW_DROP) {
                 grammar::expr::parse_clause(self);
+                after_schema_command = true;
             } else if self.at(SyntaxKind::KW_CREATE) {
                 let next = self.peek_next_non_trivia();
                 if next == Some(SyntaxKind::KW_INDEX)
@@ -140,12 +143,23 @@ impl<'a> Parser<'a> {
                     || next == Some(SyntaxKind::KW_DATABASES)
                 {
                     grammar::expr::parse_clause(self);
+                    after_schema_command = true;
                 } else {
                     self.parse_statement();
                 }
             } else if self.is_clause_start() {
                 self.parse_statement();
+            } else if after_schema_command {
+                // shortcut: schema commands are only partly parsed (e.g.
+                // `IF NOT EXISTS`, `OPTIONS {…}` are not), so their tail is
+                // skipped up to the next `;`; parse them fully to drop this.
+                while self.current_len() > 0 && !self.at(SyntaxKind::SEMICOLON) {
+                    self.bump();
+                }
             } else {
+                // Report the rest instead of silently dropping it
+                // (`RETURN 1; FOO BAR`, `THIS IS NOT CYPHER`).
+                self.error_here(&[Expected::Category(Cow::Borrowed("clause"))]);
                 break;
             }
             self.skip_trivia();

@@ -783,3 +783,125 @@ fn test_wildcard_label() {
         check_roundtrip(input, printed);
     }
 }
+
+/// The expression of the first item of `RETURN <expr>`.
+fn returned_expression(query: &str) -> decypher::ast::expr::Expression {
+    let parsed = parse(query).unwrap();
+    let QueryBody::SingleQuery(sq) = &parsed.statements[0] else {
+        panic!("expected SingleQuery");
+    };
+    let decypher::ast::query::SingleQueryKind::SinglePart(spq) = &sq.kind else {
+        panic!("expected SinglePart query");
+    };
+    let SinglePartBody::Return(ret) = &spq.body else {
+        panic!("expected Return body");
+    };
+    ret.items[0].expression.clone()
+}
+
+/// A chain of relational operators is one `Comparison` with several
+/// operators (`a < b AND b < c`); a parenthesized left side stays nested so
+/// `(1 < x) < 3` remains distinguishable.
+#[test]
+fn chained_comparisons_are_one_comparison() {
+    use decypher::ast::expr::{ComparisonOperator as Op, Expression};
+
+    let Expression::Comparison { lhs, operators, .. } =
+        returned_expression("RETURN 1 < 2 <= 3 = true")
+    else {
+        panic!("expected Comparison");
+    };
+    check!(!matches!(*lhs, Expression::Comparison { .. }));
+    check!(operators.iter().map(|(op, _)| *op).collect::<Vec<_>>() == [Op::Lt, Op::Le, Op::Eq]);
+
+    let Expression::Comparison { lhs, operators, .. } = returned_expression("RETURN (1 < 2) < 3")
+    else {
+        panic!("expected Comparison");
+    };
+    check!(matches!(*lhs, Expression::Parenthesized(_)));
+    check!(operators.len() == 1);
+
+    // String predicates are not relational and do not chain.
+    let Expression::Comparison { lhs, operators, .. } =
+        returned_expression("RETURN 'a' STARTS WITH 'b' = false")
+    else {
+        panic!("expected Comparison");
+    };
+    check!(matches!(*lhs, Expression::Comparison { .. }));
+    check!(operators.len() == 1);
+}
+
+/// openCypher precedence: `^` is left-associative, and `IN`, the string
+/// predicates and `IS NULL` bind looser than arithmetic but tighter than
+/// comparison.
+#[test]
+fn operator_precedence_follows_opencypher() {
+    use decypher::ast::expr::{BinaryOperator, Expression};
+
+    let Expression::BinaryOp {
+        op: BinaryOperator::Power,
+        lhs,
+        ..
+    } = returned_expression("RETURN 2 ^ 3 ^ 2")
+    else {
+        panic!("expected ^");
+    };
+    check!(
+        matches!(
+            *lhs,
+            Expression::BinaryOp {
+                op: BinaryOperator::Power,
+                ..
+            }
+        ),
+        "(2 ^ 3) ^ 2"
+    );
+
+    let Expression::In { lhs, rhs, .. } = returned_expression("RETURN [1] + 2 IN [3] + 4") else {
+        panic!("expected IN at the top");
+    };
+    check!(matches!(
+        *lhs,
+        Expression::BinaryOp {
+            op: BinaryOperator::Add,
+            ..
+        }
+    ));
+    check!(matches!(
+        *rhs,
+        Expression::BinaryOp {
+            op: BinaryOperator::Add,
+            ..
+        }
+    ));
+
+    let Expression::Comparison { operators, .. } =
+        returned_expression("RETURN 'ab' STARTS WITH 'a' + 'b'")
+    else {
+        panic!("expected STARTS WITH");
+    };
+    check!(matches!(
+        *operators[0].1,
+        Expression::BinaryOp {
+            op: BinaryOperator::Add,
+            ..
+        }
+    ));
+
+    let Expression::IsNull { operand, .. } = returned_expression("RETURN 1 + 1 IS NULL") else {
+        panic!("expected IS NULL at the top");
+    };
+    check!(matches!(
+        *operand,
+        Expression::BinaryOp {
+            op: BinaryOperator::Add,
+            ..
+        }
+    ));
+
+    let Expression::Comparison { operators, .. } = returned_expression("RETURN 1 = 2 IS NULL")
+    else {
+        panic!("expected = at the top");
+    };
+    check!(matches!(*operators[0].1, Expression::IsNull { .. }));
+}
