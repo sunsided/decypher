@@ -1,5 +1,5 @@
 [package]
-name = "cypher-fuzz"
+name = "decypher-fuzz"
 version = "0.0.0"
 publish = false
 edition = "2024"
@@ -7,15 +7,19 @@ edition = "2024"
 [package.metadata]
 cargo-fuzz = true
 
+# Its own workspace, so it builds with the nightly sanitizer flags apart from
+# the parser's workspace (which also lists it under `exclude`).
+[workspace]
+
 [dependencies]
 libfuzzer-sys = "0.4"
 
-[dependencies.cypher]
+[dependencies.decypher]
 path = ".."
 
 [features]
-serde = ["cypher/serde"]
-miette = ["cypher/miette"]
+serde = ["decypher/serde"]
+miette = ["decypher/miette"]
 
 [[bin]]
 name = "fuzz_parse_cst"
