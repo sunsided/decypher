@@ -147,11 +147,12 @@ fn guarded<T>(f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
 /// Runs all checks for one query, returning `(check, message)` per failure.
 fn check_query(q: &TckQuery) -> Vec<(&'static str, String)> {
     let mut failures = Vec::new();
-    let parsed = guarded(|| decypher::parse(q.source.as_str()).map_err(|e| e.kind.to_string()));
+    // Parse once, keeping the error kind; a panic becomes this query's failure.
+    let outcome = guarded(|| Ok(decypher::parse(q.source.as_str())));
     if q.expects_number_overflow {
         let overflowed = matches!(
-            decypher::parse(q.source.as_str()),
-            Err(e) if matches!(
+            &outcome,
+            Ok(Err(e)) if matches!(
                 e.kind,
                 decypher::ErrorKind::InvalidNumber { reason: decypher::error::NumberReason::Overflow, .. }
             )
@@ -161,6 +162,7 @@ fn check_query(q: &TckQuery) -> Vec<(&'static str, String)> {
         }
         return failures;
     }
+    let parsed = outcome.and_then(|result| result.map_err(|e| e.kind.to_string()));
     match (&parsed, q.accept) {
         (Ok(_), false) => failures.push(("parse", "accepted, expected a syntax error".into())),
         (Err(e), true) => failures.push(("parse", e.clone())),
