@@ -1449,10 +1449,7 @@ fn is_safe_bare_identifier(name: &str) -> bool {
             | "START"
             | "CALL"
     );
-    if is_keyword {
-        return false;
-    }
-    true
+    !is_keyword
 }
 
 fn is_valid_identifier(name: &str) -> bool {
