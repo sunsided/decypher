@@ -1,4 +1,4 @@
-import init, { analyze, cst, format, parse, validate, version } from "@sunsided/decypher";
+import init, { analyze, cst, format, parse, version } from "@sunsided/decypher";
 import { EXAMPLES } from "./examples.js";
 
 // In the browser the module must be instantiated before first use. `init()`
@@ -71,7 +71,6 @@ function update() {
   // The CST is lossless: concatenating its token texts reproduces the input
   // exactly, so it can drive highlighting even while the query is invalid.
   const tree = cst(text).tree;
-  const checked = validate(text);
   const analyzed = analyze(text);
   const parsed = parse(text);
 
@@ -79,7 +78,8 @@ function update() {
     text,
     tree,
     tokens: flattenTokens(tree),
-    errors: checked.ok ? [] : checked.errors,
+    // `analyze` reports the same errors as `validate`.
+    errors: analyzed.ok ? [] : analyzed.errors,
     analysis: analyzed.ok ? analyzed : null,
     ast: parsed.ok ? parsed.ast : null,
     utf16: byteToUtf16(text),
@@ -439,7 +439,10 @@ function renderVariable(variable) {
 
 /** Rewrite every occurrence of `variable`, back to front so offsets hold. */
 function renameVariable(variable, newName) {
-  const replacement = /^[A-Za-z_][A-Za-z0-9_]*$/.test(newName) ? newName : `\`${newName.replaceAll("`", "``")}\``;
+  // Keywords pass the identifier check but not every one works as a
+  // variable (`order`), so try the bare name in a pattern first.
+  const bare = /^[A-Za-z_][A-Za-z0-9_]*$/.test(newName) && analyze(`MATCH (${newName}) RETURN ${newName}`).ok;
+  const replacement = bare ? newName : `\`${newName.replaceAll("`", "``")}\``;
   const ranges = occurrences(variable).sort((a, b) => b.start - a.start);
   let text = source.value;
   for (const { start, end } of ranges) text = text.slice(0, start) + replacement + text.slice(end);

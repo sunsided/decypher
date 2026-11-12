@@ -515,6 +515,11 @@ impl Collector {
         // new binding defined at the old one's use. Fold such chains into one
         // variable so a rename covers every occurrence.
         let mut found = self.variables;
+        // An unaliased `RETURN n.name` or `count(*)` binds a column named
+        // after the expression; it is no variable anyone wrote or can rename.
+        found.retain(|(name, _, definition, _)| {
+            unquote(&source[definition.start..definition.end]) == *name
+        });
         found.sort_by_key(|(_, _, definition, _)| definition.start);
         let mut variables: Vec<(String, String, decypher::Span, Vec<decypher::Span>)> = Vec::new();
         let mut owner: std::collections::HashMap<(usize, usize), usize> =
@@ -592,18 +597,21 @@ fn variable_tokens(source: &str) -> Vec<(String, decypher::Span)> {
                 .find(|token| {
                     !matches!(token.kind(), SyntaxKind::WHITESPACE | SyntaxKind::COMMENT)
                 })?;
-            let text = token.text();
-            let name = match text.strip_prefix('`').and_then(|t| t.strip_suffix('`')) {
-                Some(inner) => inner.replace("``", "`"),
-                None => text.to_string(),
-            };
             let range = token.text_range();
             Some((
-                name,
+                unquote(token.text()),
                 decypher::Span::new(range.start().into(), range.end().into()),
             ))
         })
         .collect()
+}
+
+/// A name as written in the source, without its backticks if it has them.
+fn unquote(text: &str) -> String {
+    match text.strip_prefix('`').and_then(|t| t.strip_suffix('`')) {
+        Some(inner) => inner.replace("``", "`"),
+        None => text.to_string(),
+    }
 }
 
 fn analyze_query(source: &str) -> Outcome<AnalyzeOutput> {
@@ -737,6 +745,18 @@ mod tests {
                 "s"
             );
         }
+    }
+
+    #[test]
+    fn unaliased_columns_are_not_variables() {
+        let source = "MATCH (`my n`) RETURN `my n`.name, count(*), `my n`";
+        let output = analyzed(source);
+        let names: Vec<_> = output.variables.iter().map(|v| v.name.as_str()).collect();
+        assert_eq!(names, ["my n"]);
+        assert_eq!(
+            occurrences(source, &output, "my n"),
+            [(7, "`my n`"), (22, "`my n`"), (45, "`my n`")]
+        );
     }
 
     #[test]
