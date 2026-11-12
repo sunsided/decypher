@@ -13,9 +13,10 @@
 
 use decypher::CypherError;
 use decypher::ast::ToCypher;
+use decypher::hir::arena::{Id, Interner};
 use decypher::hir::{
-    BindingId, BindingKind, ExprKind, GraphPattern, HirQuery, Operation, RelationshipDirection,
-    RelationshipLength,
+    BindingId, BindingKind, ExprKind, GraphPattern, HirQuery, LabelExpr, Operation,
+    RelationshipDirection, RelationshipLength,
 };
 use decypher::syntax::{SyntaxElement, SyntaxKind, SyntaxNode};
 use serde::Serialize;
@@ -87,11 +88,13 @@ export interface Variable {
 
 export interface GraphNode {
   variable: string | null;
+  /** Label names, or one entry with the label expression as text (`"A|B"`, `"!A"`, `"%"`). */
   labels: string[];
 }
 
 export interface GraphRel {
   variable: string | null;
+  /** Type names, or one entry with the type expression as text (`"!R"`). */
   types: string[];
   /** `"right"` for `-->`, `"left"` for `<--`, `"none"` for `--`, `"both"` for `<-->`. */
   direction: "right" | "left" | "none" | "both";
@@ -408,7 +411,7 @@ struct AnalyzeOutput {
 /// Collects variables and graph patterns from a lowered query and its nested
 /// subqueries. Spans are kept as byte offsets until [`Collector::finish`].
 struct Collector {
-    /// `(name, definition, uses)`; one entry per distinct variable.
+    /// `(name, kind, definition, uses)`; one entry per distinct variable.
     variables: Vec<(String, String, decypher::Span, Vec<decypher::Span>)>,
     patterns: Vec<Pattern>,
 }
@@ -479,11 +482,14 @@ impl Collector {
                 .iter()
                 .map(|node| GraphNode {
                     variable: name(node.binding),
-                    labels: node
-                        .labels
-                        .iter()
-                        .filter_map(|&id| arenas.labels.name_of(id).map(str::to_string))
-                        .collect(),
+                    labels: match &node.label_expression {
+                        Some(expr) => vec![label_expression_text(expr, &arenas.labels)],
+                        None => node
+                            .labels
+                            .iter()
+                            .filter_map(|&id| arenas.labels.name_of(id).map(str::to_string))
+                            .collect(),
+                    },
                 })
                 .collect(),
             relationships: pattern
@@ -491,11 +497,16 @@ impl Collector {
                 .iter()
                 .map(|rel| GraphRel {
                     variable: name(rel.binding),
-                    types: rel
-                        .types
-                        .iter()
-                        .filter_map(|&id| arenas.relationship_types.name_of(id).map(str::to_string))
-                        .collect(),
+                    types: match &rel.type_expression {
+                        Some(expr) => vec![label_expression_text(expr, &arenas.relationship_types)],
+                        None => rel
+                            .types
+                            .iter()
+                            .filter_map(|&id| {
+                                arenas.relationship_types.name_of(id).map(str::to_string)
+                            })
+                            .collect(),
+                    },
                     direction: match rel.direction {
                         RelationshipDirection::LeftToRight => "right",
                         RelationshipDirection::RightToLeft => "left",
@@ -583,6 +594,33 @@ impl Collector {
     }
 }
 
+/// A label or relationship-type expression as text (`A|B`, `!A`, `%`,
+/// `$(…)`), parenthesising `|` inside `&` and binary operands of `!`.
+fn label_expression_text(expr: &LabelExpr, names: &Interner<Id>) -> String {
+    let operand = |inner: &LabelExpr, parenthesise: bool| {
+        let text = label_expression_text(inner, names);
+        if parenthesise {
+            format!("({text})")
+        } else {
+            text
+        }
+    };
+    match expr {
+        LabelExpr::Name(id) => names.name_of(*id).unwrap_or("?").to_string(),
+        LabelExpr::Dynamic(_) => "$(…)".to_string(),
+        LabelExpr::Wildcard => "%".to_string(),
+        LabelExpr::Or(a, b) => format!("{}|{}", operand(a, false), operand(b, false)),
+        LabelExpr::And(a, b) => {
+            let or = |e: &LabelExpr| matches!(e, LabelExpr::Or(..));
+            format!("{}&{}", operand(a, or(a)), operand(b, or(b)))
+        }
+        LabelExpr::Not(inner) => {
+            let binary = matches!(**inner, LabelExpr::Or(..) | LabelExpr::And(..));
+            format!("!{}", operand(inner, binary))
+        }
+    }
+}
+
 /// Every `VARIABLE` node in the syntax tree as `(name, identifier span)`.
 fn variable_tokens(source: &str) -> Vec<(String, decypher::Span)> {
     decypher::parse_cst(source)
@@ -664,9 +702,21 @@ mod tests {
         name: &str,
     ) -> Vec<(usize, &'a str)> {
         let variable = output.variables.iter().find(|v| v.name == name).unwrap();
+        // The spans are UTF-16 offsets; map them to bytes to slice `source`.
+        let byte = |utf16: usize| {
+            let mut units = 0;
+            source
+                .char_indices()
+                .find(|(_, c)| {
+                    let before = units;
+                    units += c.len_utf16();
+                    before >= utf16
+                })
+                .map_or(source.len(), |(i, _)| i)
+        };
         std::iter::once(&variable.definition)
             .chain(&variable.uses)
-            .map(|span| (span.start, &source[span.start..span.end]))
+            .map(|span| (span.start, &source[byte(span.start)..byte(span.end)]))
             .collect()
     }
 
@@ -757,6 +807,23 @@ mod tests {
             occurrences(source, &output, "my n"),
             [(7, "`my n`"), (22, "`my n`"), (45, "`my n`")]
         );
+    }
+
+    #[test]
+    fn label_and_type_expressions_are_kept() {
+        let output = analyzed("MATCH (n:A|B)-[:!R]->(m:(A|B)&!C), (:%) RETURN n, m");
+        let pattern = &output.patterns[0];
+        let labels: Vec<_> = pattern.nodes.iter().map(|n| n.labels.clone()).collect();
+        assert_eq!(labels, [vec!["A|B"], vec!["(A|B)&!C"], vec!["%"]]);
+        assert_eq!(pattern.relationships[0].types, ["!R"]);
+    }
+
+    #[test]
+    fn occurrences_after_multibyte_text() {
+        let source = "WITH '😀' AS s RETURN s";
+        let output = analyzed(source);
+        // `s` sits after a 4-byte, 2-unit emoji: byte and UTF-16 offsets differ.
+        assert_eq!(occurrences(source, &output, "s"), [(13, "s"), (22, "s")]);
     }
 
     #[test]

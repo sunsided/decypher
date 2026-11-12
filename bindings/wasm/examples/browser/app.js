@@ -421,16 +421,27 @@ function renderVariable(variable) {
 
   rename.addEventListener("click", () => {
     const input = el("input", { value: variable.name, spellcheck: false, ariaLabel: `New name for ${variable.name}` });
+    const cancel = () => done(false);
     const done = (apply) => {
       if (!input.isConnected) return;
-      if (apply && input.value && input.value !== variable.name) renameVariable(variable, input.value);
+      const rename = apply && input.value && input.value !== variable.name;
+      // Renaming onto another variable's name would merge the two.
+      if (rename && state.analysis.variables.some((v) => v !== variable && v.name === input.value)) {
+        input.setCustomValidity(`A variable named ${input.value} already exists.`);
+        input.reportValidity();
+        return;
+      }
+      // Removing the focused input fires `blur`; don't close it twice.
+      input.removeEventListener("blur", cancel);
+      if (rename) renameVariable(variable, input.value);
       else input.replaceWith(name);
     };
+    input.addEventListener("input", () => input.setCustomValidity(""));
     input.addEventListener("keydown", (event) => {
       if (event.key === "Enter") done(true);
       if (event.key === "Escape") done(false);
     });
-    input.addEventListener("blur", () => done(false));
+    input.addEventListener("blur", cancel);
     name.replaceWith(input);
     input.select();
   });
@@ -439,8 +450,8 @@ function renderVariable(variable) {
 
 /** Rewrite every occurrence of `variable`, back to front so offsets hold. */
 function renameVariable(variable, newName) {
-  // Keywords pass the identifier check but not every one works as a
-  // variable (`order`), so try the bare name in a pattern first.
+  // Keywords and literals pass the identifier check but not every one works
+  // as a variable (`order`, `true`), so try the bare name in a pattern first.
   const bare = /^[A-Za-z_][A-Za-z0-9_]*$/.test(newName) && analyze(`MATCH (${newName}) RETURN ${newName}`).ok;
   const replacement = bare ? newName : `\`${newName.replaceAll("`", "``")}\``;
   const ranges = occurrences(variable).sort((a, b) => b.start - a.start);
@@ -506,8 +517,13 @@ function renderParams() {
 
   const copy = el("button", { className: "chip" }, "Copy");
   copy.addEventListener("click", async () => {
-    await navigator.clipboard.writeText(snippet.textContent);
-    copy.textContent = "Copied";
+    // The clipboard API is missing outside secure contexts and may be denied.
+    try {
+      await navigator.clipboard.writeText(snippet.textContent);
+      copy.textContent = "Copied";
+    } catch {
+      copy.textContent = "Copy failed";
+    }
     setTimeout(() => (copy.textContent = "Copy"), 1200);
   });
 
