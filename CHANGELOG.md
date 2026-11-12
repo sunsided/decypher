@@ -8,18 +8,20 @@ are marked **Breaking** below.
 
 ## [Unreleased]
 
+## [0.2.0-alpha.10] - 2026-11-12
+
 ### Added
 
 - WebAssembly bindings: `analyze(source)` returns every variable with its
   definition and all its uses (as UTF-16 ranges, following `WITH`/`RETURN`
   and subquery imports), plus each `MATCH`/`OPTIONAL MATCH`/`CREATE`/`MERGE`
-  pattern flattened into nodes and relationships.
+  pattern flattened into nodes and relationships (#123).
 - The browser playground is interactive: a linked AST explorer (hover a node
   to highlight its source, move the caret to reveal its node), a Symbols tab
   with find-all-uses and rename, a Parameters tab that fills in a
   `neo4j-driver` snippet, a pattern graph, and a picker of example queries
   (recommendations, subqueries, an import with `MERGE`, paths, and two error
-  cases).
+  cases) (#123).
 
 ### Changed
 
@@ -27,45 +29,45 @@ are marked **Breaking** below.
   left-associative (`2 ^ 3 ^ 2` is `(2 ^ 3) ^ 2`), and `IN`, `STARTS WITH` /
   `ENDS WITH` / `CONTAINS` and the `IS …` predicates bind looser than
   arithmetic but tighter than comparison: `[1] + 2 IN [3] + 4` is
-  `([1] + 2) IN ([3] + 4)`, not `[1] + (2 IN [3]) + 4`.
+  `([1] + 2) IN ([3] + 4)`, not `[1] + (2 IN [3]) + 4` (#124).
 - **Breaking:** a chain of relational operators (`1 < n.num < 3`) is one
   `Expression::Comparison` / `ExprKind::Comparison` with several operators,
   as the type already allowed, instead of a comparison nested in another.
   `(1 < n.num) < 3` keeps its parentheses and stays nested, so the two are
-  distinguishable in the HIR.
+  distinguishable in the HIR (#124).
 - **Breaking:** HIR lowering turns `UNION` / `UNION ALL` into one
   `Operation::Union`, whose `branches` are separate `HirQuery`s with their
   own arenas, instead of concatenating the branches' parts. `distinct` is
-  `true` for `UNION` (its doc comment had it backwards).
+  `true` for `UNION`; its doc comment had it backwards (#124).
 - **Breaking:** an unaliased `RETURN` / `WITH` item names its column by the
   expression as written (`n.name`, `coUnt( dIstInct p )`), as openCypher
   does, instead of a guess like `name` or `expr`. `ProjectionItem` has the
   new fields `expression_text` and `expression_span`, and
-  `ProjectionItem::column()` is public.
+  `ProjectionItem::column()` is public (#124).
 
 ### Fixed
 
 - HIR lowering: relationships in the second and later comma-separated parts
   of a pattern (`MATCH (a)-->(b), (c)-->(d)`) pointed at the first part's
   nodes; `RelationshipPattern::left`/`right` now index the whole pattern's
-  `nodes` as documented.
+  `nodes` as documented (#123).
 - HIR lowering: the pattern forms of `EXISTS { (a)-->(b) }` and
   `COUNT { (a)-->(b) }` produced a nested `HirQuery` with empty arenas while
   its binding IDs pointed into the outer query's, so resolving them panicked
   or found the wrong binding. They now get their own arenas and list their
-  `imported_bindings`, like the `EXISTS { MATCH … }` form.
+  `imported_bindings`, like the `EXISTS { MATCH … }` form (#123).
 - A property lookup without a key (`RETURN m.;`, `SET n. = 1`) is reported
   as ``unexpected token `;`, expected property name`` instead of
   `internal error: missing property key`. `REMOVE` now accepts escaped and
   keyword property keys (``REMOVE n.`x y` ``, `REMOVE n.count`) like every
-  other lookup.
+  other lookup (#123).
 - Input that does not start with a clause is a syntax error at its first
   token (``unexpected token `THIS`, expected clause``) instead of
   `internal error: empty source file`, and junk after a valid statement
   (`RETURN 1; FOO BAR`) is reported instead of dropped silently. Input of
   only comments or `;` reports `EmptyInput`. The unparsed tail of a schema
   command (`IF NOT EXISTS`, `OPTIONS`) is still skipped, now only up to the
-  next `;` instead of dropping every statement after it.
+  next `;` instead of dropping every statement after it (#124).
 
 ## [0.2.0-alpha.9] - 2026-10-19
 
@@ -356,7 +358,8 @@ are marked **Breaking** below.
 See the [GitHub releases](https://github.com/sunsided/decypher/releases) for
 0.2.0-alpha.6 and earlier.
 
-[Unreleased]: https://github.com/sunsided/decypher/compare/v0.2.0-alpha.9...HEAD
+[Unreleased]: https://github.com/sunsided/decypher/compare/v0.2.0-alpha.10...HEAD
+[0.2.0-alpha.10]: https://github.com/sunsided/decypher/compare/v0.2.0-alpha.9...v0.2.0-alpha.10
 [0.2.0-alpha.9]: https://github.com/sunsided/decypher/compare/v0.2.0-alpha.8...v0.2.0-alpha.9
 [0.2.0-alpha.8]: https://github.com/sunsided/decypher/compare/v0.2.0-alpha.7...v0.2.0-alpha.8
 [0.2.0-alpha.7]: https://github.com/sunsided/decypher/compare/v0.2.0-alpha.6...v0.2.0-alpha.7
