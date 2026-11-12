@@ -529,7 +529,8 @@ impl Collector {
         // An unaliased `RETURN n.name` or `count(*)` binds a column named
         // after the expression; it is no variable anyone wrote or can rename.
         found.retain(|(name, _, definition, _)| {
-            unquote(&source[definition.start..definition.end]) == *name
+            let text = &source[definition.start..definition.end];
+            is_name(text) && unquote(text) == *name
         });
         found.sort_by_key(|(_, _, definition, _)| definition.start);
         let mut variables: Vec<(String, String, decypher::Span, Vec<decypher::Span>)> = Vec::new();
@@ -642,6 +643,17 @@ fn variable_tokens(source: &str) -> Vec<(String, decypher::Span)> {
             ))
         })
         .collect()
+}
+
+/// Whether `text` is a single name: an identifier or a backticked name.
+fn is_name(text: &str) -> bool {
+    let quoted = text.len() >= 2 && text.starts_with('`') && text.ends_with('`');
+    let plain = text
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_alphabetic() || c == '_')
+        && text.chars().all(|c| c.is_alphanumeric() || c == '_');
+    quoted || plain
 }
 
 /// A name as written in the source, without its backticks if it has them.
