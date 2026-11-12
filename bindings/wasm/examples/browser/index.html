@@ -18,20 +18,14 @@
     <header>
       <h1>decypher playground</h1>
       <span id="version"></span>
+      <label class="example-picker">Example <select id="example"></select></label>
     </header>
 
     <main>
       <section class="editor-pane">
         <div class="editor">
           <pre id="highlight" aria-hidden="true"></pre>
-          <textarea id="source" spellcheck="false" autocapitalize="off" autocomplete="off">
-// Edit me: highlighting, diagnostics and the trees update as you type.
-MATCH (a:Person {name: $name})-[:KNOWS*1..2]->(b:Person)
-WHERE b.age >= $minAge AND NOT (b)-[:BLOCKED]->(a)
-WITH b, count(*) AS paths
-RETURN b.name AS friend, paths
-ORDER BY paths DESC
-LIMIT 10;</textarea
+          <textarea id="source" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea
           >
         </div>
         <ul id="diagnostics"></ul>
@@ -39,11 +33,14 @@ LIMIT 10;</textarea
 
       <section class="output-pane">
         <nav role="tablist">
-          <button role="tab" data-view="ast" aria-selected="true">AST</button>
+          <button role="tab" data-view="ast" aria-selected="false">AST</button>
+          <button role="tab" data-view="symbols" aria-selected="false">Symbols</button>
+          <button role="tab" data-view="params" aria-selected="false">Parameters</button>
+          <button role="tab" data-view="graph" aria-selected="true">Graph</button>
           <button role="tab" data-view="cst" aria-selected="false">CST</button>
           <button role="tab" data-view="format" aria-selected="false">Formatted</button>
         </nav>
-        <pre id="output"></pre>
+        <div id="output" role="tabpanel"></div>
       </section>
     </main>
 

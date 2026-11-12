@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { describe, it } from "node:test";
 
-import init, { cst, format, parse, validate, version } from "../pkg/node.js";
+import init, { analyze, cst, format, parse, validate, version } from "../pkg/node.js";
 
 describe("node entry point", () => {
   it("is usable without awaiting init", () => {
@@ -116,6 +116,40 @@ describe("cst", () => {
     const { tree, errors } = cst("MATCH (n RETURN n");
     assert.equal(tree.kind, "SOURCE_FILE");
     assert.ok(errors.length > 0);
+  });
+});
+
+describe("analyze", () => {
+  it("resolves every occurrence of a variable as UTF-16 ranges", () => {
+    const source = "MATCH (n {s: '😀'})-[r:R]->(m) WHERE NOT (m)-->(n) WITH n RETURN n.x AS x";
+    const result = analyze(source);
+    assert.equal(result.ok, true);
+    const n = result.variables.find((v) => v.name === "n");
+    const texts = [n.definition, ...n.uses].map(({ start, end }) => source.slice(start, end));
+    assert.deepEqual(texts, ["n", "n", "n", "n"]);
+    assert.equal(n.kind, "PatternBound");
+  });
+
+  it("flattens patterns into nodes and relationships", () => {
+    const result = analyze("MATCH (a:Person)-[:KNOWS*]->(b), (b)<--(c) RETURN a");
+    const [pattern] = result.patterns;
+    assert.equal(pattern.clause, "MATCH");
+    assert.deepEqual(pattern.nodes.map((n) => n.variable), ["a", "b", "b", "c"]);
+    assert.deepEqual(pattern.relationships[0], {
+      variable: null,
+      types: ["KNOWS"],
+      direction: "right",
+      from: 0,
+      to: 1,
+      variableLength: true,
+    });
+    assert.deepEqual([pattern.relationships[1].from, pattern.relationships[1].to], [2, 3]);
+  });
+
+  it("fails like validate on invalid queries", () => {
+    const result = analyze("MATCH (n) RETURN m");
+    assert.equal(result.ok, false);
+    assert.match(result.errors[0].message, /m/);
   });
 });
 
