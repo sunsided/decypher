@@ -8,6 +8,19 @@ are marked **Breaking** below.
 
 ## [Unreleased]
 
+### Added
+
+- WebAssembly bindings: `analyze(source)` returns every variable with its
+  definition and all its uses (as UTF-16 ranges, following `WITH`/`RETURN`
+  and subquery imports), plus each `MATCH`/`OPTIONAL MATCH`/`CREATE`/`MERGE`
+  pattern flattened into nodes and relationships.
+- The browser playground is interactive: a linked AST explorer (hover a node
+  to highlight its source, move the caret to reveal its node), a Symbols tab
+  with find-all-uses and rename, a Parameters tab that fills in a
+  `neo4j-driver` snippet, a pattern graph, and a picker of example queries
+  (recommendations, subqueries, an import with `MERGE`, paths, and two error
+  cases).
+
 ### Changed
 
 - **Breaking:** operator precedence follows openCypher. `^` is
@@ -32,6 +45,20 @@ are marked **Breaking** below.
 
 ### Fixed
 
+- HIR lowering: relationships in the second and later comma-separated parts
+  of a pattern (`MATCH (a)-->(b), (c)-->(d)`) pointed at the first part's
+  nodes; `RelationshipPattern::left`/`right` now index the whole pattern's
+  `nodes` as documented.
+- HIR lowering: the pattern forms of `EXISTS { (a)-->(b) }` and
+  `COUNT { (a)-->(b) }` produced a nested `HirQuery` with empty arenas while
+  its binding IDs pointed into the outer query's, so resolving them panicked
+  or found the wrong binding. They now get their own arenas and list their
+  `imported_bindings`, like the `EXISTS { MATCH … }` form.
+- A property lookup without a key (`RETURN m.;`, `SET n. = 1`) is reported
+  as ``unexpected token `;`, expected property name`` instead of
+  `internal error: missing property key`. `REMOVE` now accepts escaped and
+  keyword property keys (``REMOVE n.`x y` ``, `REMOVE n.count`) like every
+  other lookup.
 - Input that does not start with a clause is a syntax error at its first
   token (``unexpected token `THIS`, expected clause``) instead of
   `internal error: empty source file`, and junk after a valid statement

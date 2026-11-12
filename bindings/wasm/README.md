@@ -10,9 +10,10 @@ Neo4j 5 and GQL extensions decypher supports, and gives you:
 | `validate(source)`          | syntax errors, unresolved / out-of-scope variables and invalid aggregations, no tree |
 | `format(source)`            | the query re-emitted as canonical single-line Cypher               |
 | `cst(source)`               | the lossless syntax tree (every token, whitespace and comments)    |
+| `analyze(source)`           | every variable with its definition and uses, and the graph patterns |
 | `version()`                 | the package version                                                |
 
-Invalid Cypher never throws. `parse`, `validate` and `format` return
+Invalid Cypher never throws. `parse`, `validate`, `format` and `analyze` return
 `{ ok: true, ... }` or `{ ok: false, errors }`; `cst` always returns a tree
 plus whatever `errors` it found.
 
@@ -94,6 +95,27 @@ know:
 A small generic walker usually beats matching the full shape; see
 [`examples/node/lint.js`](examples/node/lint.js), which collects every label,
 relationship type, property and parameter a query touches in ~20 lines.
+
+### Variables and patterns
+
+`analyze` runs the same checks as `validate` and, when they pass, returns
+what an editor needs for "find all references" or "rename":
+
+```js
+const source = "MATCH (p:Person)-[:KNOWS]->(f) WITH f RETURN f.name";
+const { variables, patterns } = analyze(source);
+// variables[1] → { name: "f", kind: "PatternBound",
+//                  definition: { start: 28, end: 29 },
+//                  uses: [{ start: 36, end: 37 }, { start: 45, end: 46 }] }
+// patterns[0]  → { clause: "MATCH", nodes: [{ variable: "p", labels: ["Person"] }, ...],
+//                  relationships: [{ types: ["KNOWS"], direction: "right", from: 0, to: 1, ... }] }
+```
+
+Ranges are UTF-16, so `source.slice(start, end)` is the variable's text.
+A variable passed on by `WITH`/`RETURN` or imported into a subquery counts as
+one variable, so rewriting all its ranges (back to front) renames it. The
+browser playground in [`examples/browser`](examples/browser) uses this for
+highlighting and rename.
 
 ### Bundlers and custom loading
 
@@ -181,8 +203,13 @@ error: unresolved variable `m`
 
 [`examples/browser`](examples/browser) is a dependency-free page, deployed to
 <https://sunsided.github.io/decypher/> on every push to `main`, with live
-syntax highlighting driven by the CST, inline error squiggles, and AST / CST /
-formatted views. It uses an import map, so no bundler is needed:
+syntax highlighting driven by the CST, inline error squiggles and a picker of
+example queries. Its tabs
+show what you can build on the bindings: an AST explorer linked to the source
+in both directions, a Symbols tab with find-all-uses and rename (via
+`analyze`), a Parameters tab that turns `$params` into a ready-to-run
+`neo4j-driver` call, a graph of the query's patterns, and the CST and
+formatted output. It uses an import map, so no bundler is needed:
 
 ```sh
 task wasm:build

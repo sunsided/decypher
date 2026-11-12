@@ -195,6 +195,21 @@ fn chained_path_relationship_left_indices() {
     check!(rels[1].right == 2, "rel[1].right should be 2");
 }
 
+/// Relationships in later comma-separated pattern parts must index the nodes
+/// of the whole pattern, not those of their own part.
+#[test]
+fn comma_separated_parts_relationship_indices() {
+    let hir = analyze("MATCH (a)-[:E]->(b), (c)-[:F]->(d) RETURN a").unwrap();
+    let m = find_match_operation(&hir.parts[0].operations);
+    let rels = &m.pattern.relationships;
+    check!(m.pattern.nodes.len() == 4);
+    check!((rels[0].left, rels[0].right) == (0, 1));
+    check!(
+        (rels[1].left, rels[1].right) == (2, 3),
+        "rel[1] should connect the second part's nodes"
+    );
+}
+
 #[test]
 fn analyze_function_call_list_literal_argument() {
     let hir = analyze("RETURN size([1, 2, 3]) AS len").unwrap();
@@ -1865,4 +1880,43 @@ fn unaliased_columns_are_named_by_their_text() {
                 ("n", "n")
             ]
     );
+}
+
+/// The pattern forms of `EXISTS { … }` and `COUNT { … }` lower into a nested
+/// query whose binding IDs resolve in that query's own arenas, like the full
+/// `EXISTS { MATCH … }` form, with outer variables imported.
+#[test]
+fn pattern_subquery_bindings_resolve_in_own_arenas() {
+    let hir =
+        analyze("MATCH (m) WHERE EXISTS { (m)-->(x) } RETURN COUNT { (m)<--(y) } AS n").unwrap();
+    let nested: Vec<_> = hir
+        .arenas
+        .expressions
+        .iter()
+        .filter_map(|(_, expr)| match &expr.kind {
+            ExprKind::ExistsSubquery(sub) => Some((&sub.query, &sub.imported_bindings)),
+            ExprKind::CountSubquery(sub) => Some((&sub.query, &sub.imported_bindings)),
+            _ => None,
+        })
+        .collect();
+    check!(nested.len() == 2);
+    for (query, imported) in nested {
+        check!(imported.len() == 1, "`m` is imported");
+        let m = find_match_operation(&query.parts[0].operations);
+        let names: Vec<_> = m
+            .pattern
+            .nodes
+            .iter()
+            .map(|node| {
+                query
+                    .arenas
+                    .bindings
+                    .get(node.binding.unwrap())
+                    .name
+                    .as_str()
+            })
+            .collect();
+        check!(names[0] == "m");
+        check!(names[1] == "x" || names[1] == "y");
+    }
 }

@@ -1393,37 +1393,33 @@ impl<'cfg> LoweringContext<'cfg> {
     fn lower_exists_inner(&mut self, inner: &ExistsInner) -> ExistsSubquery {
         match inner {
             ExistsInner::Pattern(pat, where_clause) => {
-                // Convert pattern+where to a minimal query. Variables the
-                // pattern introduces are local to the predicate.
-                let scope = self.scope_stack.push_scope(&mut self.arenas);
-                let pattern = self.lower_pattern(pat);
+                // Convert pattern+where to a minimal query with its own
+                // arenas, like the full form. Variables the pattern
+                // introduces are local to the predicate.
+                let (mut inner, imported) = self.subquery_context();
+                let scope = inner.scope_stack.push_scope(&mut inner.arenas);
+                let pattern = inner.lower_pattern(pat);
                 let mut ops = vec![Operation::Match(MatchOp {
                     pattern,
                     predicates: Vec::new(),
                 })];
                 if let Some(w) = where_clause {
-                    let pred = self.lower_expr(w);
+                    let pred = inner.lower_expr(w);
                     ops.push(Operation::Filter(FilterOp { predicate: pred }));
                 }
                 ops.push(Operation::Return(ReturnOp {
                     items: Vec::new(),
                     distinct: false,
                 }));
-                let out_scope = self.scope_stack.push_scope(&mut self.arenas);
-                let query = HirQuery {
-                    arenas: HirArenas::new(),
-                    parts: vec![QueryPart {
-                        input_scope: scope,
-                        operations: ops,
-                        output_scope: out_scope,
-                    }],
-                    diagnostics: Vec::new(),
-                };
-                self.scope_stack.pop_scope();
-                self.scope_stack.pop_scope();
+                let out_scope = inner.scope_stack.push_scope(&mut inner.arenas);
+                let parts = vec![QueryPart {
+                    input_scope: scope,
+                    operations: ops,
+                    output_scope: out_scope,
+                }];
                 ExistsSubquery {
-                    query: Box::new(query),
-                    imported_bindings: Vec::new(),
+                    query: Box::new(self.finish_subquery(inner, parts)),
+                    imported_bindings: imported,
                 }
             }
             ExistsInner::RegularQuery(rq) => {
@@ -1479,7 +1475,13 @@ impl<'cfg> LoweringContext<'cfg> {
             let node_start = nodes.len();
             nodes.extend(part_nodes);
             let rel_start = relationships.len();
-            relationships.extend(part_rels);
+            // A part's relationships index its own nodes; shift them to index
+            // the nodes of the whole pattern.
+            relationships.extend(part_rels.into_iter().map(|mut rel| {
+                rel.left += node_start;
+                rel.right += node_start;
+                rel
+            }));
 
             if let Some(binding_id) = path_binding {
                 let node_indices: Vec<NodeIndex> = (node_start..nodes.len()).collect();
