@@ -66,6 +66,10 @@ struct TckQuery {
     expects_error: bool,
     /// Whether a TCK scenario expects one of the [`SEMANTIC_ERRORS`].
     expects_semantic_error: bool,
+    /// Whether a TCK scenario expects a number literal to overflow at compile
+    /// time. The projection labels these `accept`, but the TCK wants them
+    /// rejected (`IntegerOverflow`, `FloatingPointOverflow`).
+    expects_number_overflow: bool,
 }
 
 fn tck_dir() -> PathBuf {
@@ -78,6 +82,7 @@ fn load_queries() -> Vec<TckQuery> {
     let mut queries = BTreeMap::new();
     let mut errors = BTreeSet::new();
     let mut semantic_errors = BTreeSet::new();
+    let mut number_overflows = BTreeSet::new();
     for line in text.lines() {
         let record: serde_json::Value = serde_json::from_str(line).expect("invalid JSONL record");
         let str_field = |name: &str| record[name].as_str().map(str::to_owned);
@@ -90,6 +95,7 @@ fn load_queries() -> Vec<TckQuery> {
                     accept: str_field("expectation").as_deref() == Some("accept"),
                     expects_error: false,
                     expects_semantic_error: false,
+                    expects_number_overflow: false,
                 };
                 queries.insert(id, query);
             }
@@ -102,6 +108,14 @@ fn load_queries() -> Vec<TckQuery> {
                 {
                     semantic_errors.insert(id.clone());
                 }
+                if error["phase"] == "compile time"
+                    && matches!(
+                        error["detail"].as_str(),
+                        Some("IntegerOverflow" | "FloatingPointOverflow")
+                    )
+                {
+                    number_overflows.insert(id.clone());
+                }
                 errors.insert(id);
             }
             _ => {}
@@ -112,6 +126,7 @@ fn load_queries() -> Vec<TckQuery> {
         .map(|(sha, mut q)| {
             q.expects_error = errors.contains(&sha);
             q.expects_semantic_error = semantic_errors.contains(&sha);
+            q.expects_number_overflow = number_overflows.contains(&sha);
             q
         })
         .collect()
@@ -133,6 +148,19 @@ fn guarded<T>(f: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
 fn check_query(q: &TckQuery) -> Vec<(&'static str, String)> {
     let mut failures = Vec::new();
     let parsed = guarded(|| decypher::parse(q.source.as_str()).map_err(|e| e.kind.to_string()));
+    if q.expects_number_overflow {
+        let overflowed = matches!(
+            decypher::parse(q.source.as_str()),
+            Err(e) if matches!(
+                e.kind,
+                decypher::ErrorKind::InvalidNumber { reason: decypher::error::NumberReason::Overflow, .. }
+            )
+        );
+        if !overflowed {
+            failures.push(("parse", "expected a number overflow error".into()));
+        }
+        return failures;
+    }
     match (&parsed, q.accept) {
         (Ok(_), false) => failures.push(("parse", "accepted, expected a syntax error".into())),
         (Err(e), true) => failures.push(("parse", e.clone())),

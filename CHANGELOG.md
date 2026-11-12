@@ -8,6 +8,14 @@ are marked **Breaking** below.
 
 ## [Unreleased]
 
+### Fixed
+
+- The TCK test treats the number literals the TCK expects to overflow at
+  compile time (`9223372036854775808`, `1.34E999`, …) as rejections; the
+  vendored projection labels them `accept`, which made decypher's correct
+  `InvalidNumber` errors show up as known failures. The known-failures list
+  is now empty.
+
 ## [0.2.0-alpha.10] - 2026-11-12
 
 ### Added
