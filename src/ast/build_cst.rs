@@ -42,18 +42,28 @@ mod ast_c {
 /// a comment: the parser keeps trivia inside nodes (`NOT x\n` ends in the
 /// newline), which must not widen the span of the construct.
 fn span_of(node: &rowan::SyntaxNode<crate::syntax::CypherLang>) -> Span {
-    let mut tokens = node
-        .descendants_with_tokens()
-        .filter_map(|e| e.into_token())
-        .filter(|t| !matches!(t.kind(), SyntaxKind::WHITESPACE | SyntaxKind::COMMENT));
-    let range = match (tokens.next(), tokens.last()) {
-        (Some(first), last) => {
-            let end = last.as_ref().unwrap_or(&first).text_range().end();
-            rowan::TextRange::new(first.text_range().start(), end)
-        }
-        (None, _) => node.text_range(),
+    // Step inward from the edge tokens instead of scanning the subtree, so
+    // the cost is the edge trivia only, not the size of the node.
+    let range = node.text_range();
+    let content = |token: &rowan::SyntaxToken<crate::syntax::CypherLang>| {
+        !matches!(token.kind(), SyntaxKind::WHITESPACE | SyntaxKind::COMMENT)
     };
-    Span::new(range.start().into(), range.end().into())
+    let inside = |token: &rowan::SyntaxToken<crate::syntax::CypherLang>| {
+        range.contains_range(token.text_range())
+    };
+    let first = std::iter::successors(node.first_token(), |t| t.next_token())
+        .take_while(inside)
+        .find(content);
+    let last = std::iter::successors(node.last_token(), |t| t.prev_token())
+        .take_while(inside)
+        .find(content);
+    match (first, last) {
+        (Some(first), Some(last)) => Span::new(
+            first.text_range().start().into(),
+            last.text_range().end().into(),
+        ),
+        _ => Span::new(range.start().into(), range.end().into()),
+    }
 }
 
 fn token_span(token: &rowan::SyntaxToken<crate::syntax::CypherLang>) -> Span {
@@ -1341,8 +1351,7 @@ fn build_binary_expr(b: BinaryExpr) -> Result<ast_c::Expression> {
         .ok_or_else(|| internal("missing lhs", sp))?;
     // The CST node holds only `op rhs` (the left operand is its preceding
     // sibling); the expression spans from its left operand on.
-    let own = span_of(b.syntax());
-    let sp = Span::new(lhs.span().start.min(own.start), own.end);
+    let sp = Span::new(lhs.span().start.min(sp.start), sp.end);
 
     match b.op_kind() {
         Some(BinOp::IsNull) => Ok(ast_c::Expression::IsNull {

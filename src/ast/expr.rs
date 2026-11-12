@@ -550,8 +550,6 @@ pub enum MapProjectionItem {
 }
 
 impl Expression {
-    /// The byte-offset span of this expression, or an empty span for
-    /// expressions that don't record one.
     /// The byte-offset span of the whole expression, from its first to its
     /// last token (`a.b + 1` covers all of it, `(x)` includes the
     /// parentheses).
