@@ -109,6 +109,11 @@ tasks:
     cmds:
       - "{{.FUZZ_CARGO}} fuzz run fuzz_parse_hir"
 
+  fuzz:roundtrip:
+    desc: Run the round-trip fuzz target (parse, print, parse gives the same AST)
+    cmds:
+      - "{{.FUZZ_CARGO}} fuzz run fuzz_parse_roundtrip"
+
   fuzz:smoke:cst:
     desc: Run the CST fuzz target briefly
     cmds:
@@ -124,6 +129,11 @@ tasks:
     cmds:
       - "{{.FUZZ_CARGO}} fuzz run fuzz_parse_hir -- -runs=256"
 
+  fuzz:smoke:roundtrip:
+    desc: Run the round-trip fuzz target briefly
+    cmds:
+      - "{{.FUZZ_CARGO}} fuzz run fuzz_parse_roundtrip -- -runs=256"
+
   fuzz:smoke:all:
     desc: Run all fuzz targets briefly
     aliases:
@@ -132,6 +142,7 @@ tasks:
       - fuzz:smoke:cst
       - fuzz:smoke:ast
       - fuzz:smoke:hir
+      - fuzz:smoke:roundtrip
 
   fuzz:seed:
     desc: Seed fuzz corpus from test suites
@@ -157,6 +168,11 @@ tasks:
     desc: Run the HIR fuzz target with dictionary
     cmds:
       - "{{.FUZZ_CARGO}} fuzz run fuzz_parse_hir -- -dict=fuzz/dictionary.txt"
+
+  fuzz:roundtrip:with-dict:
+    desc: Run the round-trip fuzz target with dictionary
+    cmds:
+      - "{{.FUZZ_CARGO}} fuzz run fuzz_parse_roundtrip -- -dict=fuzz/dictionary.txt"
 
   verify:
     desc: Run formatting checks, static checks, clippy, and the test matrix
