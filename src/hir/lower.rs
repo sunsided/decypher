@@ -1267,7 +1267,9 @@ impl<'cfg> LoweringContext<'cfg> {
                     expression,
                 }
             }
-            Expression::Parenthesized(inner) => {
+            Expression::Parenthesized {
+                expression: inner, ..
+            } => {
                 // Lower directly; parenthesization is syntactic
                 return self.lower_expr(inner);
             }
@@ -1346,13 +1348,13 @@ impl<'cfg> LoweringContext<'cfg> {
 
     fn lower_literal(&mut self, lit: &Literal) -> HirLiteral {
         match lit {
-            Literal::Number(n) => match n {
+            Literal::Number { value: n, .. } => match n {
                 NumberLiteral::Integer(i) => HirLiteral::Integer(*i),
                 NumberLiteral::Float(f) => HirLiteral::Float(*f),
             },
             Literal::String(s) => HirLiteral::String(s.value.clone()),
-            Literal::Boolean(b) => HirLiteral::Boolean(*b),
-            Literal::Null => HirLiteral::Null,
+            Literal::Boolean { value: b, .. } => HirLiteral::Boolean(*b),
+            Literal::Null { .. } => HirLiteral::Null,
             Literal::List(_) | Literal::Map(_) => {
                 unreachable!(
                     "list/map literals are intercepted in lower_expr before lower_literal is called"
@@ -2146,7 +2148,9 @@ impl<'cfg> LoweringContext<'cfg> {
                 let args = fc.arguments.iter().map(|a| self.lower_expr(a)).collect();
                 Some((function, args, fc.distinct))
             }
-            Expression::Parenthesized(inner) => self.lower_aggregate_call(inner),
+            Expression::Parenthesized {
+                expression: inner, ..
+            } => self.lower_aggregate_call(inner),
             _ => None,
         }
     }

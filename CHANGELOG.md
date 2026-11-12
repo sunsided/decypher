@@ -8,6 +8,30 @@ are marked **Breaking** below.
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** every expression has a span covering all of it.
+  `Literal::Number`, `Literal::Boolean` and `Literal::Null` are struct
+  variants with a `span` (`Number { value, span }`, `Boolean { value, span }`,
+  `Null { span }`), and `Expression::Parenthesized` is
+  `Parenthesized { expression, span }` with the span including the
+  parentheses; before, all of these reported `0..0`.
+- **Breaking:** infix and postfix expressions span from their left operand
+  on: `a.b + 1` covers all of `a.b + 1`, not just `+ 1`, and `n.name` covers
+  `n.name`, not `.name`. Diagnostics that point at such expressions now start
+  at the expression.
+- **Breaking:** no AST span starts or ends in whitespace or a comment;
+  before, nodes such as `NOT x` followed by a line break included it.
+- `Expression::span()` is public.
+
+### Fixed
+
+- The TCK test treats the number literals the TCK expects to overflow at
+  compile time (`9223372036854775808`, `1.34E999`, …) as rejections; the
+  vendored projection labels them `accept`, which made decypher's correct
+  `InvalidNumber` errors show up as known failures. The known-failures list
+  is now empty.
+
 ## [0.2.0-alpha.10] - 2026-11-12
 
 ### Added

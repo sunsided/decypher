@@ -1464,7 +1464,9 @@ pub fn walk_expression<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Expression) 
         | Expression::None(fe)
         | Expression::Single(fe) => v.visit_filter_expression(fe),
         Expression::Reduce(r) => v.visit_reduce_expression(r),
-        Expression::Parenthesized(inner) => v.visit_expression(inner),
+        Expression::Parenthesized {
+            expression: inner, ..
+        } => v.visit_expression(inner),
         Expression::Pattern(rp) => v.visit_relationships_pattern(rp),
         Expression::Exists(exists) => v.visit_exists_expression(exists),
         Expression::CountSubquery(count) => v.visit_count_subquery_expression(count),
@@ -1475,10 +1477,10 @@ pub fn walk_expression<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Expression) 
 
 pub fn walk_literal<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Literal) {
     match node {
-        Literal::Number(n) => v.visit_number_literal(n),
+        Literal::Number { value: n, .. } => v.visit_number_literal(n),
         Literal::String(s) => v.visit_string_literal(s),
-        Literal::Boolean(_) => {}
-        Literal::Null => {}
+        Literal::Boolean { .. } => {}
+        Literal::Null { .. } => {}
         Literal::List(l) => v.visit_list_literal(l),
         Literal::Map(m) => v.visit_map_literal(m),
     }
@@ -2071,7 +2073,9 @@ pub fn walk_expression_mut<V: VisitMut>(v: &mut V, node: &mut Expression) {
         | Expression::None(fe)
         | Expression::Single(fe) => v.visit_filter_expression(fe),
         Expression::Reduce(r) => v.visit_reduce_expression(r),
-        Expression::Parenthesized(inner) => v.visit_expression(inner),
+        Expression::Parenthesized {
+            expression: inner, ..
+        } => v.visit_expression(inner),
         Expression::Pattern(rp) => v.visit_relationships_pattern(rp),
         Expression::Exists(exists) => v.visit_exists_expression(exists),
         Expression::CountSubquery(count) => v.visit_count_subquery_expression(count),
@@ -2082,10 +2086,10 @@ pub fn walk_expression_mut<V: VisitMut>(v: &mut V, node: &mut Expression) {
 
 pub fn walk_literal_mut<V: VisitMut>(v: &mut V, node: &mut Literal) {
     match node {
-        Literal::Number(n) => v.visit_number_literal(n),
+        Literal::Number { value: n, .. } => v.visit_number_literal(n),
         Literal::String(s) => v.visit_string_literal(s),
-        Literal::Boolean(_) => {}
-        Literal::Null => {}
+        Literal::Boolean { .. } => {}
+        Literal::Null { .. } => {}
         Literal::List(l) => v.visit_list_literal(l),
         Literal::Map(m) => v.visit_map_literal(m),
     }

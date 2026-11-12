@@ -341,11 +341,17 @@ impl<'a> TypeChecker<'a> {
         use ValueTypes as T;
         match expr {
             Expression::Literal(literal) => match literal {
-                Literal::Number(NumberLiteral::Integer(_)) => Ty::of(T::INTEGER),
-                Literal::Number(NumberLiteral::Float(_)) => Ty::of(T::FLOAT),
+                Literal::Number {
+                    value: NumberLiteral::Integer(_),
+                    ..
+                } => Ty::of(T::INTEGER),
+                Literal::Number {
+                    value: NumberLiteral::Float(_),
+                    ..
+                } => Ty::of(T::FLOAT),
                 Literal::String(_) => Ty::of(T::STRING),
-                Literal::Boolean(_) => Ty::of(T::BOOLEAN),
-                Literal::Null => Ty::ANY,
+                Literal::Boolean { .. } => Ty::of(T::BOOLEAN),
+                Literal::Null { .. } => Ty::ANY,
                 Literal::List(list) => Ty::list_of(
                     list.elements
                         .iter()
@@ -356,7 +362,9 @@ impl<'a> TypeChecker<'a> {
                 Literal::Map(_) => Ty::of(T::MAP),
             },
             Expression::Variable(var) => self.vars.get(&var.name.name).copied().unwrap_or(Ty::ANY),
-            Expression::Parenthesized(inner) => self.type_of(inner),
+            Expression::Parenthesized {
+                expression: inner, ..
+            } => self.type_of(inner),
             Expression::BinaryOp { op, lhs, rhs, .. } => {
                 let (lhs, rhs) = (self.type_of(lhs), self.type_of(rhs));
                 match op {
