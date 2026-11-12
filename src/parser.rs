@@ -106,6 +106,7 @@ impl<'a> Parser<'a> {
     /// Enters one level of a recursive rule. Past [`MAX_NESTING`] this
     /// reports [`ErrorKind::NestingTooDeep`] and halts the parser, and the
     /// caller must not descend; otherwise it must call [`Self::leave`].
+    #[must_use = "descend only when `enter` returns true, then call `leave`"]
     pub(crate) fn enter(&mut self) -> bool {
         self.enter_weighted(1)
     }
@@ -113,6 +114,7 @@ impl<'a> Parser<'a> {
     /// [`Self::enter`] for a rule that uses `weight` times the stack of an
     /// expression level downstream (a subquery body is lowered into a context
     /// of its own); leave it with [`Self::leave_weighted`].
+    #[must_use = "descend only when `enter_weighted` returns true, then call `leave_weighted`"]
     pub(crate) fn enter_weighted(&mut self, weight: usize) -> bool {
         if self.halted.is_some() {
             return false;
@@ -143,7 +145,10 @@ impl<'a> Parser<'a> {
 
     /// Leaves a level entered with [`Self::enter_weighted`].
     pub(crate) fn leave_weighted(&mut self, weight: usize) {
-        self.depth -= weight;
+        // An unpaired leave is a bug; saturate so a release build cannot wrap
+        // `depth` and then report every later level as too deep.
+        debug_assert!(self.depth >= weight, "leave without matching enter");
+        self.depth = self.depth.saturating_sub(weight);
     }
 
     /// Whether a relationship pattern follows the `(` that ends at byte

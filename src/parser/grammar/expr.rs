@@ -713,8 +713,8 @@ fn parse_pattern_or_subquery_body(p: &mut Parser) {
 
 /// [`parse_subquery_body_unguarded`] within the nesting limit (see `MAX_NESTING`).
 fn parse_subquery_body(p: &mut Parser) {
-    // A subquery level costs about four expression levels of stack once
-    // lowered, so it counts four times towards `MAX_NESTING`.
+    // Building a subquery level takes several times the stack of an
+    // expression level, so it counts `SUBQUERY_WEIGHT` levels.
     if !p.enter_weighted(SUBQUERY_WEIGHT) {
         return;
     }
@@ -2788,8 +2788,8 @@ fn parse_call_subquery(p: &mut Parser) {
 
 /// [`parse_regular_query_body_unguarded`] within the nesting limit (see `MAX_NESTING`).
 fn parse_regular_query_body(p: &mut Parser) {
-    // A subquery level costs about four expression levels of stack once
-    // lowered, so it counts four times towards `MAX_NESTING`.
+    // Building a subquery level takes several times the stack of an
+    // expression level, so it counts `SUBQUERY_WEIGHT` levels.
     if !p.enter_weighted(SUBQUERY_WEIGHT) {
         return;
     }
