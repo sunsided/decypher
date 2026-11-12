@@ -514,13 +514,6 @@ impl<'cfg> LoweringContext<'cfg> {
         }
     }
 
-    /// Lowers the body of a `CALL`, `EXISTS`, `COUNT` or `COLLECT` subquery.
-    ///
-    /// The subquery gets its own arenas, but the outer variables visible at
-    /// the call site are seeded into its root scope, so correlated references
-    /// such as `CALL { WITH x … }` resolve. Diagnostics from the subquery are
-    /// reported on the enclosing query instead of being dropped. Returns the
-    /// lowered subquery and the outer bindings visible to it.
     /// A context for lowering a subquery into its own [`HirQuery`], with
     /// every variable visible here re-bound in its arenas. Returns the outer
     /// IDs of those imported variables alongside.
@@ -546,6 +539,13 @@ impl<'cfg> LoweringContext<'cfg> {
         }
     }
 
+    /// Lowers the body of a `CALL`, `EXISTS`, `COUNT` or `COLLECT` subquery.
+    ///
+    /// The subquery gets its own arenas, but the outer variables visible at
+    /// the call site are seeded into its root scope, so correlated references
+    /// such as `CALL { WITH x … }` resolve. Diagnostics from the subquery are
+    /// reported on the enclosing query instead of being dropped. Returns the
+    /// lowered subquery and the outer bindings visible to it.
     fn lower_subquery(&mut self, query: &RegularQuery) -> (HirQuery, Vec<BindingId>) {
         let (mut inner, imported) = self.subquery_context();
         let parts = inner.lower_regular_query(query);
