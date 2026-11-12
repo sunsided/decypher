@@ -974,3 +974,52 @@ fn rt_use_clauses() {
         check!(parse(query).unwrap().to_cypher() == query);
     }
 }
+
+/// `IF EXISTS` follows the name in `DROP INDEX` / `DROP CONSTRAINT`; printing
+/// it before the name produced a statement that no longer parsed.
+#[test]
+fn drop_if_exists_prints_after_the_name() {
+    for query in [
+        "DROP INDEX person_name_index IF EXISTS;",
+        "DROP CONSTRAINT person_id_unique IF EXISTS;",
+    ] {
+        let printed = parse(query).unwrap().to_cypher();
+        assert_eq!(printed, query);
+        assert_eq!(parse(printed.as_str()).unwrap().to_cypher(), query);
+    }
+}
+
+/// `n:A` and `x IS A` build the same label check but bind differently, so
+/// the printer picks the form that parses back to the same tree.
+#[test]
+fn label_checks_print_in_a_form_that_parses_back() {
+    for (query, printed) in [
+        ("RETURN n:A:B", "RETURN n:A:B;"),
+        ("RETURN n IS A", "RETURN n:A;"),
+        // `IS` binds looser than `-` and `+`; `-x:A` would mean `-(x:A)`.
+        ("RETURN -x IS A", "RETURN -x IS A;"),
+        ("RETURN a + b IS A", "RETURN a + b IS A;"),
+        // A check on a check must not merge into one label list.
+        ("RETURN n:A IS B", "RETURN n:A IS B;"),
+        ("RETURN n IS A:B:C", "RETURN n IS A:B:C;"),
+        (
+            "RETURN 1 IS !A IS !B IS % :C",
+            "RETURN 1:!A IS !B IS % IS C;",
+        ),
+        // After a postfix predicate, a `:` chain checks the whole predicate.
+        ("RETURN x IS NOT NULL:A:B", "RETURN x IS NOT NULL:A:B;"),
+        ("RETURN 1 IS :: INT:a:b", "RETURN 1 IS :: INT:a:b;"),
+    ] {
+        let first = parse(query).unwrap().to_cypher();
+        assert_eq!(first, printed, "printing {query}");
+        let reparsed = parse(first.as_str()).unwrap();
+        assert_eq!(reparsed.to_cypher(), printed, "reprinting {query}");
+        // Same tree: the label checks nest the same way.
+        let depth = |q: &str| {
+            format!("{:?}", parse(q).unwrap())
+                .matches("NodeLabels")
+                .count()
+        };
+        assert_eq!(depth(query), depth(first.as_str()), "nesting of {query}");
+    }
+}

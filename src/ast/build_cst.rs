@@ -435,21 +435,9 @@ fn build_single_query_parts(clauses: Vec<Clause>) -> Result<ast_c::SingleQuery> 
                         body: ast_c::SinglePartBody::Finish(build_finish(f)?),
                     });
                 }
-                Clause::With(w) => {
-                    let wc = build_with(w)?;
-                    final_part = Some(ast_c::SinglePartQuery {
-                        reading_clauses: std::mem::take(&mut reading),
-                        body: ast_c::SinglePartBody::Return(ast_c::Return {
-                            distinct: wc.distinct,
-                            star: wc.star,
-                            items: wc.items,
-                            order: wc.order,
-                            skip: wc.skip,
-                            limit: wc.limit,
-                            span: wc.span,
-                        }),
-                    });
-                }
+                // A query cannot end with `WITH`; this used to rebuild it as a
+                // `RETURN`, which changed what the query means.
+                Clause::With(_) => return Err(missing.clone()),
                 Clause::Where(_) => {}
                 Clause::StandaloneCall(c) => reading.push(ast_c::ReadingClause::InQueryCall(
                     build_in_query_call_from_standalone(c)?,

@@ -794,12 +794,7 @@ impl ToCypher for Expression {
                 property.write_cypher(w)
             }
             Expression::NodeLabels { base, labels, .. } => {
-                base.write_cypher(w)?;
-                for label in labels {
-                    write!(w, ":")?;
-                    label.write_cypher(w)?;
-                }
-                Ok(())
+                write_node_labels(w, base, labels, false)
             }
             Expression::BinaryOp { op, lhs, rhs, .. } => {
                 lhs.write_cypher(w)?;
@@ -1573,11 +1568,13 @@ impl ToCypher for IndexKind {
 
 impl ToCypher for DropIndex {
     fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        // `DROP INDEX name IF EXISTS`: the clause follows the name.
         write!(w, "DROP INDEX ")?;
+        self.name.write_cypher(w)?;
         if self.if_exists {
-            write!(w, "IF EXISTS ")?;
+            write!(w, " IF EXISTS")?;
         }
-        self.name.write_cypher(w)
+        Ok(())
     }
 }
 
@@ -1630,11 +1627,13 @@ impl ToCypher for ConstraintKind {
 
 impl ToCypher for DropConstraint {
     fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
+        // `DROP CONSTRAINT name IF EXISTS`: the clause follows the name.
         write!(w, "DROP CONSTRAINT ")?;
+        self.name.write_cypher(w)?;
         if self.if_exists {
-            write!(w, "IF EXISTS ")?;
+            write!(w, " IF EXISTS")?;
         }
-        self.name.write_cypher(w)
+        Ok(())
     }
 }
 
@@ -1776,5 +1775,81 @@ impl ToCypher for MapProjectionItem {
             }
             MapProjectionItem::Variable { variable } => variable.write_cypher(w),
         }
+    }
+}
+
+/// Prints a label check. `n:A:B` and `x IS A` build the same
+/// [`Expression::NodeLabels`], but `:` binds like a property lookup while
+/// `IS` binds like a predicate (looser than `+`), and a `:` chain after a
+/// check stacks a new check on it (`n IS A:B` is `(n IS A):B`). So:
+///
+/// - `base:A:B` when `base` binds at least as tightly as a property lookup
+///   and is not itself a check (its labels would merge with these);
+/// - `base IS A` for a single label otherwise (`-x IS A`, `n:A IS B`);
+/// - for several labels on a check, the inner check in `IS` form followed by
+///   the `:` chain (`n IS A:B:C`).
+///
+/// `force_is` makes the printed check end in an `IS` label, so that a `:`
+/// chain following it cannot merge into it.
+fn write_node_labels(
+    w: &mut dyn fmt::Write,
+    base: &Expression,
+    labels: &[LabelExpression],
+    force_is: bool,
+) -> fmt::Result {
+    let write_chain = |w: &mut dyn fmt::Write, labels: &[LabelExpression]| -> fmt::Result {
+        for label in labels {
+            write!(w, ":")?;
+            label.write_cypher(w)?;
+        }
+        Ok(())
+    };
+    let base_is_check = matches!(base, Expression::NodeLabels { .. });
+    if !force_is && !base_is_check && binds_like_postfix(base) {
+        base.write_cypher(w)?;
+        return write_chain(w, labels);
+    }
+    if let [label] = labels {
+        base.write_cypher(w)?;
+        write!(w, " IS ")?;
+        return label.write_cypher(w);
+    }
+    if let Expression::NodeLabels {
+        base: inner_base,
+        labels: inner_labels,
+        ..
+    } = base
+    {
+        write_node_labels(w, inner_base, inner_labels, true)?;
+        return write_chain(w, labels);
+    }
+    // Several labels on an operator expression: the parser attaches a `:`
+    // chain to the last operand instead, so this does not come from parsing.
+    let (first, rest) = labels.split_first().ok_or(fmt::Error)?;
+    base.write_cypher(w)?;
+    write!(w, " IS ")?;
+    first.write_cypher(w)?;
+    write_chain(w, rest)
+}
+
+/// Whether a postfix `:Label` printed after `expr` attaches to all of it:
+/// an atom, a call, a property lookup or an index, and the postfix
+/// predicates `IS NULL`, `IS :: T` and `IS NORMALIZED`, after which the
+/// parser keeps reading postfix operators (`x IS NULL:A` checks the
+/// predicate). Not an operator expression, whose last operand would take the
+/// label, and not a negative number literal (printed with a `-`).
+fn binds_like_postfix(expr: &Expression) -> bool {
+    match expr {
+        Expression::Literal(Literal::Number { value, .. }) => match value {
+            NumberLiteral::Integer(i) => *i >= 0,
+            NumberLiteral::Float(f) => f.is_sign_positive(),
+        },
+        Expression::BinaryOp { .. }
+        | Expression::UnaryOp { .. }
+        | Expression::Comparison { .. }
+        | Expression::In { .. }
+        | Expression::NodeLabels { .. }
+        | Expression::Pattern(_) => false,
+        _ => true,
     }
 }

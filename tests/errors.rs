@@ -571,3 +571,40 @@ fn test_remove_accepts_any_property_key() {
         check!(parse(input).is_ok(), "input: {input}");
     }
 }
+
+/// Queries the round-trip fuzzer found accepted although they are not
+/// Cypher: a query ending in `WITH` (it was rebuilt as a `RETURN`), a `YIELD`
+/// without `CALL`, `SET` / `REMOVE` with a `:` but no label, `REMOVE` of a
+/// bare variable, and `MERGE … ON MATCH` / `ON CREATE` without `SET`.
+#[test]
+fn test_incomplete_clauses_are_rejected() {
+    for input in [
+        "WITH 1 AS x",
+        "MATCH (n) WITH n",
+        "MATCH (n) WITH n WHERE n.x > 1",
+        "RETURN f() YIELD x",
+        "MATCH (n) YIELD foo RETURN n",
+        "CALL { RETURN 1 AS x YIELD y } RETURN x",
+        "MATCH (n) SET n:",
+        "MATCH (n) REMOVE n:",
+        // `REMOVE` needs a label or property; `ON` needs `MATCH`/`CREATE` and `SET`.
+        "MATCH (n) REMOVE n RETURN n",
+        "MATCH (n) REMOVE 1 RETURN n",
+        "MERGE (a) ON MATCH RETURN a",
+        "MERGE (a) ON CREATE REMOVE a.x RETURN a",
+        "MERGE (a) ON SET a.x = 1 RETURN a",
+    ] {
+        check!(parse(input).is_err(), "input: {input}");
+    }
+    for input in [
+        "MATCH (n) WITH n RETURN n",
+        "MATCH (n) SET n:A:B RETURN n",
+        "MATCH (n) REMOVE n:A RETURN n",
+        "MATCH (n) REMOVE n:A, n.x RETURN n",
+        "MERGE (a) ON MATCH SET a.x = 1 ON CREATE SET a.y = 2 RETURN a",
+        "MATCH (n) CALL db.labels() YIELD label RETURN n, label",
+        "MATCH (n) WHERE EXISTS { MATCH (n)-->(m) WITH m WHERE m.x > 1 } RETURN n",
+    ] {
+        check!(parse(input).is_ok(), "input: {input}");
+    }
+}
