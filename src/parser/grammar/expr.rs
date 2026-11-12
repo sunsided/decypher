@@ -26,6 +26,16 @@ impl Prec {
 }
 
 fn expr_bp(p: &mut Parser, min_bp: Prec) {
+    // Every nested expression passes through here, so this bounds the
+    // recursion (see `MAX_NESTING`).
+    if !p.enter() {
+        return;
+    }
+    expr_bp_inner(p, min_bp);
+    p.leave();
+}
+
+fn expr_bp_inner(p: &mut Parser, min_bp: Prec) {
     // Handle prefix unary operators: NOT, +, -
     if is_unary_prefix(p) {
         let op = p.current_kind();
@@ -501,9 +511,14 @@ fn parse_label_expression(
     name_kind: SyntaxKind,
     dynamic_kind: SyntaxKind,
 ) {
+    // Parenthesised label expressions nest through here (see `MAX_NESTING`).
+    if !p.enter() {
+        return;
+    }
     p.start_node(SyntaxKind::LABEL_EXPRESSION);
     parse_label_or(p, static_kind, name_kind, dynamic_kind);
     p.builder.finish_node();
+    p.leave();
 }
 
 fn parse_label_or(
@@ -552,6 +567,10 @@ fn parse_label_not(
     name_kind: SyntaxKind,
     dynamic_kind: SyntaxKind,
 ) {
+    // `!!!A` and parenthesised label expressions both recurse through here.
+    if !p.enter_weighted(LABEL_WEIGHT) {
+        return;
+    }
     if p.at(SyntaxKind::BANG) {
         p.start_node(SyntaxKind::LABEL_NOT);
         p.bump();
@@ -561,6 +580,7 @@ fn parse_label_not(
     } else {
         parse_label_primary(p, static_kind, name_kind, dynamic_kind);
     }
+    p.leave_weighted(LABEL_WEIGHT);
 }
 
 fn parse_label_primary(
@@ -691,7 +711,18 @@ fn parse_pattern_or_subquery_body(p: &mut Parser) {
     }
 }
 
+/// [`parse_subquery_body_unguarded`] within the nesting limit (see `MAX_NESTING`).
 fn parse_subquery_body(p: &mut Parser) {
+    // Building a subquery level takes several times the stack of an
+    // expression level, so it counts `SUBQUERY_WEIGHT` levels.
+    if !p.enter_weighted(SUBQUERY_WEIGHT) {
+        return;
+    }
+    parse_subquery_body_unguarded(p);
+    p.leave_weighted(SUBQUERY_WEIGHT);
+}
+
+fn parse_subquery_body_unguarded(p: &mut Parser) {
     if !parse_subquery_part(p) {
         p.error_here_with_help(
             &[Expected::Category(Cow::Borrowed("subquery clause"))],
@@ -1293,7 +1324,7 @@ fn parse_map_projection_item(p: &mut Parser) {
 /// as `(a)-->(b)` rather than a parenthesised expression.
 fn looks_like_relationships_pattern(p: &Parser) -> bool {
     // `p` is at `(`; the cloned lexer yields the tokens after it.
-    relationship_pattern_follows(p.lexer.clone())
+    relationship_pattern_follows(p, &p.lexer)
 }
 
 /// Whether `exists` at the current position is followed by `(` and a
@@ -1311,32 +1342,64 @@ fn exists_call_wraps_pattern(p: &Parser) -> bool {
             return false;
         }
     }
-    relationship_pattern_follows(lx)
+    relationship_pattern_follows(p, &lx)
 }
 
-/// Given a lexer positioned just after the `(` of a node pattern, finds the
-/// matching `)` (node patterns may contain nested parentheses, e.g. in a
-/// property map) and decides whether a relationship follows it.
-fn relationship_pattern_follows(mut lx: crate::parser::lexer::Lexer<'_>) -> bool {
-    use SyntaxKind::{ARROW_LEFT, ARROW_RIGHT, DASH, GT, L_BRACKET, L_PAREN, LT, MINUS};
-    let mut depth = 1usize;
-    while depth > 0 {
-        match lx.advance() {
-            Some(tok) if tok.kind == L_PAREN => depth += 1,
-            Some(tok) if tok.kind == SyntaxKind::R_PAREN => depth -= 1,
-            Some(_) => {}
-            None => return false,
+/// How many nesting levels a subquery body counts as (see `MAX_NESTING`):
+/// building its clauses takes several times the stack of an expression level.
+const SUBQUERY_WEIGHT: usize = 8;
+
+/// How many nesting levels a label-expression level counts as (see
+/// `MAX_NESTING`); label expressions are built and lowered by recursion
+/// outside the expression depth limit.
+const LABEL_WEIGHT: usize = 4;
+
+/// Given a lexer positioned just after a `(`, decides whether a relationship
+/// follows its matching `)` (node patterns may contain nested parentheses,
+/// e.g. in a property map).
+fn relationship_pattern_follows(p: &Parser, lx: &crate::parser::lexer::Lexer<'_>) -> bool {
+    p.relationship_pattern_follows_at(lx.position())
+}
+
+/// For every `(` in `input`, keyed by the byte offset just after it, whether
+/// a relationship follows its matching `)`. One pass with a stack instead of
+/// a scan to the matching `)` per `(`, which is quadratic when they nest.
+pub(crate) fn relationship_pattern_table(input: &str) -> std::collections::HashMap<usize, bool> {
+    let mut lexer = crate::parser::lexer::Lexer::new(input);
+    // Significant tokens as (kind, end offset).
+    let mut tokens = Vec::new();
+    while let Some(tok) = lexer.advance() {
+        if !matches!(tok.kind, SyntaxKind::WHITESPACE | SyntaxKind::COMMENT) {
+            tokens.push((tok.kind, lexer.position()));
         }
     }
-    let mut ahead = [None; 3];
-    for slot in &mut ahead {
-        *slot = loop {
-            match lx.advance() {
-                Some(tok) if matches!(tok.kind, SyntaxKind::WHITESPACE | SyntaxKind::COMMENT) => {}
-                other => break other.map(|t| t.kind),
+    let mut table = std::collections::HashMap::new();
+    let mut open = Vec::new();
+    for (i, &(kind, end)) in tokens.iter().enumerate() {
+        match kind {
+            SyntaxKind::L_PAREN => {
+                open.push(end);
+                table.insert(end, false);
             }
-        };
+            SyntaxKind::R_PAREN => {
+                if let Some(after_open) = open.pop() {
+                    let kind_at = |k: usize| tokens.get(i + k).map(|&(kind, _)| kind);
+                    table.insert(
+                        after_open,
+                        relationship_follows([kind_at(1), kind_at(2), kind_at(3)]),
+                    );
+                }
+            }
+            _ => {}
+        }
     }
+    table
+}
+
+/// Whether the three significant tokens after a node pattern's `)` start a
+/// relationship.
+fn relationship_follows(ahead: [Option<SyntaxKind>; 3]) -> bool {
+    use SyntaxKind::{ARROW_LEFT, ARROW_RIGHT, DASH, GT, L_BRACKET, L_PAREN, LT, MINUS};
     // ASCII arrows are lexed as separate `<`, `-`, `>` tokens, so `(a) - 1`
     // and `(a) < -1` share prefixes with `(a)-->(b)` and `(a)<-[r]-(b)`. A
     // relationship continues with `[`, a second dash, or an arrowhead.
@@ -1454,14 +1517,14 @@ fn parse_bracket_expr(p: &mut Parser) {
                 Some(SyntaxKind::EQ) => {
                     is_pattern_comprehension = next_significant(&mut lx)
                         == Some(SyntaxKind::L_PAREN)
-                        && relationship_pattern_follows(lx.clone());
+                        && relationship_pattern_follows(p, &lx);
                 }
                 _ => {}
             }
         } else if tok.kind == SyntaxKind::L_PAREN {
             // `[(a)-->(b) | …]` rather than a list starting with a
             // parenthesised expression such as `[(1 + 2) * 3]`.
-            is_pattern_comprehension = relationship_pattern_follows(lx.clone());
+            is_pattern_comprehension = relationship_pattern_follows(p, &lx);
         }
     }
 
@@ -2097,7 +2160,16 @@ fn parse_anonymous_pattern_part(p: &mut Parser) {
     p.builder.finish_node();
 }
 
+/// [`parse_pattern_element_unguarded`] within the nesting limit (see `MAX_NESTING`).
 fn parse_pattern_element(p: &mut Parser) {
+    if !p.enter() {
+        return;
+    }
+    parse_pattern_element_unguarded(p);
+    p.leave();
+}
+
+fn parse_pattern_element_unguarded(p: &mut Parser) {
     let checkpoint = p.checkpoint();
     p.start_node(SyntaxKind::PATTERN_ELEMENT);
     if p.at(SyntaxKind::L_PAREN) {
@@ -2460,7 +2532,16 @@ fn is_relationship_chain_start(p: &Parser) -> bool {
 
 // ── FOREACH clause ──────────────────────────────────────────────
 
+/// [`parse_foreach_clause_unguarded`] within the nesting limit (see `MAX_NESTING`).
 fn parse_foreach_clause(p: &mut Parser) {
+    if !p.enter() {
+        return;
+    }
+    parse_foreach_clause_unguarded(p);
+    p.leave();
+}
+
+fn parse_foreach_clause_unguarded(p: &mut Parser) {
     p.start_node(SyntaxKind::FOREACH_CLAUSE);
     p.bump(); // FOREACH
     p.skip_trivia();
@@ -2705,7 +2786,18 @@ fn parse_call_subquery(p: &mut Parser) {
     p.builder.finish_node();
 }
 
+/// [`parse_regular_query_body_unguarded`] within the nesting limit (see `MAX_NESTING`).
 fn parse_regular_query_body(p: &mut Parser) {
+    // Building a subquery level takes several times the stack of an
+    // expression level, so it counts `SUBQUERY_WEIGHT` levels.
+    if !p.enter_weighted(SUBQUERY_WEIGHT) {
+        return;
+    }
+    parse_regular_query_body_unguarded(p);
+    p.leave_weighted(SUBQUERY_WEIGHT);
+}
+
+fn parse_regular_query_body_unguarded(p: &mut Parser) {
     // RegularQuery: SingleQuery ( UNION SingleQuery )*
     parse_query_part(p);
     parse_unions(p, parse_query_part);

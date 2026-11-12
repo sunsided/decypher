@@ -1099,6 +1099,8 @@ fn build_label_expr_node(node: LabelExprNode) -> Result<ast_c::LabelExpression> 
     let sp = span_of(node.syntax());
     match node {
         LabelExprNode::Or(or) => {
+            // `A|B|…|Z` folds into a chain one level deeper per operand.
+            let _chain = charge_depth(or.items().count().saturating_sub(1), sp)?;
             let mut items = or.items();
             let lhs = items
                 .next()
@@ -1123,6 +1125,8 @@ fn build_label_expr_node(node: LabelExprNode) -> Result<ast_c::LabelExpression> 
             Ok(acc)
         }
         LabelExprNode::And(and) => {
+            // `A|B|…|Z` folds into a chain one level deeper per operand.
+            let _chain = charge_depth(and.items().count().saturating_sub(1), sp)?;
             let mut items = and.items();
             let lhs = items
                 .next()
@@ -1310,10 +1314,57 @@ fn build_properties(p: Properties) -> Result<ast_c::Properties> {
 
 // ── Expressions ──────────────────────────────────────────────────────
 
+/// How deeply the AST builder nests expressions. The parser bounds nested
+/// brackets, but operator chains (`1 + 1 + … + 1`, `a.b.c…`, `l[0][0]…`)
+/// and label alternatives (`:A|B|…`) nest in the AST without nesting in the
+/// parser, and building, analysing, printing and dropping the AST all
+/// recurse once per level.
+pub(crate) const MAX_EXPRESSION_DEPTH: usize = 256;
+
+thread_local! {
+    static EXPRESSION_DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Levels charged against [`MAX_EXPRESSION_DEPTH`], released on drop however
+/// the build returns.
+struct DepthCharge(usize);
+
+impl Drop for DepthCharge {
+    fn drop(&mut self) {
+        EXPRESSION_DEPTH.with(|d| d.set(d.get() - self.0));
+    }
+}
+
+/// Charges `levels` of AST depth for as long as the returned guard lives,
+/// or reports [`ErrorKind::NestingTooDeep`] at `span` past the limit.
+fn charge_depth(levels: usize, span: Span) -> Result<DepthCharge> {
+    let depth = EXPRESSION_DEPTH.with(|d| {
+        d.set(d.get() + levels);
+        d.get()
+    });
+    let charge = DepthCharge(levels);
+    if depth > MAX_EXPRESSION_DEPTH {
+        return Err(CypherError {
+            kind: ErrorKind::NestingTooDeep {
+                limit: MAX_EXPRESSION_DEPTH,
+            },
+            span,
+            source_label: None,
+            notes: Vec::new(),
+            source: None,
+        });
+    }
+    Ok(charge)
+}
+
 fn build_expression(e: Expression) -> Result<ast_c::Expression> {
+    let _level = charge_depth(1, span_of(e.syntax()))?;
     match e {
         Expression::BinaryExpr(b) => build_binary_expr(b),
         Expression::UnaryExpr(u) => build_unary_expr(u),
+        // Nested parentheses recurse here directly rather than through the
+        // large `build_atom` frame.
+        Expression::Atom(Atom::Parenthesized(pe)) => build_parenthesized(pe),
         Expression::Atom(a) => build_atom(a),
     }
 }
@@ -1342,6 +1393,10 @@ fn normalize_type_text(node: &rowan::SyntaxNode<crate::syntax::CypherLang>) -> S
     out
 }
 
+/// Builds the left operand, then the operator in [`finish_binary_expr`]:
+/// operator chains (`1 + 1 + …`) recurse through the left operand, and
+/// keeping that recursion out of the large operator match keeps each level's
+/// stack frame small (debug builds especially).
 fn build_binary_expr(b: BinaryExpr) -> Result<ast_c::Expression> {
     let sp = span_of(b.syntax());
     let lhs = b
@@ -1352,7 +1407,15 @@ fn build_binary_expr(b: BinaryExpr) -> Result<ast_c::Expression> {
     // The CST node holds only `op rhs` (the left operand is its preceding
     // sibling); the expression spans from its left operand on.
     let sp = Span::new(lhs.span().start.min(sp.start), sp.end);
+    finish_binary_expr(b, lhs, sp)
+}
 
+#[inline(never)]
+fn finish_binary_expr(
+    b: BinaryExpr,
+    lhs: ast_c::Expression,
+    sp: Span,
+) -> Result<ast_c::Expression> {
     match b.op_kind() {
         Some(BinOp::IsNull) => Ok(ast_c::Expression::IsNull {
             operand: Box::new(lhs),
@@ -1684,17 +1747,7 @@ fn build_atom(a: Atom) -> Result<ast_c::Expression> {
         Atom::MapLiteral(ml) => build_map_literal(ml),
         Atom::ListComprehension(lc) => build_list_comprehension(lc),
         Atom::PatternComprehension(pc) => build_pattern_comprehension(pc),
-        Atom::RelationshipsPattern(rp) => {
-            let sp = span_of(rp.syntax());
-            let start = rp
-                .node_pattern()
-                .ok_or_else(|| internal("missing node pattern", sp))?;
-            Ok(ast_c::Expression::Pattern(build_relationships_pattern(
-                start,
-                rp.chains(),
-                sp,
-            )?))
-        }
+        Atom::RelationshipsPattern(rp) => build_relationships_pattern_atom(rp),
         Atom::FilterExpression(fe) => build_filter_expression(fe),
         Atom::ExistsSubquery(es) => build_exists_subquery(es),
         Atom::CountSubquery(cs) => build_count_subquery(cs),
@@ -1704,35 +1757,53 @@ fn build_atom(a: Atom) -> Result<ast_c::Expression> {
             let proc = build_procedure_invocation(ipi)?;
             Ok(ast_c::Expression::FunctionCall(proc.name))
         }
-        Atom::PropertyLookup(pl) => {
-            let sp = span_of(pl.syntax());
-            let key = pl
-                .key()
-                .ok_or_else(|| internal("missing property key", sp))?;
-            let base = pl
-                .base()
-                .and_then(|e| build_expression(e).ok())
-                .ok_or_else(|| internal("missing base in property lookup", sp))?;
-            // Like an infix node, the lookup's node holds only `.key`.
-            let own = span_of(pl.syntax());
-            let sp = Span::new(base.span().start.min(own.start), own.end);
-            Ok(ast_c::Expression::PropertyLookup {
-                base: Box::new(base),
-                property: ast_c::PropertyKeyName {
-                    name: ast_c::SymbolicName {
-                        name: symbolic_name_text(&key.symbolic_name().ok_or_else(|| {
-                            internal("missing symbolic name", span_of(key.syntax()))
-                        })?),
-                        span: span_of(key.syntax()),
-                    },
-                },
-                span: sp,
-            })
-        }
+        Atom::PropertyLookup(pl) => build_property_lookup_atom(pl),
         Atom::Null(n) => Ok(ast_c::Expression::Literal(ast_c::Literal::Null {
             span: span_of(n.syntax()),
         })),
     }
+}
+
+#[inline(never)]
+fn build_property_lookup_atom(pl: PropertyLookup) -> Result<ast_c::Expression> {
+    let sp = span_of(pl.syntax());
+    let key = pl
+        .key()
+        .ok_or_else(|| internal("missing property key", sp))?;
+    let base = pl
+        .base()
+        .map(build_expression)
+        .transpose()?
+        .ok_or_else(|| internal("missing base in property lookup", sp))?;
+    // Like an infix node, the lookup's node holds only `.key`; the
+    // expression spans from its base on.
+    let sp = Span::new(base.span().start.min(sp.start), sp.end);
+    Ok(ast_c::Expression::PropertyLookup {
+        base: Box::new(base),
+        property: ast_c::PropertyKeyName {
+            name: ast_c::SymbolicName {
+                name: symbolic_name_text(
+                    &key.symbolic_name()
+                        .ok_or_else(|| internal("missing symbolic name", span_of(key.syntax())))?,
+                ),
+                span: span_of(key.syntax()),
+            },
+        },
+        span: sp,
+    })
+}
+
+#[inline(never)]
+fn build_relationships_pattern_atom(rp: RelationshipsPattern) -> Result<ast_c::Expression> {
+    let sp = span_of(rp.syntax());
+    let start = rp
+        .node_pattern()
+        .ok_or_else(|| internal("missing node pattern", sp))?;
+    Ok(ast_c::Expression::Pattern(build_relationships_pattern(
+        start,
+        rp.chains(),
+        sp,
+    )?))
 }
 
 fn build_literal(l: Literal) -> Result<ast_c::Expression> {

@@ -8,6 +8,15 @@ are marked **Breaking** below.
 
 ## [Unreleased]
 
+### Added
+
+- `ErrorKind::NestingTooDeep { limit }`: input nested deeper than the parser
+  accepts. Brackets, function calls, `NOT`, patterns and list comprehensions
+  nest at most 127 levels (`FOREACH` 126), `CALL { … }` subqueries 15,
+  `EXISTS { … }` 14 and label expressions 30; operator chains such as
+  `1 + 1 + …` or `a.b.c…` hold at most 255 operators and label alternatives
+  such as `:A|B|…` or `[:A|B|…]` 256.
+
 ### Changed
 
 - **Breaking:** every expression has a span covering all of it.
@@ -31,6 +40,18 @@ are marked **Breaking** below.
   vendored projection labels them `accept`, which made decypher's correct
   `InvalidNumber` errors show up as known failures. The known-failures list
   is now empty.
+- Deeply nested input crashed the process with a stack overflow, which a
+  library cannot catch: 10 000 nested parentheses (20 KB) were enough, and
+  every recursive construct was affected, as were long operator chains and
+  wide label alternatives. The parser now stops descending at the nesting
+  limit and reports `NestingTooDeep` (the CST still reproduces the input, the
+  rest kept in an error node), and the AST builder bounds expression depth the
+  same way. The builder also keeps less stack per level, so parsing and
+  analysing anything within the limits fits a 2 MB thread stack in debug
+  builds.
+- Parsing was quadratic in how deeply parentheses nest: deciding whether
+  `(` starts a pattern (`(a)-->(b)`) scanned to its matching `)` every time.
+  The parser now decides this for all parentheses in one pass.
 
 ## [0.2.0-alpha.10] - 2026-11-12
 

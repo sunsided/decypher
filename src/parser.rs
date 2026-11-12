@@ -63,7 +63,23 @@ pub(crate) struct Parser<'a> {
     errors: Vec<CypherError>,
     /// The byte offset of the current token within `input`.
     byte_pos: usize,
+    /// For each `(`, keyed by the byte offset just after it: whether a
+    /// relationship follows its matching `)`. Built on first use in one pass,
+    /// so deciding this at every `(` stays linear in nested input.
+    pattern_follows: std::cell::OnceCell<std::collections::HashMap<usize, bool>>,
+    /// Current nesting depth of recursive grammar rules (see [`MAX_NESTING`]).
+    depth: usize,
+    /// The real current token and lexer while parsing is halted for nesting
+    /// too deeply: the parser then sees end of input (an empty lexer included,
+    /// so lookaheads agree) and every rule unwinds.
+    halted: Option<(SyntaxKind, usize, lexer::Lexer<'a>)>,
 }
+
+/// How deeply recursive grammar rules (expressions and the subqueries,
+/// patterns and label expressions inside them) may nest. The parser and the
+/// AST builder recurse once per level, so unbounded input could overflow the
+/// stack, which aborts the process rather than returning an error.
+pub(crate) const MAX_NESTING: usize = 128;
 
 impl<'a> Parser<'a> {
     pub(crate) fn new(input: &'a str) -> Self {
@@ -81,7 +97,68 @@ impl<'a> Parser<'a> {
             current_len,
             errors: Vec::new(),
             byte_pos: 0,
+            pattern_follows: std::cell::OnceCell::new(),
+            depth: 0,
+            halted: None,
         }
+    }
+
+    /// Enters one level of a recursive rule. Past [`MAX_NESTING`] this
+    /// reports [`ErrorKind::NestingTooDeep`] and halts the parser, and the
+    /// caller must not descend; otherwise it must call [`Self::leave`].
+    #[must_use = "descend only when `enter` returns true, then call `leave`"]
+    pub(crate) fn enter(&mut self) -> bool {
+        self.enter_weighted(1)
+    }
+
+    /// [`Self::enter`] for a rule that uses `weight` times the stack of an
+    /// expression level downstream (a subquery body is lowered into a context
+    /// of its own); leave it with [`Self::leave_weighted`].
+    #[must_use = "descend only when `enter_weighted` returns true, then call `leave_weighted`"]
+    pub(crate) fn enter_weighted(&mut self, weight: usize) -> bool {
+        if self.halted.is_some() {
+            return false;
+        }
+        if self.depth + weight > MAX_NESTING {
+            let start = self.byte_pos;
+            self.errors.push(CypherError {
+                kind: ErrorKind::NestingTooDeep { limit: MAX_NESTING },
+                span: Span::new(start, start + self.current_len),
+                source_label: None,
+                notes: Vec::new(),
+                source: None,
+            });
+            let lexer = std::mem::replace(&mut self.lexer, lexer::Lexer::new(""));
+            self.halted = Some((self.current_kind, self.current_len, lexer));
+            self.current_kind = SyntaxKind::ERROR;
+            self.current_len = 0;
+            return false;
+        }
+        self.depth += weight;
+        true
+    }
+
+    /// Leaves a level entered with [`Self::enter`].
+    pub(crate) fn leave(&mut self) {
+        self.leave_weighted(1);
+    }
+
+    /// Leaves a level entered with [`Self::enter_weighted`].
+    pub(crate) fn leave_weighted(&mut self, weight: usize) {
+        // An unpaired leave is a bug; saturate so a release build cannot wrap
+        // `depth` and then report every later level as too deep.
+        debug_assert!(self.depth >= weight, "leave without matching enter");
+        self.depth = self.depth.saturating_sub(weight);
+    }
+
+    /// Whether a relationship pattern follows the `(` that ends at byte
+    /// `offset` (`(a)-->(b)` rather than a parenthesised expression).
+    pub(crate) fn relationship_pattern_follows_at(&self, offset: usize) -> bool {
+        self.pattern_follows
+            .get_or_init(|| grammar::expr::relationship_pattern_table(self.input))
+            .get(&offset)
+            .copied()
+            .unwrap_or(false)
     }
 
     /// Parse the root node (`SOURCE_FILE`) of the grammar.
@@ -163,6 +240,20 @@ impl<'a> Parser<'a> {
                 break;
             }
             self.skip_trivia();
+        }
+
+        // After a nesting error, keep the unparsed rest in the tree so it
+        // still reproduces the input.
+        if let Some((kind, len, lexer)) = self.halted.take() {
+            self.current_kind = kind;
+            self.current_len = len;
+            self.lexer = lexer;
+            self.builder
+                .start_node(CypherLang::kind_to_raw(SyntaxKind::ERROR));
+            while self.current_len > 0 {
+                self.bump();
+            }
+            self.builder.finish_node();
         }
 
         self.builder.finish_node();
@@ -347,6 +438,11 @@ impl<'a> Parser<'a> {
     ///
     /// The `expected` tokens are sorted and deduplicated before being stored.
     pub(crate) fn error_here_with_notes(&mut self, expected: &[Expected], notes: Vec<Note>) {
+        // Rules unwinding after a nesting error would each report the fake end
+        // of input.
+        if self.halted.is_some() {
+            return;
+        }
         let start = self.byte_pos;
         let end = start + self.current_len;
         let span = Span::new(start, end);
