@@ -161,9 +161,9 @@ Deno) at the web build.
 The tarball is self-contained, so you can hand it to anyone:
 
 ```sh
-npm install ./sunsided-decypher-0.2.0-alpha.9.tgz
+npm install ./sunsided-decypher-0.2.0-alpha.10.tgz
 # or reference it from package.json:
-#   "dependencies": { "@sunsided/decypher": "file:../path/to/sunsided-decypher-0.2.0-alpha.9.tgz" }
+#   "dependencies": { "@sunsided/decypher": "file:../path/to/sunsided-decypher-0.2.0-alpha.10.tgz" }
 ```
 
 While working on the bindings themselves, depend on the build directory
