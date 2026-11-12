@@ -287,6 +287,12 @@ pub enum ErrorKind {
     InvalidNumber { raw: String, reason: NumberReason },
     /// The input was empty.
     EmptyInput,
+    /// Expressions or clauses are nested deeper than the parser accepts, which
+    /// guards against stack overflows on adversarial input.
+    NestingTooDeep {
+        /// The maximum nesting depth.
+        limit: usize,
+    },
     /// A required clause was missing after another clause.
     MissingClause {
         clause: &'static str,
@@ -401,6 +407,9 @@ impl fmt::Display for ErrorKind {
                 write!(f, "invalid number `{}`: {}", raw, reason)
             }
             ErrorKind::EmptyInput => write!(f, "empty input"),
+            ErrorKind::NestingTooDeep { limit } => {
+                write!(f, "nested too deeply (more than {limit} levels)")
+            }
             ErrorKind::MissingClause { clause, after } => {
                 write!(f, "expected {} after `{}`", clause, after)
             }
