@@ -82,6 +82,7 @@ fn deep_nesting_is_an_error_not_a_stack_overflow() {
             "{what}: {}",
             err.kind
         );
+        #[cfg(feature = "hir")]
         assert!(decypher::analyze(query.as_str()).is_err(), "{what}");
 
         // The CST stays lossless: after a nesting error the unparsed rest is
@@ -116,6 +117,7 @@ fn deepest_accepted_input_fits_the_default_stack() {
         let deepest = query(lo);
         let ast = decypher::parse(deepest.as_str()).unwrap_or_else(|e| panic!("{what}: {e}"));
         let _ = decypher::ast::ToCypher::to_cypher(&ast);
+        #[cfg(feature = "hir")]
         let _ = decypher::analyze(deepest.as_str());
     }
 }
