@@ -38,8 +38,36 @@ mod ast_c {
 
 // ── Shared helpers ───────────────────────────────────────────────────
 
+/// The span from `node`'s first to its last token that is not whitespace or
+/// a comment: the parser keeps trivia inside nodes (`NOT x\n` ends in the
+/// newline), which must not widen the span of the construct.
 fn span_of(node: &rowan::SyntaxNode<crate::syntax::CypherLang>) -> Span {
-    let r = node.text_range();
+    // Step inward from the edge tokens instead of scanning the subtree, so
+    // the cost is the edge trivia only, not the size of the node.
+    let range = node.text_range();
+    let content = |token: &rowan::SyntaxToken<crate::syntax::CypherLang>| {
+        !matches!(token.kind(), SyntaxKind::WHITESPACE | SyntaxKind::COMMENT)
+    };
+    let inside = |token: &rowan::SyntaxToken<crate::syntax::CypherLang>| {
+        range.contains_range(token.text_range())
+    };
+    let first = std::iter::successors(node.first_token(), |t| t.next_token())
+        .take_while(inside)
+        .find(content);
+    let last = std::iter::successors(node.last_token(), |t| t.prev_token())
+        .take_while(inside)
+        .find(content);
+    match (first, last) {
+        (Some(first), Some(last)) => Span::new(
+            first.text_range().start().into(),
+            last.text_range().end().into(),
+        ),
+        _ => Span::new(range.start().into(), range.end().into()),
+    }
+}
+
+fn token_span(token: &rowan::SyntaxToken<crate::syntax::CypherLang>) -> Span {
+    let r = token.text_range();
     Span::new(r.start().into(), r.end().into())
 }
 
@@ -768,32 +796,32 @@ fn build_projection_item(item: ProjectionItem) -> Result<ast_c::ProjectionItem> 
     let sp = span_of(item.syntax());
     let expr = if let Some(e) = item.expr() {
         build_expression(e)?
-    } else if item.syntax().children_with_tokens().any(|t| {
-        t.as_token()
-            .is_some_and(|t| t.kind() == SyntaxKind::NULL_KW)
-    }) {
-        ast_c::Expression::Literal(ast_c::Literal::Null)
     } else {
-        let int_text = item.syntax().children_with_tokens().find_map(|t| {
-            t.as_token()
-                .filter(|t| t.kind() == SyntaxKind::INTEGER)
-                .map(|t| t.text().to_string())
-        });
-        if let Some(text) = int_text {
-            let val = parse_integer(&text).ok_or_else(|| internal("invalid integer", sp))?;
-            ast_c::Expression::Literal(ast_c::Literal::Number(ast_c::NumberLiteral::Integer(val)))
+        // A bare literal token directly under the item.
+        let token = |kind: SyntaxKind| {
+            item.syntax()
+                .children_with_tokens()
+                .filter_map(|t| t.into_token())
+                .find(|t| t.kind() == kind)
+        };
+        if let Some(t) = token(SyntaxKind::NULL_KW) {
+            ast_c::Expression::Literal(ast_c::Literal::Null {
+                span: token_span(&t),
+            })
+        } else if let Some(t) = token(SyntaxKind::INTEGER) {
+            let val = parse_integer(t.text()).ok_or_else(|| internal("invalid integer", sp))?;
+            ast_c::Expression::Literal(ast_c::Literal::Number {
+                value: ast_c::NumberLiteral::Integer(val),
+                span: token_span(&t),
+            })
+        } else if let Some(t) = token(SyntaxKind::FLOAT) {
+            let val = parse_double(t.text()).ok_or_else(|| internal("invalid float", sp))?;
+            ast_c::Expression::Literal(ast_c::Literal::Number {
+                value: ast_c::NumberLiteral::Float(val),
+                span: token_span(&t),
+            })
         } else {
-            let float_text = item.syntax().children_with_tokens().find_map(|t| {
-                t.as_token()
-                    .filter(|t| t.kind() == SyntaxKind::FLOAT)
-                    .map(|t| t.text().to_string())
-            });
-            if let Some(text) = float_text {
-                let val = parse_double(&text).ok_or_else(|| internal("invalid float", sp))?;
-                ast_c::Expression::Literal(ast_c::Literal::Number(ast_c::NumberLiteral::Float(val)))
-            } else {
-                return Err(internal("missing expr in projection item", sp));
-            }
+            return Err(internal("missing expr in projection item", sp));
         }
     };
     let alias = item.as_name().map(build_top_variable);
@@ -1029,9 +1057,10 @@ fn build_quantifier(rq: RelationshipQuantifier) -> Result<ast_c::Quantifier> {
     let nums: Result<Vec<i64>> = rq
         .numbers()
         .map(|lit| match build_literal(lit)? {
-            ast_c::Expression::Literal(ast_c::Literal::Number(ast_c::NumberLiteral::Integer(
-                i,
-            ))) => Ok(i),
+            ast_c::Expression::Literal(ast_c::Literal::Number {
+                value: ast_c::NumberLiteral::Integer(i),
+                ..
+            }) => Ok(i),
             _ => Err(internal("expected integer quantifier bound", sp)),
         })
         .collect();
@@ -1360,6 +1389,9 @@ fn build_binary_expr(b: BinaryExpr) -> Result<ast_c::Expression> {
         .map(build_expression)
         .transpose()?
         .ok_or_else(|| internal("missing lhs", sp))?;
+    // The CST node holds only `op rhs` (the left operand is its preceding
+    // sibling); the expression spans from its left operand on.
+    let sp = Span::new(lhs.span().start.min(sp.start), sp.end);
     finish_binary_expr(b, lhs, sp)
 }
 
@@ -1658,9 +1690,10 @@ fn build_unary_expr(u: UnaryExpr) -> Result<ast_c::Expression> {
         && tok.kind() == SyntaxKind::INTEGER
         && parse_integer_magnitude(tok.text()) == Ok(1 << 63)
     {
-        return Ok(ast_c::Expression::Literal(ast_c::Literal::Number(
-            ast_c::NumberLiteral::Integer(i64::MIN),
-        )));
+        return Ok(ast_c::Expression::Literal(ast_c::Literal::Number {
+            value: ast_c::NumberLiteral::Integer(i64::MIN),
+            span: span_of(u.syntax()),
+        }));
     }
     let operand = u
         .operand()
@@ -1710,7 +1743,9 @@ fn build_atom(a: Atom) -> Result<ast_c::Expression> {
             Ok(ast_c::Expression::FunctionCall(proc.name))
         }
         Atom::PropertyLookup(pl) => build_property_lookup_atom(pl),
-        Atom::Null(_n) => Ok(ast_c::Expression::Literal(ast_c::Literal::Null)),
+        Atom::Null(n) => Ok(ast_c::Expression::Literal(ast_c::Literal::Null {
+            span: span_of(n.syntax()),
+        })),
     }
 }
 
@@ -1725,6 +1760,9 @@ fn build_property_lookup_atom(pl: PropertyLookup) -> Result<ast_c::Expression> {
         .map(build_expression)
         .transpose()?
         .ok_or_else(|| internal("missing base in property lookup", sp))?;
+    // Like an infix node, the lookup's node holds only `.key`; the
+    // expression spans from its base on.
+    let sp = Span::new(base.span().start.min(sp.start), sp.end);
     Ok(ast_c::Expression::PropertyLookup {
         base: Box::new(base),
         property: ast_c::PropertyKeyName {
@@ -1756,17 +1794,24 @@ fn build_relationships_pattern_atom(rp: RelationshipsPattern) -> Result<ast_c::E
 fn build_literal(l: Literal) -> Result<ast_c::Expression> {
     match l {
         Literal::Number(n) => {
-            let num = build_number_literal(n)?;
-            Ok(ast_c::Expression::Literal(ast_c::Literal::Number(num)))
+            let span = span_of(n.syntax());
+            let value = build_number_literal(n)?;
+            Ok(ast_c::Expression::Literal(ast_c::Literal::Number {
+                value,
+                span,
+            }))
         }
         Literal::String(s) => {
             let sl = build_string_literal(s)?;
             Ok(ast_c::Expression::Literal(ast_c::Literal::String(sl)))
         }
-        Literal::Boolean(b) => Ok(ast_c::Expression::Literal(ast_c::Literal::Boolean(
-            b.value(),
-        ))),
-        Literal::Null(_n) => Ok(ast_c::Expression::Literal(ast_c::Literal::Null)),
+        Literal::Boolean(b) => Ok(ast_c::Expression::Literal(ast_c::Literal::Boolean {
+            value: b.value(),
+            span: span_of(b.syntax()),
+        })),
+        Literal::Null(n) => Ok(ast_c::Expression::Literal(ast_c::Literal::Null {
+            span: span_of(n.syntax()),
+        })),
     }
 }
 
@@ -1912,7 +1957,10 @@ fn build_parenthesized(pe: ParenthesizedExpr) -> Result<ast_c::Expression> {
         .map(build_expression)
         .transpose()?
         .ok_or_else(|| internal("missing expr in parens", span_of(pe.syntax())))?;
-    Ok(ast_c::Expression::Parenthesized(Box::new(inner)))
+    Ok(ast_c::Expression::Parenthesized {
+        expression: Box::new(inner),
+        span: span_of(pe.syntax()),
+    })
 }
 
 fn build_case(c: CaseExpr) -> Result<ast_c::Expression> {
@@ -2672,7 +2720,10 @@ fn build_in_transactions(it: InTransactions) -> Result<ast_c::InTransactions> {
     let of_rows = it.rows_expr().and_then(|n| {
         let text = n.token().map(|t| t.text().to_string());
         text.and_then(|t| parse_integer(&t)).map(|v| {
-            ast_c::Expression::Literal(ast_c::Literal::Number(ast_c::NumberLiteral::Integer(v)))
+            ast_c::Expression::Literal(ast_c::Literal::Number {
+                value: ast_c::NumberLiteral::Integer(v),
+                span: span_of(n.syntax()),
+            })
         })
     });
     let on_error = it.on_error_action().and_then(|tok| match tok.kind() {

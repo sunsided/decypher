@@ -444,7 +444,7 @@ impl<'ast> Visit<'ast> for StructureChecker<'_> {
                 op: UnaryOperator::Not,
                 ..
             }
-            | Expression::Parenthesized(_) => outer,
+            | Expression::Parenthesized { .. } => outer,
             Expression::FunctionCall(call) => {
                 matches!(call.name.as_slice(), [name] if name.name.eq_ignore_ascii_case("exists"))
             }
@@ -563,8 +563,10 @@ fn references_variable(expr: &Expression) -> bool {
 /// The value of a numeric literal, negated or not.
 fn literal_number(expr: &Expression) -> Option<NumberLiteral> {
     match expr {
-        Expression::Literal(Literal::Number(n)) => Some(n.clone()),
-        Expression::Parenthesized(inner) => literal_number(inner),
+        Expression::Literal(Literal::Number { value: n, .. }) => Some(n.clone()),
+        Expression::Parenthesized {
+            expression: inner, ..
+        } => literal_number(inner),
         Expression::UnaryOp {
             op: UnaryOperator::Negate,
             operand,

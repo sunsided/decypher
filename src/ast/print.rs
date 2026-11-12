@@ -912,7 +912,9 @@ impl ToCypher for Expression {
                 write!(w, ")")
             }
             Expression::Reduce(r) => r.write_cypher(w),
-            Expression::Parenthesized(inner) => {
+            Expression::Parenthesized {
+                expression: inner, ..
+            } => {
                 write!(w, "(")?;
                 inner.write_cypher(w)?;
                 write!(w, ")")
@@ -929,10 +931,10 @@ impl ToCypher for Expression {
 impl ToCypher for Literal {
     fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
         match self {
-            Literal::Number(n) => n.write_cypher(w),
+            Literal::Number { value: n, .. } => n.write_cypher(w),
             Literal::String(s) => s.write_cypher(w),
-            Literal::Boolean(b) => write!(w, "{}", if *b { "true" } else { "false" }),
-            Literal::Null => write!(w, "NULL"),
+            Literal::Boolean { value: b, .. } => write!(w, "{}", if *b { "true" } else { "false" }),
+            Literal::Null { .. } => write!(w, "NULL"),
             Literal::List(l) => l.write_cypher(w),
             Literal::Map(m) => m.write_cypher(w),
         }
@@ -1447,10 +1449,7 @@ fn is_safe_bare_identifier(name: &str) -> bool {
             | "START"
             | "CALL"
     );
-    if is_keyword {
-        return false;
-    }
-    true
+    !is_keyword
 }
 
 fn is_valid_identifier(name: &str) -> bool {

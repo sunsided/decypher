@@ -16,8 +16,29 @@ are marked **Breaking** below.
   subqueries 16 and label expressions 32; operator chains such as
   `1 + 1 + …`, `a.b.c…` or `l[0][0]…` at most 256 levels.
 
+### Changed
+
+- **Breaking:** every expression has a span covering all of it.
+  `Literal::Number`, `Literal::Boolean` and `Literal::Null` are struct
+  variants with a `span` (`Number { value, span }`, `Boolean { value, span }`,
+  `Null { span }`), and `Expression::Parenthesized` is
+  `Parenthesized { expression, span }` with the span including the
+  parentheses; before, all of these reported `0..0`.
+- **Breaking:** infix and postfix expressions span from their left operand
+  on: `a.b + 1` covers all of `a.b + 1`, not just `+ 1`, and `n.name` covers
+  `n.name`, not `.name`. Diagnostics that point at such expressions now start
+  at the expression.
+- **Breaking:** no AST span starts or ends in whitespace or a comment;
+  before, nodes such as `NOT x` followed by a line break included it.
+- `Expression::span()` is public.
+
 ### Fixed
 
+- The TCK test treats the number literals the TCK expects to overflow at
+  compile time (`9223372036854775808`, `1.34E999`, …) as rejections; the
+  vendored projection labels them `accept`, which made decypher's correct
+  `InvalidNumber` errors show up as known failures. The known-failures list
+  is now empty.
 - Deeply nested input crashed the process with a stack overflow, which a
   library cannot catch: 10 000 nested parentheses (20 KB) were enough, and
   every recursive construct was affected, as were long operator chains. The

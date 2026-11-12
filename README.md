@@ -34,7 +34,7 @@ println!("{:#?}", query);
 - **Typed AST** — Every Cypher construct maps to a Rust enum or struct with full type safety.
 - **Source spans** — Every AST node carries a `Span { start, end }` (byte offsets into the input) for diagnostics.
 - **Bounded nesting** — Untrusted input cannot overflow the stack: brackets, subqueries and label expressions nest at most 128 levels (subquery and label levels count more), operator chains such as `a + b + …` at most 256, and anything deeper is rejected with `ErrorKind::NestingTooDeep`. Within these limits parsing and analysis fit a 2 MB thread stack even in debug builds.
-- **Ergonomic errors** — `CypherError` with syntax, AST build, and unsupported-production variants via `thiserror`.
+- **Ergonomic errors** — `CypherError` with syntax, AST build, and unsupported-production variants; it implements `std::error::Error`.
 - **Cypher emission** — The `ToCypher` trait renders any AST node back into valid openCypher text, enabling round-trips (`parse → ast → to_cypher → parse`).
 - **`serde` support** — Optional `serde` feature for `Serialize` derives on all AST nodes and spans.
 - **Typed CST (unstable)** — A rust-analyzer-style typed wrapper layer over a lossless rowan CST, available under `decypher::cst`. Each CST node (`SourceFile`, `MatchClause`, `Expression`, …) exposes typed accessor methods instead of raw `SyntaxKind` matches. This is what the public `parse()` function uses internally.

@@ -7,7 +7,6 @@ authors = ["Markus Mayer <widemeadows@gmail.com>", "Austin Poor <code@austinpoor
 description = "A rust library for parsing openCypher queries."
 documentation = "https://docs.rs/decypher"
 readme = "README.md"
-homepage = "https://github.com/sunsided/decypher"
 repository = "https://github.com/sunsided/decypher"
 license = "EUPL-1.2 OR MIT OR Apache-2.0"
 keywords = ["sql", "cypher", "graph", "parser", "opencypher"]
@@ -23,7 +22,6 @@ default-members = ["."]
 exclude = ["fuzz"]
 
 [dependencies]
-thiserror = "2"
 serde = { version = "1", optional = true, features = ["derive"] }
 ryu = "1"
 miette = { version = "7", optional = true }

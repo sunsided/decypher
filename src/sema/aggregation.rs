@@ -245,7 +245,10 @@ fn ungrouped_references(
 }
 
 fn unparenthesized(mut expr: &Expression) -> &Expression {
-    while let Expression::Parenthesized(inner) = expr {
+    while let Expression::Parenthesized {
+        expression: inner, ..
+    } = expr
+    {
         expr = inner;
     }
     expr

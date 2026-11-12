@@ -14,13 +14,26 @@ use crate::error::Span;
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum Literal {
     /// Integer or float numeric literal.
-    Number(NumberLiteral),
+    Number {
+        /// The value.
+        value: NumberLiteral,
+        /// Byte-offset span of the literal.
+        span: Span,
+    },
     /// A string literal.
     String(StringLiteral),
     /// `true` or `false`.
-    Boolean(bool),
+    Boolean {
+        /// The value.
+        value: bool,
+        /// Byte-offset span of the keyword.
+        span: Span,
+    },
     /// The `null` literal.
-    Null,
+    Null {
+        /// Byte-offset span of the keyword.
+        span: Span,
+    },
     /// `[e1, e2, …]` list literal.
     List(ListLiteral),
     /// `{key: value, …}` map literal.
@@ -232,7 +245,12 @@ pub enum Expression {
     /// `reduce(accumulator = init, variable IN list | expression)`
     Reduce(Box<ReduceExpression>),
     /// A parenthesized expression `(expr)`.
-    Parenthesized(Box<Expression>),
+    Parenthesized {
+        /// The expression inside the parentheses.
+        expression: Box<Expression>,
+        /// Byte-offset span including the parentheses.
+        span: Span,
+    },
     /// A relationships pattern used as an expression (e.g. inside `EXISTS`).
     Pattern(super::pattern::RelationshipsPattern),
     /// `EXISTS { … }` subquery expression.
@@ -532,18 +550,16 @@ pub enum MapProjectionItem {
 }
 
 impl Expression {
-    /// The byte-offset span of this expression, or an empty span for
-    /// expressions that don't record one.
-    pub(crate) fn span(&self) -> Span {
+    /// The byte-offset span of the whole expression, from its first to its
+    /// last token (`a.b + 1` covers all of it, `(x)` includes the
+    /// parentheses).
+    pub fn span(&self) -> Span {
         match self {
             Expression::Literal(lit) => match lit {
-                Literal::Number(n) => match n {
-                    NumberLiteral::Integer(_) => Span::new(0, 0),
-                    NumberLiteral::Float(_) => Span::new(0, 0),
-                },
+                Literal::Number { span, .. }
+                | Literal::Boolean { span, .. }
+                | Literal::Null { span } => *span,
                 Literal::String(s) => s.span,
-                Literal::Boolean(_) => Span::new(0, 0),
-                Literal::Null => Span::new(0, 0),
                 Literal::List(l) => l.span,
                 Literal::Map(m) => m.span,
             },
@@ -570,7 +586,7 @@ impl Expression {
             | Expression::None(fe)
             | Expression::Single(fe) => fe.span,
             Expression::Reduce(r) => r.span,
-            Expression::Parenthesized(_) => Span::new(0, 0),
+            Expression::Parenthesized { span, .. } => *span,
             Expression::Pattern(rp) => rp.span,
             Expression::Exists(ex) => ex.span,
             Expression::CountSubquery(c) => c.span,
