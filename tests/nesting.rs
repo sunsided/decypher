@@ -70,6 +70,19 @@ fn nested(n: usize) -> Vec<(&'static str, String)> {
             format!("WITH {{a: 1}} AS m RETURN m{}", ".a".repeat(n)),
         ),
         ("index chains", format!("RETURN [1]{}", "[0]".repeat(n))),
+        // So do label alternatives, folded into `Or` / `And` chains.
+        (
+            "label alternatives",
+            format!("MATCH (n:A{}) RETURN n", "|A".repeat(n)),
+        ),
+        (
+            "label conjunctions",
+            format!("MATCH (n:A{}) RETURN n", "&A".repeat(n)),
+        ),
+        (
+            "relationship types",
+            format!("MATCH ()-[:A{}]->() RETURN 1", "|A".repeat(n)),
+        ),
     ]
 }
 
@@ -113,7 +126,19 @@ fn deepest_accepted_input_fits_the_default_stack() {
                 hi = mid - 1;
             }
         }
-        assert!(lo >= 10, "{what}: only {lo} levels accepted");
+        // Pinned so the limits documented in the README and changelog cannot
+        // drift from the code.
+        let documented = match what {
+            "CALL subqueries" => 15,
+            "EXISTS" => 14,
+            "label expressions" | "label negation" => 30,
+            "FOREACH" => 126,
+            "additions" | "property lookups" => 255,
+            "index chains" => 254,
+            "label alternatives" | "label conjunctions" | "relationship types" => 256,
+            _ => 127,
+        };
+        assert_eq!(lo, documented, "{what}: deepest accepted input");
         let deepest = query(lo);
         let ast = decypher::parse(deepest.as_str()).unwrap_or_else(|e| panic!("{what}: {e}"));
         let _ = decypher::ast::ToCypher::to_cypher(&ast);

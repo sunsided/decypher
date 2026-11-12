@@ -33,7 +33,7 @@ println!("{:#?}", query);
 
 - **Typed AST** — Every Cypher construct maps to a Rust enum or struct with full type safety.
 - **Source spans** — Every AST node carries a `Span { start, end }` (byte offsets into the input) for diagnostics.
-- **Bounded nesting** — Untrusted input cannot overflow the stack: brackets, subqueries and label expressions nest at most 128 levels (subquery and label levels count more), operator chains such as `a + b + …` at most 256, and anything deeper is rejected with `ErrorKind::NestingTooDeep`. Within these limits parsing and analysis fit a 2 MB thread stack even in debug builds.
+- **Bounded nesting** — Untrusted input cannot overflow the stack. Brackets, function calls, `NOT`, patterns and list comprehensions nest at most 127 levels, `CALL { … }` subqueries 15, `EXISTS { … }` 14 and label expressions 30; operator chains such as `a + b + …` hold at most 255 operators and label alternatives such as `:A|B|…` 256. Anything deeper is rejected with `ErrorKind::NestingTooDeep`. Within these limits parsing and analysis fit a 2 MB thread stack even in debug builds.
 - **Ergonomic errors** — `CypherError` with syntax, AST build, and unsupported-production variants; it implements `std::error::Error`.
 - **Cypher emission** — The `ToCypher` trait renders any AST node back into valid openCypher text, enabling round-trips (`parse → ast → to_cypher → parse`).
 - **`serde` support** — Optional `serde` feature for `Serialize` derives on all AST nodes and spans.

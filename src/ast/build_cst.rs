@@ -1099,6 +1099,8 @@ fn build_label_expr_node(node: LabelExprNode) -> Result<ast_c::LabelExpression> 
     let sp = span_of(node.syntax());
     match node {
         LabelExprNode::Or(or) => {
+            // `A|B|…|Z` folds into a chain one level deeper per operand.
+            let _chain = charge_depth(or.items().count().saturating_sub(1), sp)?;
             let mut items = or.items();
             let lhs = items
                 .next()
@@ -1123,6 +1125,8 @@ fn build_label_expr_node(node: LabelExprNode) -> Result<ast_c::LabelExpression> 
             Ok(acc)
         }
         LabelExprNode::And(and) => {
+            // `A|B|…|Z` folds into a chain one level deeper per operand.
+            let _chain = charge_depth(and.items().count().saturating_sub(1), sp)?;
             let mut items = and.items();
             let lhs = items
                 .next()
@@ -1312,38 +1316,49 @@ fn build_properties(p: Properties) -> Result<ast_c::Properties> {
 
 /// How deeply the AST builder nests expressions. The parser bounds nested
 /// brackets, but operator chains (`1 + 1 + … + 1`, `a.b.c…`, `l[0][0]…`)
-/// nest in the AST without nesting in the parser, and building, analysing,
-/// printing and dropping the AST all recurse once per level.
+/// and label alternatives (`:A|B|…`) nest in the AST without nesting in the
+/// parser, and building, analysing, printing and dropping the AST all
+/// recurse once per level.
 pub(crate) const MAX_EXPRESSION_DEPTH: usize = 256;
 
 thread_local! {
     static EXPRESSION_DEPTH: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-fn build_expression(e: Expression) -> Result<ast_c::Expression> {
-    /// Leaves one level of [`EXPRESSION_DEPTH`] however the build returns.
-    struct Level;
-    impl Drop for Level {
-        fn drop(&mut self) {
-            EXPRESSION_DEPTH.with(|d| d.set(d.get() - 1));
-        }
+/// Levels charged against [`MAX_EXPRESSION_DEPTH`], released on drop however
+/// the build returns.
+struct DepthCharge(usize);
+
+impl Drop for DepthCharge {
+    fn drop(&mut self) {
+        EXPRESSION_DEPTH.with(|d| d.set(d.get() - self.0));
     }
+}
+
+/// Charges `levels` of AST depth for as long as the returned guard lives,
+/// or reports [`ErrorKind::NestingTooDeep`] at `span` past the limit.
+fn charge_depth(levels: usize, span: Span) -> Result<DepthCharge> {
     let depth = EXPRESSION_DEPTH.with(|d| {
-        d.set(d.get() + 1);
+        d.set(d.get() + levels);
         d.get()
     });
-    let _level = Level;
+    let charge = DepthCharge(levels);
     if depth > MAX_EXPRESSION_DEPTH {
         return Err(CypherError {
             kind: ErrorKind::NestingTooDeep {
                 limit: MAX_EXPRESSION_DEPTH,
             },
-            span: span_of(e.syntax()),
+            span,
             source_label: None,
             notes: Vec::new(),
             source: None,
         });
     }
+    Ok(charge)
+}
+
+fn build_expression(e: Expression) -> Result<ast_c::Expression> {
+    let _level = charge_depth(1, span_of(e.syntax()))?;
     match e {
         Expression::BinaryExpr(b) => build_binary_expr(b),
         Expression::UnaryExpr(u) => build_unary_expr(u),
