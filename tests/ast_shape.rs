@@ -818,7 +818,7 @@ fn chained_comparisons_are_one_comparison() {
     else {
         panic!("expected Comparison");
     };
-    check!(matches!(*lhs, Expression::Parenthesized(_)));
+    check!(matches!(*lhs, Expression::Parenthesized { .. }));
     check!(operators.len() == 1);
 
     // String predicates are not relational and do not chain.
