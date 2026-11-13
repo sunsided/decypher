@@ -1443,6 +1443,14 @@ fn is_safe_bare_identifier(name: &str) -> bool {
             | "DETACH"
             | "START"
             | "CALL"
+            // After `IS` these start `IS [NFC|…] NORMALIZED` and `IS TYPED`,
+            // so a label with one of these names must be quoted there.
+            | "NORMALIZED"
+            | "NFC"
+            | "NFD"
+            | "NFKC"
+            | "NFKD"
+            | "TYPED"
     );
     !is_keyword
 }
@@ -1804,6 +1812,11 @@ fn write_node_labels(
         }
         Ok(())
     };
+    // Not produced by the parser, but a public AST can hold it: print the
+    // base alone rather than fail.
+    if labels.is_empty() {
+        return base.write_cypher(w);
+    }
     let base_is_check = matches!(base, Expression::NodeLabels { .. });
     if !force_is && !base_is_check && binds_like_postfix(base) {
         base.write_cypher(w)?;
@@ -1836,8 +1849,9 @@ fn write_node_labels(
 /// an atom, a call, a property lookup or an index, and the postfix
 /// predicates `IS NULL`, `IS :: T` and `IS NORMALIZED`, after which the
 /// parser keeps reading postfix operators (`x IS NULL:A` checks the
-/// predicate). Not an operator expression, whose last operand would take the
-/// label, and not a negative number literal (printed with a `-`).
+/// predicate), and a relationship pattern, whose `:` chain applies to the
+/// whole pattern. Not an operator expression, whose last operand would take
+/// the label, and not a negative number literal (printed with a `-`).
 fn binds_like_postfix(expr: &Expression) -> bool {
     match expr {
         Expression::Literal(Literal::Number { value, .. }) => match value {
@@ -1848,8 +1862,7 @@ fn binds_like_postfix(expr: &Expression) -> bool {
         | Expression::UnaryOp { .. }
         | Expression::Comparison { .. }
         | Expression::In { .. }
-        | Expression::NodeLabels { .. }
-        | Expression::Pattern(_) => false,
+        | Expression::NodeLabels { .. } => false,
         _ => true,
     }
 }
