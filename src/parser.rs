@@ -341,7 +341,6 @@ impl<'a> Parser<'a> {
                 | SyntaxKind::KW_FOREACH
                 | SyntaxKind::KW_OPTIONAL
                 | SyntaxKind::KW_DETACH
-                | SyntaxKind::KW_YIELD
                 | SyntaxKind::KW_SHOW
                 | SyntaxKind::KW_USE
                 | SyntaxKind::KW_DROP

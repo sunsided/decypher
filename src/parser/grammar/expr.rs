@@ -1741,7 +1741,6 @@ fn is_clause_start_for_exists(p: &Parser) -> bool {
             | SyntaxKind::KW_FOREACH
             | SyntaxKind::KW_OPTIONAL
             | SyntaxKind::KW_DETACH
-            | SyntaxKind::KW_YIELD
             | SyntaxKind::KW_USE
     )
 }
@@ -1829,7 +1828,6 @@ pub fn parse_clause(p: &mut Parser) {
         SyntaxKind::KW_REMOVE => parse_remove_clause(p),
         SyntaxKind::KW_FOREACH => parse_foreach_clause(p),
         SyntaxKind::KW_CALL => parse_call_clause(p),
-        SyntaxKind::KW_YIELD => parse_yield_clause(p),
         SyntaxKind::KW_DROP => parse_drop_clause(p),
         SyntaxKind::KW_SHOW => parse_show_clause(p),
         SyntaxKind::KW_USE => parse_use_clause(p),
@@ -1936,8 +1934,16 @@ fn parse_merge_clause(p: &mut Parser) {
         p.start_node(SyntaxKind::MERGE_ACTION);
         p.bump();
         p.skip_trivia();
-        p.eat(SyntaxKind::KW_MATCH);
-        p.eat(SyntaxKind::KW_CREATE);
+        // `ON MATCH SET …` / `ON CREATE SET …`; both keywords are required.
+        let has_kind = p.eat(SyntaxKind::KW_MATCH) || p.eat(SyntaxKind::KW_CREATE);
+        if !has_kind {
+            p.error_here(&[
+                Expected::Keyword(Cow::Borrowed("MATCH")),
+                Expected::Keyword(Cow::Borrowed("CREATE")),
+            ]);
+            // Reported once; resume at `SET` or the next clause.
+            skip_stray_tokens(p, |p| p.at(SyntaxKind::KW_SET) || p.at(SyntaxKind::KW_ON));
+        }
         p.skip_trivia();
         if p.at(SyntaxKind::KW_SET) {
             p.bump();
@@ -1947,6 +1953,8 @@ fn parse_merge_clause(p: &mut Parser) {
                 p.skip_trivia();
                 parse_set_item(p);
             }
+        } else if has_kind {
+            p.error_here(&[Expected::Keyword(Cow::Borrowed("SET"))]);
         }
         p.builder.finish_node();
         p.skip_trivia();
@@ -2038,20 +2046,50 @@ fn parse_set_item(p: &mut Parser) {
             p.start_node(SyntaxKind::NODE_LABELS);
             p.bump();
             p.skip_trivia();
-            if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) || is_keyword_as_name(p) {
-                p.start_node(SyntaxKind::NODE_LABEL);
-                p.start_node(SyntaxKind::LABEL_NAME);
-                p.start_node(SyntaxKind::SYMBOLIC_NAME);
-                p.bump();
-                p.builder.finish_node();
-                p.builder.finish_node();
-                p.builder.finish_node();
-            }
+            parse_set_or_remove_label(p);
             p.builder.finish_node();
             p.skip_trivia();
         }
     }
     p.builder.finish_node();
+}
+
+/// Wraps tokens in an `ERROR` node, without reporting them, until `stop`
+/// holds or a clause, `;`, `}` or the end of input follows, so a malformed
+/// item is reported once instead of once per token.
+fn skip_stray_tokens(p: &mut Parser, stop: impl Fn(&Parser) -> bool) {
+    let at_boundary = |p: &Parser| {
+        p.current_len() == 0
+            || stop(p)
+            || p.at(SyntaxKind::SEMICOLON)
+            || p.at(SyntaxKind::R_BRACE)
+            || is_clause_start_for_subquery(p)
+    };
+    if at_boundary(p) {
+        return;
+    }
+    p.start_node(SyntaxKind::ERROR);
+    while !at_boundary(p) {
+        p.bump();
+        p.skip_trivia();
+    }
+    p.builder.finish_node();
+}
+
+/// The label after a `:` in `SET n:A` / `REMOVE n:A`. A missing one is
+/// reported here; skipping it silently accepted `SET n:` and printed `SET n`.
+fn parse_set_or_remove_label(p: &mut Parser) {
+    if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) || is_keyword_as_name(p) {
+        p.start_node(SyntaxKind::NODE_LABEL);
+        p.start_node(SyntaxKind::LABEL_NAME);
+        p.start_node(SyntaxKind::SYMBOLIC_NAME);
+        p.bump();
+        p.builder.finish_node();
+        p.builder.finish_node();
+        p.builder.finish_node();
+    } else {
+        p.error_here(&[Expected::Category(Cow::Borrowed("label name"))]);
+    }
 }
 
 fn parse_remove_clause(p: &mut Parser) {
@@ -2075,20 +2113,19 @@ fn parse_remove_item(p: &mut Parser) {
         p.builder.finish_node();
         p.builder.finish_node();
         p.skip_trivia();
+        // A label or property must follow: `REMOVE n` removes nothing.
+        if !p.at(SyntaxKind::COLON) && !p.at(SyntaxKind::DOT) {
+            p.error_here(&[
+                Expected::Symbol(Cow::Borrowed(":")),
+                Expected::Symbol(Cow::Borrowed(".")),
+            ]);
+        }
         // `REMOVE n:A:B` removes several labels, as `SET n:A:B` sets them.
         while p.at(SyntaxKind::COLON) {
             p.start_node(SyntaxKind::NODE_LABELS);
             p.bump();
             p.skip_trivia();
-            if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) || is_keyword_as_name(p) {
-                p.start_node(SyntaxKind::NODE_LABEL);
-                p.start_node(SyntaxKind::LABEL_NAME);
-                p.start_node(SyntaxKind::SYMBOLIC_NAME);
-                p.bump();
-                p.builder.finish_node();
-                p.builder.finish_node();
-                p.builder.finish_node();
-            }
+            parse_set_or_remove_label(p);
             p.builder.finish_node();
             p.skip_trivia();
         }
@@ -2100,6 +2137,10 @@ fn parse_remove_item(p: &mut Parser) {
             p.builder.finish_node();
             p.skip_trivia();
         }
+    } else {
+        p.error_here(&[Expected::Category(Cow::Borrowed("variable"))]);
+        // Reported once; resume at the next item or clause.
+        skip_stray_tokens(p, |p| p.at(SyntaxKind::COMMA));
     }
     p.builder.finish_node();
 }
@@ -2718,15 +2759,6 @@ fn parse_yield_item(p: &mut Parser) {
     p.builder.finish_node();
 }
 
-fn parse_yield_clause(p: &mut Parser) {
-    // Standalone YIELD (in-query call variant)
-    p.start_node(SyntaxKind::IN_QUERY_CALL);
-    p.eat(SyntaxKind::KW_YIELD);
-    p.skip_trivia();
-    parse_yield_items(p);
-    p.builder.finish_node();
-}
-
 // ── CALL SUBQUERY ───────────────────────────────────────────────
 
 fn parse_call_subquery(p: &mut Parser) {
@@ -2817,11 +2849,6 @@ fn parse_query_part(p: &mut Parser) {
         if is_clause_start_for_subquery(p) {
             parse_clause(p);
             reported = false;
-        } else if p.at(SyntaxKind::KW_YIELD) {
-            // YIELD can appear in subquery context
-            p.start_node(SyntaxKind::IN_QUERY_CALL);
-            parse_yield_items(p);
-            p.builder.finish_node();
         } else {
             skip_stray_token(p, &mut reported);
         }
@@ -2857,7 +2884,6 @@ fn is_clause_start_for_subquery(p: &Parser) -> bool {
             | SyntaxKind::KW_FOREACH
             | SyntaxKind::KW_OPTIONAL
             | SyntaxKind::KW_DETACH
-            | SyntaxKind::KW_YIELD
             | SyntaxKind::KW_USE
     )
 }

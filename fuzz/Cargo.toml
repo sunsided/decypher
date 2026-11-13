@@ -13,9 +13,12 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+serde_json = "1"
 
 [dependencies.decypher]
 path = ".."
+# fuzz_parse_roundtrip compares ASTs through their serde representation.
+features = ["serde"]
 
 [features]
 serde = ["decypher/serde"]
@@ -38,6 +41,13 @@ bench = false
 [[bin]]
 name = "fuzz_parse_hir"
 path = "fuzz_targets/fuzz_parse_hir.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_parse_roundtrip"
+path = "fuzz_targets/fuzz_parse_roundtrip.rs"
 test = false
 doc = false
 bench = false

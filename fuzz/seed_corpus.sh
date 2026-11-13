@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-TARGETS=(fuzz_parse_cst fuzz_parse_ast fuzz_parse_hir)
+TARGETS=(fuzz_parse_cst fuzz_parse_ast fuzz_parse_hir fuzz_parse_roundtrip)
 SUITES=(suite-1 suite-2 suite-3 suite-4 suite-5)
 
 for target in "${TARGETS[@]}"; do
@@ -16,7 +16,7 @@ python3 - <<'PY'
 import os
 
 project_root = os.environ["PROJECT_ROOT"]
-targets = ["fuzz_parse_cst", "fuzz_parse_ast", "fuzz_parse_hir"]
+targets = ["fuzz_parse_cst", "fuzz_parse_ast", "fuzz_parse_hir", "fuzz_parse_roundtrip"]
 suites = ["suite-1", "suite-2", "suite-3", "suite-4", "suite-5"]
 
 for target in targets:

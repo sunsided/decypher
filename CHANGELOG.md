@@ -19,6 +19,15 @@ are marked **Breaking** below.
 
 ### Changed
 
+- **Breaking:** a query or subquery that ends with `WITH`
+  (`MATCH (n) WITH n`, `EXISTS { MATCH (n)-->(m) WITH m WHERE m.x > 1 }`) is
+  a syntax error, ``expected RETURN after `WITH` ``. It used to be rebuilt
+  as if it ended with `RETURN`, which changed what the query means and
+  dropped a `WHERE` on that `WITH`.
+- **Breaking:** `YIELD` only follows `CALL` (and `SHOW`). A `YIELD` anywhere
+  else (`RETURN f() YIELD x`) was parsed as a procedure call without a
+  procedure; it is now a syntax error, and the CST no longer produces
+  `IN_QUERY_CALL` nodes for it.
 - **Breaking:** every expression has a span covering all of it.
   `Literal::Number`, `Literal::Boolean` and `Literal::Null` are struct
   variants with a `span` (`Number { value, span }`, `Boolean { value, span }`,
@@ -35,6 +44,22 @@ are marked **Breaking** below.
 
 ### Fixed
 
+- `SET n:` and `REMOVE n:` without a label were accepted and printed as
+  `SET n` / `REMOVE n`; they now report ``expected label name``.
+- `REMOVE n` without a label or property was accepted; it now reports
+  ``expected `.`, `:` ``.
+- `MERGE … ON MATCH` / `ON CREATE` without `SET` was accepted and printed as
+  `ON MATCH SET` followed by nothing, and `ON` without `MATCH` / `CREATE` was
+  accepted too; both are now syntax errors, each reported once.
+- `ToCypher` printed the GQL label predicate `x IS A` as `x:A`, which binds
+  more tightly: `-x IS A` came back as `-(x:A)`, and `n:A IS B` merged into
+  `n:A:B`. Label checks now print as `:` or `IS`, whichever parses back to
+  the same tree. Identifiers named `NORMALIZED`, `NFC`, `NFD`, `NFKC`,
+  `NFKD` or `TYPED` are printed in backticks, since after `IS` they would
+  start a normalization or type predicate.
+- `ToCypher` printed `DROP INDEX name IF EXISTS` and
+  `DROP CONSTRAINT name IF EXISTS` as `DROP INDEX IF EXISTS name`, which does
+  not parse; `IF EXISTS` now follows the name.
 - The TCK test treats the number literals the TCK expects to overflow at
   compile time (`9223372036854775808`, `1.34E999`, …) as rejections; the
   vendored projection labels them `accept`, which made decypher's correct

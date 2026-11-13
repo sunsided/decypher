@@ -585,15 +585,6 @@ fn find_standalone_call(
     None
 }
 
-fn find_in_query_call(source: &decypher::cst::SourceFile) -> Option<decypher::cst::InQueryCall> {
-    for clause in source.statements().next()?.clauses() {
-        if let decypher::cst::Clause::InQueryCall(c) = clause {
-            return Some(c);
-        }
-    }
-    None
-}
-
 fn find_call_subquery(
     source: &decypher::cst::SourceFile,
 ) -> Option<decypher::cst::CallSubqueryClause> {
@@ -733,17 +724,21 @@ fn implicit_procedure_invocation() {
     check!(implicit.procedure_name().is_some());
 }
 
-/// Verify CST shape for: in query call.
+/// Verify CST shape for: a procedure call inside a query.
 ///
 /// Unit: rowan CST typed wrappers
-/// Precondition: Valid Cypher input.
-/// Expectation: Expected CST node types are present.
+/// Precondition: `CALL … YIELD …` after `MATCH`.
+/// Expectation: it parses as a call clause with yield items; a bare `YIELD`
+/// without `CALL` is no clause at all.
 #[test]
 fn in_query_call() {
-    let result = parse("MATCH (n) YIELD foo RETURN n");
+    let result = parse("MATCH (n) CALL db.labels() YIELD label RETURN n, label");
     let source = result.tree();
-    let in_query = find_in_query_call(&source).unwrap();
-    check!(in_query.yield_items().is_some());
+    let call = find_standalone_call(&source).unwrap();
+    check!(call.yield_items().is_some());
+
+    let stray = parse("MATCH (n) YIELD foo RETURN n");
+    check!(!stray.errors.is_empty());
 }
 
 /// Verify CST shape for: call subquery with in transactions.
