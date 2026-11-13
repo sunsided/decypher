@@ -69,9 +69,14 @@ check!(cypher.contains("MATCH"));
 
 ## Stability
 
-The AST is **unstable** until 0.2.0. Grammar completeness is tracked against the openCypher EBNF. Unsupported grammar productions return `CypherError::Unsupported` rather than panicking.
+From 0.2.0 on, the public API follows semantic versioning: there are no breaking changes within 0.2.x, and the next breaking release is 0.3.0. That covers the typed AST (`decypher::ast`), `ToCypher`, the HIR (`decypher::hir`), semantic analysis (`decypher::sema`) and the error types, with these provisos:
 
-The `ToCypher` trait and round-trip guarantees are also **unstable** — formatting output may change between releases until 0.2.0.
+- **`ErrorKind` may gain variants** (it is `#[non_exhaustive]`), and error messages may be worded differently.
+- **`ToCypher` formatting may change** (whitespace, keyword case), but printing a parsed query and parsing the result always gives back the same AST; the `fuzz_parse_roundtrip` fuzz target checks this.
+- **The nesting limits** (see *Bounded nesting* above) may be raised, but not lowered.
+- **The typed CST (`decypher::cst`) stays unstable** and may change in any release.
+
+Grammar completeness is tracked against the openCypher EBNF. Unsupported grammar productions return `CypherError::Unsupported` rather than panicking.
 
 ## JavaScript / WebAssembly
 

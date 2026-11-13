@@ -33,11 +33,11 @@ using a token with the `read:packages` scope as password, or add
 `//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}` to `.npmrc`. Then:
 
 ```sh
-npm install @sunsided/decypher@alpha
+npm install @sunsided/decypher
 ```
 
-Pre-releases are published under their dist-tag (`alpha`), so name it until
-a stable version exists.
+Pre-releases are published under their own dist-tag (`alpha`) and are only
+installed when named (`@sunsided/decypher@alpha`).
 
 ## Usage
 
@@ -161,9 +161,9 @@ Deno) at the web build.
 The tarball is self-contained, so you can hand it to anyone:
 
 ```sh
-npm install ./sunsided-decypher-0.2.0-alpha.10.tgz
+npm install ./sunsided-decypher-0.2.0.tgz
 # or reference it from package.json:
-#   "dependencies": { "@sunsided/decypher": "file:../path/to/sunsided-decypher-0.2.0-alpha.10.tgz" }
+#   "dependencies": { "@sunsided/decypher": "file:../path/to/sunsided-decypher-0.2.0.tgz" }
 ```
 
 While working on the bindings themselves, depend on the build directory

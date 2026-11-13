@@ -8,6 +8,12 @@ are marked **Breaking** below.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-13
+
+The first stable release of the 0.2 line: the public API follows semantic
+versioning from here on, so there are no breaking changes within 0.2.x
+(except in the unstable typed CST; see the README's Stability section).
+
 ### Added
 
 - `ErrorKind::NestingTooDeep { limit }`: input nested deeper than the parser
@@ -15,7 +21,7 @@ are marked **Breaking** below.
   nest at most 127 levels (`FOREACH` 126), `CALL { … }` subqueries 15,
   `EXISTS { … }` 14 and label expressions 30; operator chains such as
   `1 + 1 + …` or `a.b.c…` hold at most 255 operators and label alternatives
-  such as `:A|B|…` or `[:A|B|…]` 256.
+  such as `:A|B|…` or `[:A|B|…]` 256 (#128).
 
 ### Changed
 
@@ -23,48 +29,52 @@ are marked **Breaking** below.
   (`MATCH (n) WITH n`, `EXISTS { MATCH (n)-->(m) WITH m WHERE m.x > 1 }`) is
   a syntax error, ``expected RETURN after `WITH` ``. It used to be rebuilt
   as if it ended with `RETURN`, which changed what the query means and
-  dropped a `WHERE` on that `WITH`.
+  dropped a `WHERE` on that `WITH` (#130).
 - **Breaking:** `YIELD` only follows `CALL` (and `SHOW`). A `YIELD` anywhere
   else (`RETURN f() YIELD x`) was parsed as a procedure call without a
   procedure; it is now a syntax error, and the CST no longer produces
-  `IN_QUERY_CALL` nodes for it.
+  `IN_QUERY_CALL` nodes for it (#130).
 - **Breaking:** every expression has a span covering all of it.
   `Literal::Number`, `Literal::Boolean` and `Literal::Null` are struct
   variants with a `span` (`Number { value, span }`, `Boolean { value, span }`,
   `Null { span }`), and `Expression::Parenthesized` is
   `Parenthesized { expression, span }` with the span including the
-  parentheses; before, all of these reported `0..0`.
+  parentheses; before, all of these reported `0..0` (#127).
 - **Breaking:** infix and postfix expressions span from their left operand
   on: `a.b + 1` covers all of `a.b + 1`, not just `+ 1`, and `n.name` covers
   `n.name`, not `.name`. Diagnostics that point at such expressions now start
-  at the expression.
+  at the expression (#127).
 - **Breaking:** no AST span starts or ends in whitespace or a comment;
-  before, nodes such as `NOT x` followed by a line break included it.
-- `Expression::span()` is public.
+  before, nodes such as `NOT x` followed by a line break included it (#127).
+- `Expression::span()` is public (#127).
+
+### Removed
+
+- The unused `thiserror` dependency (#129).
 
 ### Fixed
 
 - `SET n:` and `REMOVE n:` without a label were accepted and printed as
-  `SET n` / `REMOVE n`; they now report ``expected label name``.
+  `SET n` / `REMOVE n`; they now report ``expected label name`` (#130).
 - `REMOVE n` without a label or property was accepted; it now reports
-  ``expected `.`, `:` ``.
+  ``expected `.`, `:` `` (#130).
 - `MERGE … ON MATCH` / `ON CREATE` without `SET` was accepted and printed as
   `ON MATCH SET` followed by nothing, and `ON` without `MATCH` / `CREATE` was
-  accepted too; both are now syntax errors, each reported once.
+  accepted too; both are now syntax errors, each reported once (#130).
 - `ToCypher` printed the GQL label predicate `x IS A` as `x:A`, which binds
   more tightly: `-x IS A` came back as `-(x:A)`, and `n:A IS B` merged into
   `n:A:B`. Label checks now print as `:` or `IS`, whichever parses back to
   the same tree. Identifiers named `NORMALIZED`, `NFC`, `NFD`, `NFKC`,
   `NFKD` or `TYPED` are printed in backticks, since after `IS` they would
-  start a normalization or type predicate.
+  start a normalization or type predicate (#130).
 - `ToCypher` printed `DROP INDEX name IF EXISTS` and
   `DROP CONSTRAINT name IF EXISTS` as `DROP INDEX IF EXISTS name`, which does
-  not parse; `IF EXISTS` now follows the name.
+  not parse; `IF EXISTS` now follows the name (#130).
 - The TCK test treats the number literals the TCK expects to overflow at
   compile time (`9223372036854775808`, `1.34E999`, …) as rejections; the
   vendored projection labels them `accept`, which made decypher's correct
   `InvalidNumber` errors show up as known failures. The known-failures list
-  is now empty.
+  is now empty (#127).
 - Deeply nested input crashed the process with a stack overflow, which a
   library cannot catch: 10 000 nested parentheses (20 KB) were enough, and
   every recursive construct was affected, as were long operator chains and
@@ -73,10 +83,10 @@ are marked **Breaking** below.
   rest kept in an error node), and the AST builder bounds expression depth the
   same way. The builder also keeps less stack per level, so parsing and
   analysing anything within the limits fits a 2 MB thread stack in debug
-  builds.
+  builds (#128).
 - Parsing was quadratic in how deeply parentheses nest: deciding whether
   `(` starts a pattern (`(a)-->(b)`) scanned to its matching `)` every time.
-  The parser now decides this for all parentheses in one pass.
+  The parser now decides this for all parentheses in one pass (#128).
 
 ## [0.2.0-alpha.10] - 2026-11-12
 
@@ -428,7 +438,8 @@ are marked **Breaking** below.
 See the [GitHub releases](https://github.com/sunsided/decypher/releases) for
 0.2.0-alpha.6 and earlier.
 
-[Unreleased]: https://github.com/sunsided/decypher/compare/v0.2.0-alpha.10...HEAD
+[Unreleased]: https://github.com/sunsided/decypher/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/sunsided/decypher/compare/v0.2.0-alpha.10...v0.2.0
 [0.2.0-alpha.10]: https://github.com/sunsided/decypher/compare/v0.2.0-alpha.9...v0.2.0-alpha.10
 [0.2.0-alpha.9]: https://github.com/sunsided/decypher/compare/v0.2.0-alpha.8...v0.2.0-alpha.9
 [0.2.0-alpha.8]: https://github.com/sunsided/decypher/compare/v0.2.0-alpha.7...v0.2.0-alpha.8
