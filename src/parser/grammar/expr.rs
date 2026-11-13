@@ -1935,11 +1935,14 @@ fn parse_merge_clause(p: &mut Parser) {
         p.bump();
         p.skip_trivia();
         // `ON MATCH SET …` / `ON CREATE SET …`; both keywords are required.
-        if !p.eat(SyntaxKind::KW_MATCH) && !p.eat(SyntaxKind::KW_CREATE) {
+        let has_kind = p.eat(SyntaxKind::KW_MATCH) || p.eat(SyntaxKind::KW_CREATE);
+        if !has_kind {
             p.error_here(&[
                 Expected::Keyword(Cow::Borrowed("MATCH")),
                 Expected::Keyword(Cow::Borrowed("CREATE")),
             ]);
+            // Reported once; resume at `SET` or the next clause.
+            skip_stray_tokens(p, |p| p.at(SyntaxKind::KW_SET) || p.at(SyntaxKind::KW_ON));
         }
         p.skip_trivia();
         if p.at(SyntaxKind::KW_SET) {
@@ -1950,7 +1953,7 @@ fn parse_merge_clause(p: &mut Parser) {
                 p.skip_trivia();
                 parse_set_item(p);
             }
-        } else {
+        } else if has_kind {
             p.error_here(&[Expected::Keyword(Cow::Borrowed("SET"))]);
         }
         p.builder.finish_node();
@@ -2051,6 +2054,28 @@ fn parse_set_item(p: &mut Parser) {
     p.builder.finish_node();
 }
 
+/// Wraps tokens in an `ERROR` node, without reporting them, until `stop`
+/// holds or a clause, `;`, `}` or the end of input follows, so a malformed
+/// item is reported once instead of once per token.
+fn skip_stray_tokens(p: &mut Parser, stop: impl Fn(&Parser) -> bool) {
+    let at_boundary = |p: &Parser| {
+        p.current_len() == 0
+            || stop(p)
+            || p.at(SyntaxKind::SEMICOLON)
+            || p.at(SyntaxKind::R_BRACE)
+            || is_clause_start_for_subquery(p)
+    };
+    if at_boundary(p) {
+        return;
+    }
+    p.start_node(SyntaxKind::ERROR);
+    while !at_boundary(p) {
+        p.bump();
+        p.skip_trivia();
+    }
+    p.builder.finish_node();
+}
+
 /// The label after a `:` in `SET n:A` / `REMOVE n:A`. A missing one is
 /// reported here; skipping it silently accepted `SET n:` and printed `SET n`.
 fn parse_set_or_remove_label(p: &mut Parser) {
@@ -2114,6 +2139,8 @@ fn parse_remove_item(p: &mut Parser) {
         }
     } else {
         p.error_here(&[Expected::Category(Cow::Borrowed("variable"))]);
+        // Reported once; resume at the next item or clause.
+        skip_stray_tokens(p, |p| p.at(SyntaxKind::COMMA));
     }
     p.builder.finish_node();
 }
