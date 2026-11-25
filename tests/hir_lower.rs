@@ -2336,3 +2336,35 @@ fn analyze_rejects_invalid_quantified_patterns() {
         sema.errors
     );
 }
+
+/// `trim(… FROM …)` lowers to `btrim`, `ltrim` or `rtrim` with the source
+/// first and the character, if any, second (#137).
+///
+/// Unit: `analyze()`
+/// Precondition: Each trim spec, with and without a character.
+/// Expectation: A call of the matching catalog function.
+#[test]
+fn trim_from_lowers_to_the_matching_trim_function() {
+    for (query, function, args) in [
+        ("RETURN trim(BOTH 'x' FROM 'xxaxx')", "btrim", 2),
+        ("RETURN trim(LEADING 'x' FROM 'xxaxx')", "ltrim", 2),
+        ("RETURN trim(TRAILING FROM '  a  ')", "rtrim", 1),
+        ("RETURN trim('x' FROM 'xa')", "btrim", 2),
+    ] {
+        let hir = analyze(query).unwrap();
+        let ExprKind::FunctionCall {
+            function: id,
+            args: lowered,
+            ..
+        } = find_first_project_expression(&hir)
+        else {
+            panic!("expected a function call for {query}");
+        };
+        check!(
+            hir.arenas.functions.name_of(*id) == Some(function),
+            "query: {query}"
+        );
+        check!(lowered.len() == args, "query: {query}");
+    }
+    check!(analyze("RETURN trim(BOTH 1 FROM 'a')").is_err());
+}

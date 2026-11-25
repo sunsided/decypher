@@ -1112,3 +1112,43 @@ fn rt_juxtaposed_quantified_path_patterns() {
     roundtrip("MATCH p = (a) ((x WHERE x.v > 1)-[:KNOWS]->(y)){,3} ((u)-->(v)){2,} (c) RETURN p;");
     roundtrip("MATCH (a)-[r:R WHERE r.w > 1]->{1,3}(b) RETURN r;");
 }
+
+/// Round-trip `rt trim from`: parse → serialise → re-parse must yield equal ASTs.
+///
+/// Unit: `ToCypher::to_cypher` / `parse`
+/// Precondition: `trim` with and without `BOTH | LEADING | TRAILING`, a
+///               character and `FROM`.
+/// Expectation: Re-parsed AST equals the original parsed AST; the special
+///              form prints back as written, the plain call stays a call (#137).
+#[test]
+fn rt_trim_from() {
+    for (query, printed) in [
+        (
+            "RETURN trim(BOTH 'x' FROM 'xxaxx');",
+            "trim(BOTH 'x' FROM 'xxaxx')",
+        ),
+        (
+            "RETURN trim(LEADING 'x' FROM s);",
+            "trim(LEADING 'x' FROM s)",
+        ),
+        (
+            "RETURN trim(TRAILING FROM '  a  ');",
+            "trim(TRAILING FROM '  a  ')",
+        ),
+        ("RETURN trim('x' FROM s);", "trim('x' FROM s)"),
+        ("RETURN trim('  a ');", "trim('  a ')"),
+        ("WITH 1 AS both RETURN trim(both);", "trim(both)"),
+    ] {
+        roundtrip(query);
+        let emitted = decypher::parse(query).unwrap().to_cypher();
+        check!(
+            emitted.contains(printed),
+            "query: {query}, emitted: {emitted}"
+        );
+    }
+    // The spec is case-insensitive and prints in upper case.
+    let emitted = decypher::parse("RETURN trim(leading 'x' FROM s) AS t")
+        .unwrap()
+        .to_cypher();
+    check!(emitted.contains("trim(LEADING 'x' FROM s)"));
+}

@@ -166,6 +166,57 @@ fn parse_infix_tail(p: &mut Parser, bp: Prec) {
     p.builder.finish_node();
 }
 
+/// `trim([BOTH | LEADING | TRAILING] [character] FROM source)`, or the
+/// plain `trim(source)` arguments. `BOTH`, `LEADING` and `TRAILING` are not
+/// reserved: they only start a `TRIM_SPEC` when an operand or `FROM` follows,
+/// so `trim(both)` still trims the variable `both`.
+fn parse_trim_arguments(p: &mut Parser) {
+    let is_spec = ["BOTH", "LEADING", "TRAILING"]
+        .iter()
+        .any(|spec| current_text(p).eq_ignore_ascii_case(spec))
+        && matches!(
+            p.peek_next_non_trivia(),
+            Some(
+                SyntaxKind::KW_FROM
+                    | SyntaxKind::STRING
+                    | SyntaxKind::DOLLAR
+                    | SyntaxKind::IDENT
+                    | SyntaxKind::ESCAPED_IDENT
+            )
+        );
+    if is_spec {
+        p.start_node(SyntaxKind::TRIM_SPEC);
+        p.bump();
+        p.builder.finish_node();
+        p.skip_trivia();
+        if !p.at(SyntaxKind::KW_FROM) {
+            expr_bp(p, Prec::MIN);
+            p.skip_trivia();
+        }
+        p.expect(SyntaxKind::KW_FROM);
+        p.skip_trivia();
+        expr_bp(p, Prec::MIN);
+        p.skip_trivia();
+        return;
+    }
+    if p.at(SyntaxKind::R_PAREN) {
+        return;
+    }
+    expr_bp(p, Prec::MIN);
+    p.skip_trivia();
+    if p.eat(SyntaxKind::KW_FROM) {
+        p.skip_trivia();
+        expr_bp(p, Prec::MIN);
+        p.skip_trivia();
+        return;
+    }
+    while p.eat(SyntaxKind::COMMA) {
+        p.skip_trivia();
+        expr_bp(p, Prec::MIN);
+        p.skip_trivia();
+    }
+}
+
 fn parse_property_lookup(p: &mut Parser) {
     p.start_node(SyntaxKind::PROPERTY_LOOKUP);
     p.bump(); // DOT
@@ -994,6 +1045,7 @@ fn parse_atom(p: &mut Parser) {
                 p.builder.finish_node();
             } else if next == Some(SyntaxKind::L_PAREN) {
                 // FunctionInvocation: var(args)
+                let is_trim = current_text(p).eq_ignore_ascii_case("trim");
                 p.start_node(SyntaxKind::FUNCTION_INVOCATION);
                 p.start_node(SyntaxKind::FUNCTION_NAME);
                 p.start_node(SyntaxKind::SYMBOLIC_NAME);
@@ -1005,7 +1057,9 @@ fn parse_atom(p: &mut Parser) {
                 p.skip_trivia();
                 p.eat(SyntaxKind::KW_DISTINCT);
                 p.skip_trivia();
-                if !p.at(SyntaxKind::R_PAREN) {
+                if is_trim {
+                    parse_trim_arguments(p);
+                } else if !p.at(SyntaxKind::R_PAREN) {
                     expr_bp(p, Prec::MIN);
                     p.skip_trivia();
                     while p.eat(SyntaxKind::COMMA) {

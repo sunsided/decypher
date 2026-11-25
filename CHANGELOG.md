@@ -8,6 +8,15 @@ are marked **Breaking** below.
 
 ## [Unreleased]
 
+### Added
+
+- **Breaking:** `trim([BOTH | LEADING | TRAILING] [character] FROM source)`
+  parses, as `ast::Expression::Trim` with a `TrimSpec` (CST: a `TRIM_SPEC`
+  node and a `FROM` token in the `FUNCTION_INVOCATION`). The HIR lowers it
+  to a call of `btrim`, `ltrim` or `rtrim` (source, then character), so
+  consumers need no new node. `BOTH`, `LEADING` and `TRAILING` stay usable as
+  variable names (#137).
+
 ## [0.3.0] - 2026-11-25
 
 Patterns keep everything they say: inline `WHERE`, path selectors such as
