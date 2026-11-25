@@ -8,6 +8,11 @@ are marked **Breaking** below.
 
 ## [Unreleased]
 
+### Added
+
+- The Cypher 25 hyperbolic functions `cosh`, `coth`, `sinh` and `tanh` in
+  the function catalog (#138).
+
 ### Changed
 
 - **Breaking:** `range()` accepts arguments of any type during analysis. The

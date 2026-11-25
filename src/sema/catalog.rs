@@ -377,7 +377,7 @@ fn builtins() -> Vec<(String, Signature)> {
     .collect();
     for name in [
         "exp", "log", "log10", "sqrt", "acos", "asin", "atan", "cos", "cot", "degrees", "haversin",
-        "radians", "sin", "tan",
+        "radians", "sin", "tan", "cosh", "coth", "sinh", "tanh",
     ] {
         functions.push((name.to_owned(), f(&[N]).returns(F)));
     }
