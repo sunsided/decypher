@@ -1146,6 +1146,15 @@ fn rt_trim_from() {
             "query: {query}, emitted: {emitted}"
         );
     }
+    // `TRIM` is not a keyword, so any spelling of the name takes the form.
+    let emitted = decypher::parse("RETURN TRIM(BOTH 'x' FROM 'xax') AS t")
+        .unwrap()
+        .to_cypher();
+    check!(emitted.contains("trim(BOTH 'x' FROM 'xax')"));
+    // Other calls don't take `FROM`.
+    for query in ["RETURN foo(x FROM s)", "RETURN ns.trim('x' FROM s)"] {
+        check!(decypher::parse(query).is_err(), "query: {query}");
+    }
     // The spec is case-insensitive and prints in upper case.
     let emitted = decypher::parse("RETURN trim(leading 'x' FROM s) AS t")
         .unwrap()

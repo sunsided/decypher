@@ -2037,7 +2037,10 @@ fn build_function_invocation(f: FunctionInvocation) -> Result<ast_c::Expression>
     let args: Result<Vec<_>> = f.arguments().map(build_expression).collect();
     let mut args = args?;
 
-    if f.from_token().is_some() {
+    // Only `trim` takes `FROM`; elsewhere the parser reports it.
+    if let (Some(_), [name]) = (f.from_token(), name_parts.as_slice())
+        && name.name.eq_ignore_ascii_case("trim")
+    {
         let spec = f
             .trim_spec()
             .map(|t| match t.text().to_ascii_uppercase().as_str() {
