@@ -1998,11 +1998,15 @@ fn analyze_checks_inline_pattern_predicates() {
         ),
         (
             "CREATE (a WHERE a.x = 1)",
-            ErrorKind::PatternPredicateNotAllowed,
+            ErrorKind::InvalidPattern {
+                reason: "CREATE and MERGE patterns cannot contain WHERE",
+            },
         ),
         (
             "MERGE (a)-[:R WHERE true]->(b)",
-            ErrorKind::PatternPredicateNotAllowed,
+            ErrorKind::InvalidPattern {
+                reason: "CREATE and MERGE patterns cannot contain WHERE",
+            },
         ),
     ] {
         let err = analyze(query).unwrap_err();

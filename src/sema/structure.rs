@@ -48,9 +48,9 @@ pub(crate) enum StructuralError {
     InvalidRelationshipPattern { reason: &'static str, span: Span },
     /// A `DELETE` target that is a label check (`DELETE n:Person`).
     InvalidDeleteTarget { span: Span },
-    /// An inline `WHERE` in a `CREATE` or `MERGE` pattern
-    /// (`CREATE (n WHERE n.x = 1)`).
-    PatternPredicateNotAllowed { span: Span },
+    /// A pattern that its clause cannot use, such as an inline `WHERE` in a
+    /// `CREATE` or `MERGE` pattern (`CREATE (n WHERE n.x = 1)`).
+    InvalidPattern { reason: &'static str, span: Span },
     /// A `WITH` item that is neither a variable nor aliased.
     MissingAlias { span: Span },
     /// A `SKIP` or `LIMIT` value that is not a constant, non-negative
@@ -103,7 +103,7 @@ impl StructuralError {
                 ErrorKind::InvalidRelationshipPattern { reason }
             }
             Self::InvalidDeleteTarget { .. } => ErrorKind::InvalidDeleteTarget,
-            Self::PatternPredicateNotAllowed { .. } => ErrorKind::PatternPredicateNotAllowed,
+            Self::InvalidPattern { reason, .. } => ErrorKind::InvalidPattern { reason },
             Self::MissingAlias { .. } => ErrorKind::MissingAlias,
             Self::InvalidSkipLimit { reason, .. } => ErrorKind::InvalidSkipLimit { reason },
             Self::InvalidParameterUse { .. } => ErrorKind::InvalidParameterUse,
@@ -157,7 +157,7 @@ impl StructuralError {
             | Self::InvalidClauseComposition { span, .. }
             | Self::InvalidRelationshipPattern { span, .. }
             | Self::InvalidDeleteTarget { span }
-            | Self::PatternPredicateNotAllowed { span }
+            | Self::InvalidPattern { span, .. }
             | Self::MissingAlias { span }
             | Self::InvalidSkipLimit { span, .. }
             | Self::InvalidParameterUse { span }
@@ -270,10 +270,10 @@ impl StructureChecker<'_> {
     /// pattern element.
     fn check_created(&mut self, element: &PatternElement, directed: bool) {
         for predicate in inline_predicates(element) {
-            self.errors
-                .push(StructuralError::PatternPredicateNotAllowed {
-                    span: predicate.span(),
-                });
+            self.errors.push(StructuralError::InvalidPattern {
+                reason: "CREATE and MERGE patterns cannot contain WHERE",
+                span: predicate.span(),
+            });
         }
 
         for rel in relationships(element) {

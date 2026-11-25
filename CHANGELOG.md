@@ -21,9 +21,9 @@ are marked **Breaking** below.
 
 ### Added
 
-- **Breaking:** `ErrorKind::PatternPredicateNotAllowed` and
-  `HirDiagnostic::PatternPredicateNotAllowed`: a `CREATE` or `MERGE` pattern
-  contains an inline `WHERE` (#132).
+- **Breaking:** `ErrorKind::InvalidPattern { reason }` and
+  `HirDiagnostic::InvalidPattern`: a pattern that its clause cannot use, such
+  as a `CREATE` or `MERGE` pattern with an inline `WHERE` (#132).
 
 ## [0.2.0] - 2026-11-13
 
