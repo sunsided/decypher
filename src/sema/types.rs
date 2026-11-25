@@ -426,6 +426,7 @@ impl<'a> TypeChecker<'a> {
                 if list.top == T::LIST { list } else { Ty::ANY }
             }
             Expression::FunctionCall(call) => self.result_of(call),
+            Expression::Trim { .. } => Ty::of(T::STRING),
             Expression::CountStar { .. } | Expression::CountSubquery(_) => Ty::of(T::INTEGER),
             Expression::ListComprehension(lc) if lc.map.is_none() => {
                 Ty::list_of(self.type_of(&lc.collection).element().top)
@@ -527,6 +528,13 @@ impl<'a> TypeChecker<'a> {
                 Cow::Borrowed("indexing"),
             ),
             Expression::FunctionCall(call) => self.check_function_call(call),
+            Expression::Trim {
+                character, source, ..
+            } => {
+                for operand in character.iter().chain([source]) {
+                    self.expect(operand, T::STRING, Cow::Borrowed("trim()"));
+                }
+            }
             _ => {}
         }
     }

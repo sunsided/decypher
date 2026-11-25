@@ -1130,3 +1130,52 @@ fn rt_concat_operator() {
     let query = decypher::parse("RETURN 'a' || 'b' + 'c' AS s").unwrap();
     check!(query.to_cypher().contains("'a' || 'b' + 'c'"));
 }
+
+/// Round-trip `rt trim from`: parse → serialise → re-parse must yield equal ASTs.
+///
+/// Unit: `ToCypher::to_cypher` / `parse`
+/// Precondition: `trim` with and without `BOTH | LEADING | TRAILING`, a
+///               character and `FROM`.
+/// Expectation: Re-parsed AST equals the original parsed AST; the special
+///              form prints back as written, the plain call stays a call (#137).
+#[test]
+fn rt_trim_from() {
+    for (query, printed) in [
+        (
+            "RETURN trim(BOTH 'x' FROM 'xxaxx');",
+            "trim(BOTH 'x' FROM 'xxaxx')",
+        ),
+        (
+            "RETURN trim(LEADING 'x' FROM s);",
+            "trim(LEADING 'x' FROM s)",
+        ),
+        (
+            "RETURN trim(TRAILING FROM '  a  ');",
+            "trim(TRAILING FROM '  a  ')",
+        ),
+        ("RETURN trim('x' FROM s);", "trim('x' FROM s)"),
+        ("RETURN trim('  a ');", "trim('  a ')"),
+        ("WITH 1 AS both RETURN trim(both);", "trim(both)"),
+    ] {
+        roundtrip(query);
+        let emitted = decypher::parse(query).unwrap().to_cypher();
+        check!(
+            emitted.contains(printed),
+            "query: {query}, emitted: {emitted}"
+        );
+    }
+    // `TRIM` is not a keyword, so any spelling of the name takes the form.
+    let emitted = decypher::parse("RETURN TRIM(BOTH 'x' FROM 'xax') AS t")
+        .unwrap()
+        .to_cypher();
+    check!(emitted.contains("trim(BOTH 'x' FROM 'xax')"));
+    // Other calls don't take `FROM`.
+    for query in ["RETURN foo(x FROM s)", "RETURN ns.trim('x' FROM s)"] {
+        check!(decypher::parse(query).is_err(), "query: {query}");
+    }
+    // The spec is case-insensitive and prints in upper case.
+    let emitted = decypher::parse("RETURN trim(leading 'x' FROM s) AS t")
+        .unwrap()
+        .to_cypher();
+    check!(emitted.contains("trim(LEADING 'x' FROM s)"));
+}

@@ -18,7 +18,7 @@ use crate::ast::clause::{
 };
 use crate::ast::expr::{
     BinaryOperator, ComparisonOperator, ExistsInner, Expression, FunctionInvocation, Literal,
-    MapProjectionItem, NumberLiteral, UnaryOperator,
+    MapProjectionItem, NumberLiteral, TrimSpec, UnaryOperator,
 };
 use crate::ast::names::Variable;
 use crate::ast::pattern::{
@@ -1152,6 +1152,23 @@ impl<'cfg> LoweringContext<'cfg> {
                     function: func_id,
                     args,
                     distinct: fc.distinct,
+                }
+            }
+            Expression::Trim {
+                spec,
+                character,
+                source,
+                ..
+            } => {
+                // `trim(LEADING c FROM s)` evaluates as `ltrim(s, c)`, and so on.
+                let name = spec.unwrap_or(TrimSpec::Both).function_name();
+                let function = self.arenas.functions.intern_with_display(name, name, Id);
+                let mut args = vec![self.lower_expr(source)];
+                args.extend(character.as_deref().map(|c| self.lower_expr(c)));
+                ExprKind::FunctionCall {
+                    function,
+                    args,
+                    distinct: false,
                 }
             }
             Expression::CountStar { .. } => ExprKind::CountStar,

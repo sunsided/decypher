@@ -1466,6 +1466,14 @@ pub fn walk_expression<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Expression) 
             v.visit_expression(operand);
         }
         Expression::FunctionCall(func) => v.visit_function_invocation_expr(func),
+        Expression::Trim {
+            character, source, ..
+        } => {
+            if let Some(c) = character {
+                v.visit_expression(c);
+            }
+            v.visit_expression(source);
+        }
         Expression::CountStar { .. } => {}
         Expression::Case(case) => v.visit_case_expression(case),
         Expression::ListComprehension(lc) => v.visit_list_comprehension(lc),
@@ -2086,6 +2094,14 @@ pub fn walk_expression_mut<V: VisitMut>(v: &mut V, node: &mut Expression) {
             v.visit_expression(operand);
         }
         Expression::FunctionCall(func) => v.visit_function_invocation_expr(func),
+        Expression::Trim {
+            character, source, ..
+        } => {
+            if let Some(c) = character {
+                v.visit_expression(c);
+            }
+            v.visit_expression(source);
+        }
         Expression::CountStar { .. } => {}
         Expression::Case(case) => v.visit_case_expression(case),
         Expression::ListComprehension(lc) => v.visit_list_comprehension(lc),
