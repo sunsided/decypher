@@ -2384,6 +2384,8 @@ fn return_lists_its_columns_in_written_order() {
             .collect();
         check!(names == expected, "query: {query}");
     }
+}
+
 /// `SET` / `REMOVE` keep dynamic `$(expr)` labels next to static ones, and
 /// `REMOVE n[key]` lowers to a dynamic-property remove item (#135).
 ///
