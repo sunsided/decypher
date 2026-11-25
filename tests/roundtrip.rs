@@ -1179,3 +1179,32 @@ fn rt_trim_from() {
         .to_cypher();
     check!(emitted.contains("trim(LEADING 'x' FROM s)"));
 }
+
+/// Round-trip `rt dynamic labels and keys in set and remove`: parse → serialise → re-parse must yield equal ASTs.
+///
+/// Unit: `ToCypher::to_cypher` / `parse`
+/// Precondition: `SET` / `REMOVE` with `$(expr)` labels, mixed with static
+///               ones, and `REMOVE n[key]`.
+/// Expectation: Re-parsed AST equals the original parsed AST (#135).
+#[test]
+fn rt_dynamic_labels_and_keys_in_set_and_remove() {
+    for query in [
+        "MATCH (n) SET n:$($label);",
+        "MATCH (n) SET n:$('Q');",
+        "MATCH (n) SET n:A:$($label):B;",
+        "MATCH (n) REMOVE n:$($label);",
+        "MATCH (n) REMOVE n:A:$(n.kind);",
+        "MATCH (n) REMOVE n[$key];",
+        "MATCH (n) REMOVE n[$key], n.x, n:A;",
+        "MATCH (n) REMOVE n.m[$key];",
+        "MATCH (n) FOREACH (x IN [1] | REMOVE n:$($label), n[$key]);",
+        // A composed `$(…)` expression used to lose everything after its
+        // first operand, in patterns too.
+        "MATCH (n) MATCH (m:$(n.kind)) RETURN m;",
+        "MATCH ()-[r:$('A' + 'B')]->() RETURN r;",
+    ] {
+        roundtrip(query);
+        let emitted = decypher::parse(query).unwrap().to_cypher();
+        check!(emitted == query, "emitted: {emitted}");
+    }
+}

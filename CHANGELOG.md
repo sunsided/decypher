@@ -22,6 +22,13 @@ are marked **Breaking** below.
   to a call of `btrim`, `ltrim` or `rtrim` (source, then character), so
   consumers need no new node. `BOTH`, `LEADING` and `TRAILING` stay usable as
   variable names (#137).
+- **Breaking:** dynamic labels in `SET n:$(expr)` and `REMOVE n:$(expr)`,
+  also mixed with static ones (`SET n:A:$(x)`), and `REMOVE n[key]`. The
+  label lists of `ast::SetItem::Labels` / `ast::RemoveItem::Labels` are now
+  `Vec<LabelExpression>`, and those of `hir::ops::SetItem::SetLabels` /
+  `hir::ops::RemoveItem::Labels` `Vec<LabelExpr>` (`Name` or `Dynamic`).
+  New `ast::RemoveItem::DynamicProperty` and
+  `hir::ops::RemoveItem::DynamicProperty` (#135).
 
 ### Changed
 
@@ -34,6 +41,12 @@ are marked **Breaking** below.
   output order, the `RETURN *` variables (sorted by name) first, then the
   written items. Consumers no longer need the CST to order a result table
   (#140).
+
+### Fixed
+
+- A composed expression in a dynamic label or type lost everything after
+  its first operand: `MATCH (m:$(n.kind))` became `$(n)`, and
+  `[r:$('A' + 'B')]` became `$('A')`.
 
 ## [0.3.0] - 2026-11-25
 

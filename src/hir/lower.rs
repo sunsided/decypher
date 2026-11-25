@@ -688,41 +688,43 @@ impl<'cfg> LoweringContext<'cfg> {
             }
             SetItem::Labels { variable, labels } => {
                 let node = self.resolve_or_bind_variable(variable);
-                let label_ids: Vec<LabelId> = labels
+                let labels = labels
                     .iter()
-                    .map(|l| self.arenas.labels.intern(&l.name, Id))
+                    .map(|l| self.lower_label_expr(l, false))
                     .collect();
-                HirSetItem::SetLabels {
-                    node,
-                    labels: label_ids,
-                }
+                HirSetItem::SetLabels { node, labels }
             }
         }
     }
 
     fn lower_remove(&mut self, r: &Remove) {
-        let items: Vec<HirRemoveItem> = r
+        let items = r
             .items
             .iter()
-            .map(|ri| match ri {
-                RemoveItem::Labels { variable, labels } => {
-                    let node = self.resolve_or_bind_variable(variable);
-                    let label_ids: Vec<LabelId> = labels
-                        .iter()
-                        .map(|l| self.arenas.labels.intern(&l.name, Id))
-                        .collect();
-                    HirRemoveItem::Labels {
-                        node,
-                        labels: label_ids,
-                    }
-                }
-                RemoveItem::Property(expr) => HirRemoveItem::Property {
-                    target: self.lower_expr(expr),
-                },
-            })
+            .map(|ri| self.lower_remove_item(ri))
             .collect();
         self.current_part_ops
             .push(Operation::Remove(RemoveOp { items }));
+    }
+
+    fn lower_remove_item(&mut self, ri: &RemoveItem) -> HirRemoveItem {
+        match ri {
+            RemoveItem::Labels { variable, labels } => {
+                let node = self.resolve_or_bind_variable(variable);
+                let labels = labels
+                    .iter()
+                    .map(|l| self.lower_label_expr(l, false))
+                    .collect();
+                HirRemoveItem::Labels { node, labels }
+            }
+            RemoveItem::Property(expr) => HirRemoveItem::Property {
+                target: self.lower_expr(expr),
+            },
+            RemoveItem::DynamicProperty { property, key } => HirRemoveItem::DynamicProperty {
+                entity: self.lower_expr(property),
+                key: self.lower_expr(key),
+            },
+        }
     }
 
     fn lower_foreach(&mut self, f: &Foreach) {
@@ -761,25 +763,10 @@ impl<'cfg> LoweringContext<'cfg> {
                     ops.push(Operation::Set(SetOp { items }));
                 }
                 ForeachUpdate::Remove(r) => {
-                    let items: Vec<HirRemoveItem> = r
+                    let items = r
                         .items
                         .iter()
-                        .map(|ri| match ri {
-                            RemoveItem::Labels { variable, labels } => {
-                                let node = self.resolve_or_bind_variable(variable);
-                                let label_ids: Vec<LabelId> = labels
-                                    .iter()
-                                    .map(|l| self.arenas.labels.intern(&l.name, Id))
-                                    .collect();
-                                HirRemoveItem::Labels {
-                                    node,
-                                    labels: label_ids,
-                                }
-                            }
-                            RemoveItem::Property(expr) => HirRemoveItem::Property {
-                                target: self.lower_expr(expr),
-                            },
-                        })
+                        .map(|ri| self.lower_remove_item(ri))
                         .collect();
                     ops.push(Operation::Remove(RemoveOp { items }));
                 }

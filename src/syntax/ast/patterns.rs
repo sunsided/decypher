@@ -540,14 +540,24 @@ impl LabelAtom {
 }
 
 impl DynamicLabel {
+    /// The `expr` of `$(expr)`. The CST is flat (`n.kind` is `n` followed by
+    /// its lookup), so the composed expression is the last one.
     pub fn expression(&self) -> Option<super::expressions::Expression> {
-        child(&self.0)
+        self.0
+            .children()
+            .filter_map(super::expressions::Expression::cast)
+            .last()
     }
 }
 
 impl DynamicRelType {
+    /// The `expr` of `$(expr)`. The CST is flat (`n.kind` is `n` followed by
+    /// its lookup), so the composed expression is the last one.
     pub fn expression(&self) -> Option<super::expressions::Expression> {
-        child(&self.0)
+        self.0
+            .children()
+            .filter_map(super::expressions::Expression::cast)
+            .last()
     }
 }
 

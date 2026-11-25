@@ -606,7 +606,7 @@ fn build_set_item(item: SetItem) -> Result<ast_c::SetItem> {
 fn build_label_item(
     item: &rowan::SyntaxNode<crate::syntax::CypherLang>,
     sp: Span,
-) -> Result<(ast_c::Variable, Vec<ast_c::SymbolicName>)> {
+) -> Result<(ast_c::Variable, Vec<ast_c::LabelExpression>)> {
     let variable = item
         .children()
         .find_map(Variable::cast)
@@ -615,15 +615,33 @@ fn build_label_item(
     let labels = item
         .children()
         .filter_map(NodeLabels::cast)
-        .flat_map(|group| group.labels().collect::<Vec<_>>())
-        .map(|l| {
-            l.name()
-                .and_then(|ln| ln.symbolic_name())
-                .map(|s| ast_c::SymbolicName {
-                    name: symbolic_name_text(&s),
-                    span: span_of(s.syntax()),
-                })
-                .ok_or_else(|| internal("missing label name", sp))
+        .flat_map(|group| group.syntax().children().collect::<Vec<_>>())
+        .filter_map(|node| {
+            if let Some(dynamic) = DynamicLabel::cast(node.clone()) {
+                return Some(
+                    dynamic
+                        .expression()
+                        .ok_or_else(|| internal("missing dynamic label expression", sp))
+                        .and_then(build_expression)
+                        .map(|expression| ast_c::LabelExpression::Dynamic {
+                            expression: Box::new(expression),
+                            span: span_of(dynamic.syntax()),
+                        }),
+                );
+            }
+            let label = NodeLabel::cast(node)?;
+            Some(
+                label
+                    .name()
+                    .and_then(|ln| ln.symbolic_name())
+                    .map(|s| {
+                        ast_c::LabelExpression::Static(ast_c::SymbolicName {
+                            name: symbolic_name_text(&s),
+                            span: span_of(s.syntax()),
+                        })
+                    })
+                    .ok_or_else(|| internal("missing label name", sp)),
+            )
         })
         .collect::<Result<_>>()?;
     Ok((variable, labels))
@@ -659,6 +677,12 @@ fn build_remove_item(item: RemoveItem) -> Result<ast_c::RemoveItem> {
         .property_expr()
         .ok_or_else(|| internal("missing property in REMOVE item", sp))?;
     let prop_ast = build_expression(prop)?;
+    if let Some(key) = item.dynamic_key_expr() {
+        return Ok(ast_c::RemoveItem::DynamicProperty {
+            property: prop_ast,
+            key: build_expression(key)?,
+        });
+    }
     Ok(ast_c::RemoveItem::Property(prop_ast))
 }
 
