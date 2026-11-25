@@ -10,6 +10,8 @@ are marked **Breaking** below.
 
 ### Added
 
+- The Cypher 25 hyperbolic functions `cosh`, `coth`, `sinh` and `tanh` in
+  the function catalog (#138).
 - **Breaking:** `trim([BOTH | LEADING | TRAILING] [character] FROM source)`
   parses, as `ast::Expression::Trim` with a `TrimSpec` (CST: a `TRIM_SPEC`
   node and a `FROM` token in the `FUNCTION_INVOCATION`). The HIR lowers it
