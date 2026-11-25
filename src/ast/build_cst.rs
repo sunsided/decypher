@@ -1651,6 +1651,12 @@ fn finish_binary_expr(
                     rhs: Box::new(rhs),
                     span: sp,
                 }),
+                Some(BinOp::Concat) => Ok(ast_c::Expression::BinaryOp {
+                    op: ast_c::BinaryOperator::Concat,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                    span: sp,
+                }),
                 Some(BinOp::Sub) => Ok(ast_c::Expression::BinaryOp {
                     op: ast_c::BinaryOperator::Subtract,
                     lhs: Box::new(lhs),
