@@ -1991,6 +1991,18 @@ fn analyze_checks_inline_pattern_predicates() {
             },
         ),
         (
+            "MATCH (a) RETURN [(a)-->(b WHERE b.x = nope) | b] AS bs",
+            ErrorKind::UnresolvedVariable {
+                name: "nope".into(),
+            },
+        ),
+        (
+            "MATCH (a) WHERE EXISTS { (a)-->(b WHERE b.x = nope) } RETURN a",
+            ErrorKind::UnresolvedVariable {
+                name: "nope".into(),
+            },
+        ),
+        (
             "MATCH (a WHERE count(a) > 1) RETURN a",
             ErrorKind::AggregateNotAllowed {
                 function: "count".into(),
