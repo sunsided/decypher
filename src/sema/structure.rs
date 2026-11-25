@@ -739,19 +739,12 @@ fn element_start(element: &PatternElement) -> Span {
     }
 }
 
-/// The spans of the quantified path patterns and quantified relationships
-/// of `element`.
+/// The spans of the quantified path patterns of `element`. Quantified
+/// relationships are not included: `check_created` reports them as
+/// variable-length relationships.
 fn quantified_spans(element: &PatternElement) -> Vec<Span> {
     match element {
-        PatternElement::Path { chains, .. } => chains
-            .iter()
-            .filter_map(|c| {
-                c.relationship
-                    .quantifier
-                    .as_ref()
-                    .map(|_| c.relationship.span)
-            })
-            .collect(),
+        PatternElement::Path { .. } => Vec::new(),
         PatternElement::Quantified { span, .. } => vec![*span],
         PatternElement::Parenthesized(inner) => quantified_spans(inner),
         PatternElement::Sequence(elements) => elements.iter().flat_map(quantified_spans).collect(),

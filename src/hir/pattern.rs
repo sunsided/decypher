@@ -79,7 +79,9 @@ pub struct NodePattern {
     /// Optional inline predicate (`(n WHERE n.age > 25)`).
     ///
     /// A match of this node is valid only when the predicate is `true`. The
-    /// predicate can use every variable of the enclosing pattern.
+    /// predicate can use every variable of the enclosing pattern. Inside a
+    /// [`QuantifiedPattern`], that is the group's own variables and the
+    /// variables bound before the group.
     pub predicate: Option<ExprId>,
 }
 
@@ -109,6 +111,8 @@ pub struct RelationshipPattern {
     ///
     /// A match of this relationship is valid only when the predicate is
     /// `true`. The predicate can use every variable of the enclosing pattern.
+    /// Inside a [`QuantifiedPattern`], that is the group's own variables and
+    /// the variables bound before the group.
     pub predicate: Option<ExprId>,
 }
 
