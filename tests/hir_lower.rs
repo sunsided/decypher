@@ -2336,3 +2336,55 @@ fn analyze_rejects_invalid_quantified_patterns() {
         sema.errors
     );
 }
+
+/// `SET` / `REMOVE` keep dynamic `$(expr)` labels next to static ones, and
+/// `REMOVE n[key]` lowers to a dynamic-property remove item (#135).
+///
+/// Unit: `analyze()`
+/// Precondition: `SET n:A:$($label)`, `REMOVE n:$($label)`, `REMOVE n[$key]`.
+/// Expectation: Label items hold a `Name` and a `Dynamic` label in written
+///              order; the key item holds the entity and key expressions.
+#[test]
+fn set_and_remove_lower_dynamic_labels_and_keys() {
+    use decypher::hir::LabelExpr;
+    use decypher::hir::ops::{RemoveItem, SetItem};
+    let last_op = |query: &str| {
+        let hir = analyze(query).unwrap_or_else(|e| panic!("query: {query}, got: {e}"));
+        let op = hir
+            .parts
+            .iter()
+            .flat_map(|part| &part.operations)
+            .find(|op| matches!(op, Operation::Set(_) | Operation::Remove(_)))
+            .unwrap_or_else(|| panic!("no Set or Remove for {query}"))
+            .clone();
+        (hir, op)
+    };
+
+    let (hir, op) = last_op("MATCH (n) SET n:A:$($label)");
+    let Operation::Set(set) = op else {
+        panic!("expected a Set");
+    };
+    let [SetItem::SetLabels { labels, .. }] = set.items.as_slice() else {
+        panic!("expected one SetLabels item");
+    };
+    let [LabelExpr::Name(a), LabelExpr::Dynamic(dynamic)] = labels.as_slice() else {
+        panic!("expected a static and a dynamic label, got {labels:?}");
+    };
+    check!(hir.arenas.labels.name_of(*a) == Some("A"));
+    check!(matches!(
+        hir.arenas.expressions.get(*dynamic).kind,
+        ExprKind::Parameter(_)
+    ));
+
+    let (_, op) = last_op("MATCH (n) REMOVE n:$($label), n[$key]");
+    let Operation::Remove(remove) = op else {
+        panic!("expected a Remove");
+    };
+    check!(matches!(
+        remove.items.as_slice(),
+        [
+            RemoveItem::Labels { labels, .. },
+            RemoveItem::DynamicProperty { .. }
+        ] if matches!(labels.as_slice(), [LabelExpr::Dynamic(_)])
+    ));
+}

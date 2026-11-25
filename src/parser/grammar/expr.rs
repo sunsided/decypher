@@ -2083,10 +2083,21 @@ fn skip_stray_tokens(p: &mut Parser, stop: impl Fn(&Parser) -> bool) {
     p.builder.finish_node();
 }
 
-/// The label after a `:` in `SET n:A` / `REMOVE n:A`. A missing one is
-/// reported here; skipping it silently accepted `SET n:` and printed `SET n`.
+/// The label after a `:` in `SET n:A` / `REMOVE n:A`, or a dynamic one,
+/// `SET n:$(expr)`. A missing one is reported here; skipping it silently
+/// accepted `SET n:` and printed `SET n`.
 fn parse_set_or_remove_label(p: &mut Parser) {
-    if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) || is_keyword_as_name(p) {
+    if p.at(SyntaxKind::DOLLAR) {
+        p.start_node(SyntaxKind::DYNAMIC_LABEL);
+        p.bump();
+        p.skip_trivia();
+        p.expect(SyntaxKind::L_PAREN);
+        p.skip_trivia();
+        expr_bp(p, Prec::MIN);
+        p.skip_trivia();
+        p.expect(SyntaxKind::R_PAREN);
+        p.builder.finish_node();
+    } else if p.at(SyntaxKind::IDENT) || p.at(SyntaxKind::ESCAPED_IDENT) || is_keyword_as_name(p) {
         p.start_node(SyntaxKind::NODE_LABEL);
         p.start_node(SyntaxKind::LABEL_NAME);
         p.start_node(SyntaxKind::SYMBOLIC_NAME);
@@ -2121,10 +2132,11 @@ fn parse_remove_item(p: &mut Parser) {
         p.builder.finish_node();
         p.skip_trivia();
         // A label or property must follow: `REMOVE n` removes nothing.
-        if !p.at(SyntaxKind::COLON) && !p.at(SyntaxKind::DOT) {
+        if !p.at(SyntaxKind::COLON) && !p.at(SyntaxKind::DOT) && !p.at(SyntaxKind::L_BRACKET) {
             p.error_here(&[
                 Expected::Symbol(Cow::Borrowed(":")),
                 Expected::Symbol(Cow::Borrowed(".")),
+                Expected::Symbol(Cow::Borrowed("[")),
             ]);
         }
         // `REMOVE n:A:B` removes several labels, as `SET n:A:B` sets them.
@@ -2141,6 +2153,17 @@ fn parse_remove_item(p: &mut Parser) {
             p.bump();
             p.skip_trivia();
             parse_property_lookup_key(p);
+            p.builder.finish_node();
+            p.skip_trivia();
+        }
+        // Dynamic property key: `REMOVE n[$key]`
+        if p.at(SyntaxKind::L_BRACKET) {
+            p.start_node(SyntaxKind::DYNAMIC_PROPERTY);
+            p.bump(); // [
+            p.skip_trivia();
+            expr_bp(p, Prec::MIN);
+            p.skip_trivia();
+            p.expect(SyntaxKind::R_BRACKET);
             p.builder.finish_node();
             p.skip_trivia();
         }

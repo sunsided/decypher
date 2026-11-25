@@ -1164,7 +1164,7 @@ pub fn walk_set_item<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast SetItem) {
         SetItem::Labels { variable, labels } => {
             v.visit_variable(variable);
             for l in labels {
-                v.visit_symbolic_name(l);
+                v.visit_label_expression(l);
             }
         }
     }
@@ -1181,10 +1181,14 @@ pub fn walk_remove_item<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast RemoveItem)
         RemoveItem::Labels { variable, labels } => {
             v.visit_variable(variable);
             for l in labels {
-                v.visit_symbolic_name(l);
+                v.visit_label_expression(l);
             }
         }
         RemoveItem::Property(expr) => v.visit_expression(expr),
+        RemoveItem::DynamicProperty { property, key } => {
+            v.visit_expression(property);
+            v.visit_expression(key);
+        }
     }
 }
 
@@ -1800,7 +1804,7 @@ pub fn walk_set_item_mut<V: VisitMut>(v: &mut V, node: &mut SetItem) {
         SetItem::Labels { variable, labels } => {
             v.visit_variable(variable);
             for l in labels {
-                v.visit_symbolic_name(l);
+                v.visit_label_expression(l);
             }
         }
     }
@@ -1817,10 +1821,14 @@ pub fn walk_remove_item_mut<V: VisitMut>(v: &mut V, node: &mut RemoveItem) {
         RemoveItem::Labels { variable, labels } => {
             v.visit_variable(variable);
             for l in labels {
-                v.visit_symbolic_name(l);
+                v.visit_label_expression(l);
             }
         }
         RemoveItem::Property(expr) => v.visit_expression(expr),
+        RemoveItem::DynamicProperty { property, key } => {
+            v.visit_expression(property);
+            v.visit_expression(key);
+        }
     }
 }
 

@@ -477,6 +477,12 @@ impl ToCypher for RemoveItem {
                 Ok(())
             }
             RemoveItem::Property(expr) => expr.write_cypher(w),
+            RemoveItem::DynamicProperty { property, key } => {
+                property.write_cypher(w)?;
+                write!(w, "[")?;
+                key.write_cypher(w)?;
+                write!(w, "]")
+            }
         }
     }
 }

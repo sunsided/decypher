@@ -5,7 +5,7 @@
 //! closely to Cypher clauses but use arena IDs instead of AST nodes.
 
 use super::arena::{BindingId, ExprId, FunctionId, ScopeId};
-use super::pattern::GraphPattern;
+use super::pattern::{GraphPattern, LabelExpr};
 
 /// A single pipeline stage between two scope boundaries.
 ///
@@ -216,12 +216,14 @@ pub enum SetItem {
         /// The new property map.
         value: ExprId,
     },
-    /// `variable:Label1:Label2` — add labels.
+    /// `variable:Label1:$(expr)` — add labels.
     SetLabels {
         /// The node binding.
         node: BindingId,
-        /// The labels to add.
-        labels: Vec<super::arena::LabelId>,
+        /// The labels to add: [`LabelExpr::Name`] for static ones,
+        /// [`LabelExpr::Dynamic`] for `$(expr)`, which evaluates to a string
+        /// or a list of strings.
+        labels: Vec<LabelExpr>,
     },
     /// `entity[$key] = value` — set a property by a runtime-computed key.
     ///
@@ -265,13 +267,21 @@ pub enum RemoveItem {
     Labels {
         /// The node binding.
         node: BindingId,
-        /// The labels to remove.
-        labels: Vec<super::arena::LabelId>,
+        /// The labels to remove: [`LabelExpr::Name`] for static ones,
+        /// [`LabelExpr::Dynamic`] for `$(expr)`.
+        labels: Vec<LabelExpr>,
     },
     /// Remove a property.
     Property {
         /// The property expression (e.g. `n.name`).
         target: ExprId,
+    },
+    /// `entity[key]` — remove a property by a runtime-computed key.
+    DynamicProperty {
+        /// The entity whose property is removed.
+        entity: ExprId,
+        /// The expression that evaluates to the property key name at runtime.
+        key: ExprId,
     },
 }
 

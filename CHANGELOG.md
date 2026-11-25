@@ -8,6 +8,22 @@ are marked **Breaking** below.
 
 ## [Unreleased]
 
+### Added
+
+- **Breaking:** dynamic labels in `SET n:$(expr)` and `REMOVE n:$(expr)`,
+  also mixed with static ones (`SET n:A:$(x)`), and `REMOVE n[key]`. The
+  label lists of `ast::SetItem::Labels` / `ast::RemoveItem::Labels` are now
+  `Vec<LabelExpression>`, and those of `hir::ops::SetItem::SetLabels` /
+  `hir::ops::RemoveItem::Labels` `Vec<LabelExpr>` (`Name` or `Dynamic`).
+  New `ast::RemoveItem::DynamicProperty` and
+  `hir::ops::RemoveItem::DynamicProperty` (#135).
+
+### Fixed
+
+- A composed expression in a dynamic label or type lost everything after
+  its first operand: `MATCH (m:$(n.kind))` became `$(n)`, and
+  `[r:$('A' + 'B')]` became `$('A')`.
+
 ## [0.3.0] - 2026-11-25
 
 Patterns keep everything they say: inline `WHERE`, path selectors such as

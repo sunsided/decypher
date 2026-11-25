@@ -119,8 +119,8 @@ pub enum SetItem {
     Labels {
         /// The node variable to relabel.
         variable: Variable,
-        /// The labels to add.
-        labels: Vec<crate::ast::names::SymbolicName>,
+        /// The labels to add: `Static` names and `Dynamic` `$(expr)` ones.
+        labels: Vec<crate::ast::pattern::LabelExpression>,
     },
 }
 
@@ -152,11 +152,18 @@ pub enum RemoveItem {
     Labels {
         /// The node variable.
         variable: Variable,
-        /// The labels to remove.
-        labels: Vec<crate::ast::names::SymbolicName>,
+        /// The labels to remove: `Static` names and `Dynamic` `$(expr)` ones.
+        labels: Vec<crate::ast::pattern::LabelExpression>,
     },
     /// `expression` — remove a property (e.g. `n.name`).
     Property(Expression),
+    /// `variable[key]` — remove a property identified by a runtime key.
+    DynamicProperty {
+        /// The base expression whose property is removed.
+        property: Expression,
+        /// The key expression that evaluates to a property name at runtime.
+        key: Expression,
+    },
 }
 
 /// `WITH [DISTINCT] [*] items [ORDER BY …] [SKIP …] [LIMIT …] [WHERE …]`

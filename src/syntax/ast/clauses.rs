@@ -607,6 +607,14 @@ impl RemoveItem {
     pub fn node_labels(&self) -> Option<super::patterns::NodeLabels> {
         child(&self.0)
     }
+
+    /// The key of `REMOVE n[key]`.
+    pub fn dynamic_key_expr(&self) -> Option<Expression> {
+        self.0
+            .children()
+            .find(|n| n.kind() == SyntaxKind::DYNAMIC_PROPERTY)
+            .and_then(|n| n.children().filter_map(Expression::cast).last())
+    }
 }
 
 #[derive(Clone, Debug)]
