@@ -1129,6 +1129,7 @@ fn rt_dynamic_labels_and_keys_in_set_and_remove() {
         "MATCH (n) REMOVE n:A:$(n.kind);",
         "MATCH (n) REMOVE n[$key];",
         "MATCH (n) REMOVE n[$key], n.x, n:A;",
+        "MATCH (n) REMOVE n.m[$key];",
         "MATCH (n) FOREACH (x IN [1] | REMOVE n:$($label), n[$key]);",
         // A composed `$(…)` expression used to lose everything after its
         // first operand, in patterns too.

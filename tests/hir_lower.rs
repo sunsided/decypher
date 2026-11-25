@@ -2376,6 +2376,19 @@ fn set_and_remove_lower_dynamic_labels_and_keys() {
         ExprKind::Parameter(_)
     ));
 
+    // The key applies to the whole base: `n.m[$key]` removes from `n.m`.
+    let (hir, op) = last_op("MATCH (n) REMOVE n.m[$key]");
+    let Operation::Remove(remove) = op else {
+        panic!("expected a Remove");
+    };
+    let [RemoveItem::DynamicProperty { entity, .. }] = remove.items.as_slice() else {
+        panic!("expected one DynamicProperty item");
+    };
+    check!(matches!(
+        hir.arenas.expressions.get(*entity).kind,
+        ExprKind::Property { .. }
+    ));
+
     let (_, op) = last_op("MATCH (n) REMOVE n:$($label), n[$key]");
     let Operation::Remove(remove) = op else {
         panic!("expected a Remove");
