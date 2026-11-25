@@ -2384,6 +2384,8 @@ fn return_lists_its_columns_in_written_order() {
             .collect();
         check!(names == expected, "query: {query}");
     }
+}
+
 /// `trim(… FROM …)` lowers to `btrim`, `ltrim` or `rtrim` with the source
 /// first and the character, if any, second (#137).
 ///
