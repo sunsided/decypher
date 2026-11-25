@@ -8,6 +8,11 @@ are marked **Breaking** below.
 
 ## [Unreleased]
 
+### Added
+
+- The Cypher 25 hyperbolic functions `cosh`, `coth`, `sinh` and `tanh` in
+  the function catalog (#138).
+
 ## [0.3.0] - 2026-11-25
 
 Patterns keep everything they say: inline `WHERE`, path selectors such as
