@@ -15,6 +15,10 @@ are marked **Breaking** below.
 
 ### Changed
 
+- **Breaking:** `range()` accepts arguments of any type during analysis. The
+  TCK expects wrongly typed ones (`range(0, 1, 1.1)`) to fail at runtime
+  with `InvalidArgumentType`, so a consumer now reports them when it
+  evaluates the call. The argument count is still checked (#139).
 - **Breaking:** `ReturnOp::items`, which lowering always left empty, is
   replaced by `ReturnOp::columns: Vec<BindingId>`: the result columns in
   output order, the `RETURN *` variables (sorted by name) first, then the
