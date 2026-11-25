@@ -19,7 +19,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-decypher = "0.2"
+decypher = "0.3"
 ```
 
 ```rust
@@ -69,7 +69,7 @@ check!(cypher.contains("MATCH"));
 
 ## Stability
 
-From 0.2.0 on, the public API follows semantic versioning: there are no breaking changes within 0.2.x, and the next breaking release is 0.3.0. That covers the typed AST (`decypher::ast`), `ToCypher`, the HIR (`decypher::hir`), semantic analysis (`decypher::sema`) and the error types, with these provisos:
+From 0.2.0 on, the public API follows semantic versioning: there are no breaking changes within a minor line such as 0.3.x, and the next breaking release is 0.4.0. That covers the typed AST (`decypher::ast`), `ToCypher`, the HIR (`decypher::hir`), semantic analysis (`decypher::sema`) and the error types, with these provisos:
 
 - **`ErrorKind` may gain variants** (it is `#[non_exhaustive]`), and error messages may be worded differently.
 - **`ToCypher` formatting may change** (whitespace, keyword case), but printing a parsed query and parsing the result always gives back the same AST; the `fuzz_parse_roundtrip` fuzz target checks this.

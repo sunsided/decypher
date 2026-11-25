@@ -8,13 +8,21 @@ are marked **Breaking** below.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-25
+
+Patterns keep everything they say: inline `WHERE`, path selectors such as
+`shortestPath` and `SHORTEST k`, and quantified path patterns used to be
+parsed and then dropped or flattened, so a consumer ran a different query
+without an error. They now reach the AST and the HIR. The new HIR fields
+and the reworked `GraphPattern` are breaking changes, hence 0.3.0.
+
 ### Added
 
 - **Breaking:** `ErrorKind::InvalidPattern { reason }` and
   `HirDiagnostic::InvalidPattern`: a pattern that its clause cannot use, such
-  as a `CREATE` or `MERGE` pattern with an inline `WHERE` (#132).
-- Kani proofs (`task verify`, and a CI job) for the integer literal parser.
-  They cover every ASCII input up to 6 bytes:
+  as a `CREATE` or `MERGE` pattern with an inline `WHERE` (#132, #141).
+- Kani proofs (`task verify`, and a CI job) for the integer literal parser
+  (#145). They cover every ASCII input up to 6 bytes:
   - `parse_integer_magnitude` does not panic, and short decimal literals
     print back as written.
   - `parse_integer` is never negative.
@@ -23,7 +31,9 @@ are marked **Breaking** below.
 
 - The crate has no `unsafe` code any more and is `#![forbid(unsafe_code)]`.
   `SyntaxKind::from` used a `transmute`; it now looks the kind up in a table
-  that is generated from the same list as the enum.
+  that is generated from the same list as the enum (#145).
+- The crate and the npm package name the project site as their `homepage`
+  (#142).
 
 ### Fixed
 
@@ -34,7 +44,7 @@ are marked **Breaking** below.
   `predicate` field of `hir::pattern::NodePattern` and `RelationshipPattern`.
   The predicate can use every variable of its pattern. Name resolution, the
   aggregate check and the boolean type check apply to it like to a clause
-  `WHERE` (#132).
+  `WHERE` (#132, #141).
 - **Breaking:** `shortestPath(…)` and `allShortestPaths(…)` are no longer
   dropped silently, and the GQL path selectors parse: `ALL`, `ANY [k]`,
   `ANY SHORTEST`, `ALL SHORTEST`, `SHORTEST k`, `SHORTEST [k] GROUPS`, each
@@ -47,7 +57,7 @@ are marked **Breaking** below.
   lower to `Shortest(1)`; `allShortestPaths` and `ALL SHORTEST` to
   `ShortestGroups(1)`. A path count of 0 or above 4294967295, and a selector
   in `CREATE` or `MERGE`, are `InvalidPattern` errors. The typed CST has a
-  new `PATH_SELECTOR` node (#133).
+  new `PATH_SELECTOR` node (#133, #143).
 - **Breaking:** quantified path patterns keep their quantifier and their
   place in the path. `MATCH (a) ((x)-[:KNOWS]->(y)){1,2} (c)` used to lower
   the group once, as a third, unconnected pattern part. Now juxtaposed
@@ -64,9 +74,12 @@ are marked **Breaking** below.
   quantifier with bounds in the wrong order, an upper bound of 0 or a bound
   above 4294967295, a quantified pattern in `CREATE` or `MERGE`, and two
   plain paths next to each other without a group between them are errors
-  (#134).
+  (#134, #144).
 - The quantifier `{,m}` meant `{m,}` (at least `m` instead of at most `m`)
-  (#134).
+  (#134, #144).
+- `sema::resolve_names` skipped the patterns of pattern comprehensions and
+  `EXISTS { pattern }`: an unknown variable in a property map there
+  (`[(a)-->(b {x: nope}) | b]`) was not reported (#141).
 
 ## [0.2.0] - 2026-11-13
 
@@ -498,7 +511,8 @@ versioning from here on, so there are no breaking changes within 0.2.x
 See the [GitHub releases](https://github.com/sunsided/decypher/releases) for
 0.2.0-alpha.6 and earlier.
 
-[Unreleased]: https://github.com/sunsided/decypher/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/sunsided/decypher/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/sunsided/decypher/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/sunsided/decypher/compare/v0.2.0-alpha.10...v0.2.0
 [0.2.0-alpha.10]: https://github.com/sunsided/decypher/compare/v0.2.0-alpha.9...v0.2.0-alpha.10
 [0.2.0-alpha.9]: https://github.com/sunsided/decypher/compare/v0.2.0-alpha.8...v0.2.0-alpha.9
