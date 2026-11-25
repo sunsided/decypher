@@ -8,6 +8,20 @@ are marked **Breaking** below.
 
 ## [Unreleased]
 
+### Changed
+
+- The crate has no `unsafe` code any more and is `#![forbid(unsafe_code)]`.
+  `SyntaxKind::from` used a `transmute`; it now looks the kind up in a table
+  that is generated from the same list as the enum.
+
+### Added
+
+- Kani proofs (`task verify`, and a CI job) for the integer literal parser.
+  They cover every ASCII input up to 6 bytes:
+  - `parse_integer_magnitude` does not panic, and short decimal literals
+    print back as written.
+  - `parse_integer` is never negative.
+
 ## [0.2.0] - 2026-11-13
 
 The first stable release of the 0.2 line: the public API follows semantic

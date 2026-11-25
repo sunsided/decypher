@@ -54,3 +54,7 @@ required-features = ["hir"]
 assert2 = "0.4"
 proptest = "1"
 serde_json = "1"
+
+[lints.rust]
+# `cfg(kani)` gates the Kani proof harnesses; see `task verify`.
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(kani)'] }

@@ -15,6 +15,27 @@
 
 use rowan::Language;
 
+/// Declares the [`SyntaxKind`] enum and [`SyntaxKind::ALL`], the table of
+/// its variants in declaration order, from one list.
+///
+/// The table maps a raw `u16` back to its kind without `unsafe`: variants
+/// have no explicit discriminants, so variant `i` has discriminant `i` and is
+/// at index `i` of the table.
+macro_rules! syntax_kinds {
+    ($(#[$attr:meta])* $vis:vis enum $name:ident { $($kind:ident),* $(,)? }) => {
+        $(#[$attr])*
+        $vis enum $name {
+            $($kind),*
+        }
+
+        impl $name {
+            /// Every kind, indexed by its `u16` discriminant.
+            const ALL: &'static [$name] = &[$($name::$kind),*];
+        }
+    };
+}
+
+syntax_kinds! {
 /// All token and internal-node kinds used in the Cypher CST.
 ///
 /// Token kinds represent leaf tokens (whitespace, punctuation, literals,
@@ -28,7 +49,7 @@ use rowan::Language;
 #[allow(non_camel_case_types)]
 pub enum SyntaxKind {
     /* Trivia */
-    WHITESPACE = 0,
+    WHITESPACE,
     COMMENT,
 
     /* Punctuation */
@@ -318,20 +339,17 @@ pub enum SyntaxKind {
     /* Error node */
     ERROR,
 }
+}
 
 impl SyntaxKind {
     /// Convert a raw `u16` token id into a [`SyntaxKind`].
     ///
     /// Returns [`SyntaxKind::ERROR`] for values that are out of range.
     pub fn from(raw: u16) -> Self {
-        if raw <= Self::ERROR as u16 {
-            // SAFETY: `raw` is bounded to `0..=ERROR`, which exactly covers
-            // the valid discriminants of `#[repr(u16)] SyntaxKind`. This is
-            // the standard pattern used by `rowan` Language implementations.
-            unsafe { std::mem::transmute::<u16, SyntaxKind>(raw) }
-        } else {
-            SyntaxKind::ERROR
-        }
+        Self::ALL
+            .get(usize::from(raw))
+            .copied()
+            .unwrap_or(SyntaxKind::ERROR)
     }
 
     /// Convert this kind into its raw `u16` discriminant.
@@ -375,3 +393,26 @@ pub type Preorder = rowan::api::Preorder<CypherLang>;
 pub type PreorderWithTokens = rowan::api::PreorderWithTokens<CypherLang>;
 
 pub mod ast;
+
+#[cfg(test)]
+mod tests {
+    use super::SyntaxKind;
+
+    /// Every kind round-trips through its raw `u16`, and values past
+    /// [`SyntaxKind::ERROR`] map to it.
+    #[test]
+    fn raw_round_trip() {
+        for (index, &kind) in SyntaxKind::ALL.iter().enumerate() {
+            let raw = u16::try_from(index).expect("fewer than 65536 kinds");
+            assert_eq!(kind.into_u16(), raw, "{kind:?} is out of order");
+            assert_eq!(SyntaxKind::from(raw), kind);
+        }
+
+        assert_eq!(SyntaxKind::ALL.last(), Some(&SyntaxKind::ERROR));
+        assert_eq!(
+            SyntaxKind::from(SyntaxKind::ERROR.into_u16() + 1),
+            SyntaxKind::ERROR
+        );
+        assert_eq!(SyntaxKind::from(u16::MAX), SyntaxKind::ERROR);
+    }
+}
