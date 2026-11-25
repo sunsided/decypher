@@ -1112,3 +1112,20 @@ fn rt_juxtaposed_quantified_path_patterns() {
     roundtrip("MATCH p = (a) ((x WHERE x.v > 1)-[:KNOWS]->(y)){,3} ((u)-->(v)){2,} (c) RETURN p;");
     roundtrip("MATCH (a)-[r:R WHERE r.w > 1]->{1,3}(b) RETURN r;");
 }
+
+/// Round-trip `rt concat operator`: parse → serialise → re-parse must yield equal ASTs.
+///
+/// Unit: `ToCypher::to_cypher` / `parse`
+/// Precondition: Queries using `||` next to `+` and single `|` forms.
+/// Expectation: Re-parsed AST equals the original parsed AST; `||` binds
+///              like `+`, and single `|` keeps its meaning (#136).
+#[test]
+fn rt_concat_operator() {
+    roundtrip("RETURN 'a' || 'b' AS s;");
+    roundtrip("RETURN [1, 2] || [3] AS l;");
+    roundtrip("RETURN 'a' || 'b' + 'c', 1 + 2 || 3 * 4;");
+    roundtrip("RETURN [x IN [1, 2] | x || 'a'] AS l;");
+    roundtrip("MATCH (a)-[:A|B]->(b:C|D) RETURN a;");
+    let query = decypher::parse("RETURN 'a' || 'b' + 'c' AS s").unwrap();
+    check!(query.to_cypher().contains("'a' || 'b' + 'c'"));
+}

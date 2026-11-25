@@ -1368,6 +1368,7 @@ impl<'cfg> LoweringContext<'cfg> {
     fn lower_binary_op(&mut self, op: &BinaryOperator) -> BinaryOp {
         match op {
             BinaryOperator::Add => BinaryOp::Add,
+            BinaryOperator::Concat => BinaryOp::Concat,
             BinaryOperator::Subtract => BinaryOp::Subtract,
             BinaryOperator::Multiply => BinaryOp::Multiply,
             BinaryOperator::Divide => BinaryOp::Divide,

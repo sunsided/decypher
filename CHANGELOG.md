@@ -8,6 +8,13 @@ are marked **Breaking** below.
 
 ## [Unreleased]
 
+### Added
+
+- **Breaking:** the `||` concatenation operator (GQL, Cypher 5) for strings
+  and lists, with the precedence of `+`: `SyntaxKind::PIPE_PIPE`,
+  `ast::BinaryOperator::Concat` and `hir::BinaryOp::Concat`. Operands that
+  can never be a string or list are reported as `InvalidArgumentType` (#136).
+
 ## [0.3.0] - 2026-11-25
 
 Patterns keep everything they say: inline `WHERE`, path selectors such as

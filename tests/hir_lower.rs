@@ -1698,6 +1698,8 @@ fn analyze_checks_static_types_and_signatures() {
             &wrong_type,
         ),
         ("RETURN 1 + true", &wrong_type),
+        ("RETURN 1 || 'a'", &wrong_type),
+        ("RETURN 'a' || true", &wrong_type),
         ("MATCH (n) RETURN n + 1", &wrong_type),
         (
             "WITH 'a' AS n WHERE size(labels(n)) > 0 RETURN n",
@@ -1733,6 +1735,7 @@ fn analyze_checks_static_types_and_signatures() {
         "RETURN [x IN ['a', 'b'] WHERE x STARTS WITH 'a' | toUpper(x)] AS l",
         "MATCH (a) RETURN foo(a), apoc.text.join(['a'], ',') AS j",
         "CALL db.labels() YIELD label RETURN label",
+        "MATCH (n) RETURN 'a' || n.name, [1] || [2], 'a' || null, n.x || n.y",
     ] {
         analyze(query).unwrap_or_else(|e| panic!("query: {query}, got: {e}"));
         decypher::sema::analyze(&decypher::parse(query).unwrap())
@@ -2335,4 +2338,25 @@ fn analyze_rejects_invalid_quantified_patterns() {
         "sema got: {:?}",
         sema.errors
     );
+}
+
+/// `||` lowers to `BinaryOp::Concat`, with the precedence of `+` (#136).
+///
+/// Unit: `analyze()`
+/// Precondition: `'a' || 'b' + 'c'`.
+/// Expectation: A left-associative `Concat` over `'a'` and `'b'`, under an `Add`.
+#[test]
+fn concat_lowers_to_a_concat_binary_op() {
+    let hir = analyze("RETURN 'a' || 'b' + 'c' AS s").unwrap();
+    let ExprKind::Binary { op, left, .. } = find_first_project_expression(&hir) else {
+        panic!("expected a binary op");
+    };
+    check!(*op == BinaryOp::Add);
+    check!(matches!(
+        hir.arenas.expressions.get(*left).kind,
+        ExprKind::Binary {
+            op: BinaryOp::Concat,
+            ..
+        }
+    ));
 }

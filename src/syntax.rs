@@ -82,6 +82,8 @@ pub enum SyntaxKind {
     PERCENT,
     POW,
     PLUSEQ,
+    // `||`: string and list concatenation.
+    PIPE_PIPE,
     TILDE_EQ,
     TILDE,
     ARROW_LEFT,

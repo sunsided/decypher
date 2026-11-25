@@ -1068,6 +1068,7 @@ impl ToCypher for BinaryOperator {
     fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
         match self {
             BinaryOperator::Add => write!(w, "+"),
+            BinaryOperator::Concat => write!(w, "||"),
             BinaryOperator::Subtract => write!(w, "-"),
             BinaryOperator::Multiply => write!(w, "*"),
             BinaryOperator::Divide => write!(w, "/"),

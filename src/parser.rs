@@ -705,6 +705,7 @@ fn kind_to_str(kind: SyntaxKind) -> Cow<'static, str> {
         SyntaxKind::PERCENT => Cow::Borrowed("%"),
         SyntaxKind::POW => Cow::Borrowed("^"),
         SyntaxKind::PLUSEQ => Cow::Borrowed("+="),
+        SyntaxKind::PIPE_PIPE => Cow::Borrowed("||"),
         SyntaxKind::ARROW_LEFT => Cow::Borrowed("<-"),
         SyntaxKind::ARROW_RIGHT => Cow::Borrowed("->"),
         SyntaxKind::DASH => Cow::Borrowed("-"),
