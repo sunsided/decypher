@@ -20,12 +20,6 @@ are marked **Breaking** below.
   New `ast::RemoveItem::DynamicProperty` and
   `hir::ops::RemoveItem::DynamicProperty` (#135).
 
-### Fixed
-
-- A composed expression in a dynamic label or type lost everything after
-  its first operand: `MATCH (m:$(n.kind))` became `$(n)`, and
-  `[r:$('A' + 'B')]` became `$('A')`.
-
 ### Changed
 
 - **Breaking:** `range()` accepts arguments of any type during analysis. The
@@ -37,6 +31,12 @@ are marked **Breaking** below.
   output order, the `RETURN *` variables (sorted by name) first, then the
   written items. Consumers no longer need the CST to order a result table
   (#140).
+
+### Fixed
+
+- A composed expression in a dynamic label or type lost everything after
+  its first operand: `MATCH (m:$(n.kind))` became `$(n)`, and
+  `[r:$('A' + 'B')]` became `$('A')`.
 
 ## [0.3.0] - 2026-11-25
 
