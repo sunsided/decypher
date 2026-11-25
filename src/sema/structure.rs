@@ -29,7 +29,7 @@ use crate::ast::query::*;
 use crate::ast::visit::{
     Visit, walk_collect_subquery_expression, walk_count_subquery_expression, walk_create,
     walk_delete, walk_exists_expression, walk_expression, walk_function_invocation_expr,
-    walk_merge, walk_regular_query, walk_remove, walk_return, walk_set,
+    walk_merge, walk_pattern_part, walk_regular_query, walk_remove, walk_return, walk_set,
 };
 use std::borrow::Cow;
 
@@ -266,9 +266,17 @@ impl StructureChecker<'_> {
         self.read_only = outer;
     }
 
-    /// Checks the relationships of a `CREATE` (`directed`) or `MERGE`
-    /// pattern element.
-    fn check_created(&mut self, element: &PatternElement, directed: bool) {
+    /// Checks a `CREATE` (`directed`) or `MERGE` pattern part: it cannot
+    /// select paths or filter, and every relationship must be creatable.
+    fn check_created(&mut self, part: &PatternPart, directed: bool) {
+        if let Some(selector) = &part.selector {
+            self.errors.push(StructuralError::InvalidPattern {
+                reason: "CREATE and MERGE patterns cannot have a path selector",
+                span: selector.span,
+            });
+        }
+
+        let element = &part.anonymous.element;
         for predicate in inline_predicates(element) {
             self.errors.push(StructuralError::InvalidPattern {
                 reason: "CREATE and MERGE patterns cannot contain WHERE",
@@ -351,7 +359,7 @@ impl<'ast> Visit<'ast> for StructureChecker<'_> {
     fn visit_create(&mut self, node: &'ast Create) {
         self.report_update(node.span);
         for part in &node.pattern.parts {
-            self.check_created(&part.anonymous.element, true);
+            self.check_created(part, true);
         }
         let outer = std::mem::replace(&mut self.creating, true);
         walk_create(self, node);
@@ -360,7 +368,7 @@ impl<'ast> Visit<'ast> for StructureChecker<'_> {
 
     fn visit_merge(&mut self, node: &'ast Merge) {
         self.report_update(node.span);
-        self.check_created(&node.pattern.anonymous.element, false);
+        self.check_created(&node.pattern, false);
         walk_merge(self, node);
     }
 
@@ -384,6 +392,19 @@ impl<'ast> Visit<'ast> for StructureChecker<'_> {
     fn visit_remove(&mut self, node: &'ast Remove) {
         self.report_update(node.span);
         walk_remove(self, node);
+    }
+
+    fn visit_pattern_part(&mut self, node: &'ast PatternPart) {
+        if let Some(selector) = &node.selector
+            && !has_valid_path_count(selector.kind)
+        {
+            self.errors.push(StructuralError::InvalidPattern {
+                reason: "a path count must be a positive integer of at most 4294967295",
+                span: selector.span,
+            });
+        }
+
+        walk_pattern_part(self, node);
     }
 
     fn visit_node_pattern(&mut self, node: &'ast NodePattern) {
@@ -625,6 +646,17 @@ fn is_single_type(types: &LabelExpression) -> bool {
 }
 
 /// The relationship patterns of a pattern element, in order.
+/// Whether the path count of a selector, if it has one, is in
+/// `1..=u32::MAX`, the range the HIR keeps.
+fn has_valid_path_count(kind: PathSelectorKind) -> bool {
+    let count = match kind {
+        PathSelectorKind::Any { count } | PathSelectorKind::ShortestGroups { count } => count,
+        PathSelectorKind::Shortest { count } => Some(count),
+        _ => None,
+    };
+    count.is_none_or(|k| (1..=i64::from(u32::MAX)).contains(&k))
+}
+
 /// The inline `WHERE` predicates of the node and relationship patterns of
 /// `element`, in source order.
 fn inline_predicates(element: &PatternElement) -> Vec<&Expression> {

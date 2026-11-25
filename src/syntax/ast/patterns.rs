@@ -63,6 +63,61 @@ impl PatternPart {
     pub fn element(&self) -> Option<PatternElement> {
         self.anonymous_part().and_then(|a| a.element())
     }
+
+    /// The GQL path selector before the path (`ANY SHORTEST`, `SHORTEST 2`).
+    pub fn selector(&self) -> Option<PathSelector> {
+        child(&self.0)
+    }
+
+    /// The `shortestPath` or `allShortestPaths` name when the path is wrapped
+    /// in one of these functions.
+    pub fn shortest_path_function(&self) -> Option<SyntaxToken> {
+        child_token(&self.0, SyntaxKind::IDENT)
+    }
+}
+
+/// A GQL path selector: `ALL`, `ANY [k]`, `ALL SHORTEST`, `ANY SHORTEST`,
+/// `SHORTEST k` or `SHORTEST [k] GROUPS`, with an optional `PATH`/`PATHS`.
+#[derive(Clone, Debug)]
+pub struct PathSelector(SyntaxNode);
+
+impl AstNode for PathSelector {
+    fn can_cast(kind: SyntaxKind) -> bool {
+        kind == SyntaxKind::PATH_SELECTOR
+    }
+
+    fn cast(syntax: SyntaxNode) -> Option<Self> {
+        if Self::can_cast(syntax.kind()) {
+            Some(PathSelector(syntax))
+        } else {
+            None
+        }
+    }
+
+    fn syntax(&self) -> &SyntaxNode {
+        &self.0
+    }
+}
+
+impl PathSelector {
+    /// The keyword tokens of the selector (`ANY`, `SHORTEST`, `GROUPS`, …),
+    /// in source order. The optional `PATH`/`PATHS` is one of them.
+    pub fn words(&self) -> impl Iterator<Item = SyntaxToken> {
+        self.0
+            .children_with_tokens()
+            .filter_map(|e| e.into_token())
+            .filter(|t| {
+                matches!(
+                    t.kind(),
+                    SyntaxKind::KW_ALL | SyntaxKind::KW_ANY | SyntaxKind::IDENT
+                )
+            })
+    }
+
+    /// The path count (`k`), if the selector has one.
+    pub fn count(&self) -> Option<super::expressions::Literal> {
+        child(&self.0)
+    }
 }
 
 #[derive(Clone, Debug)]

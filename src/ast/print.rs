@@ -624,7 +624,40 @@ impl ToCypher for PatternPart {
             var.write_cypher(w)?;
             write!(w, " = ")?;
         }
-        self.anonymous.write_cypher(w)
+        let Some(selector) = &self.selector else {
+            return self.anonymous.write_cypher(w);
+        };
+        let function = match selector.kind {
+            PathSelectorKind::ShortestPathFunction => "shortestPath",
+            PathSelectorKind::AllShortestPathsFunction => "allShortestPaths",
+            kind => {
+                write_selector_prefix(w, kind)?;
+                return self.anonymous.write_cypher(w);
+            }
+        };
+        write!(w, "{function}(")?;
+        self.anonymous.write_cypher(w)?;
+        write!(w, ")")
+    }
+}
+
+/// Writes a GQL path selector and a space before the path (`ANY SHORTEST `).
+///
+/// The function forms (`shortestPath(…)`) are written by the caller, which
+/// wraps the path in them.
+fn write_selector_prefix(w: &mut dyn fmt::Write, kind: PathSelectorKind) -> fmt::Result {
+    match kind {
+        PathSelectorKind::ShortestPathFunction | PathSelectorKind::AllShortestPathsFunction => {
+            Ok(())
+        }
+        PathSelectorKind::All => write!(w, "ALL "),
+        PathSelectorKind::Any { count: None } => write!(w, "ANY "),
+        PathSelectorKind::Any { count: Some(k) } => write!(w, "ANY {k} "),
+        PathSelectorKind::AnyShortest => write!(w, "ANY SHORTEST "),
+        PathSelectorKind::AllShortest => write!(w, "ALL SHORTEST "),
+        PathSelectorKind::Shortest { count } => write!(w, "SHORTEST {count} "),
+        PathSelectorKind::ShortestGroups { count: None } => write!(w, "SHORTEST GROUPS "),
+        PathSelectorKind::ShortestGroups { count: Some(k) } => write!(w, "SHORTEST {k} GROUPS "),
     }
 }
 
