@@ -843,6 +843,8 @@ impl<'cfg> LoweringContext<'cfg> {
         } else {
             Vec::new()
         };
+        // `RETURN *` columns come first, in the (name) order `visible` gives.
+        let mut result_columns: Vec<BindingId> = visible.iter().map(|&(_, id)| id).collect();
         let outer = self.scope_stack.mark();
         let scope = self.scope_stack.push_scope(&mut self.arenas);
         let columns =
@@ -860,8 +862,9 @@ impl<'cfg> LoweringContext<'cfg> {
             outer,
         );
 
+        result_columns.extend(columns);
         self.current_part_ops.push(Operation::Return(ReturnOp {
-            items: Vec::new(), // already in Project/Aggregate
+            columns: result_columns,
             distinct: r.distinct,
         }));
         scope
@@ -1399,7 +1402,7 @@ impl<'cfg> LoweringContext<'cfg> {
                     ops.push(Operation::Filter(FilterOp { predicate: pred }));
                 }
                 ops.push(Operation::Return(ReturnOp {
-                    items: Vec::new(),
+                    columns: Vec::new(),
                     distinct: false,
                 }));
                 let out_scope = inner.scope_stack.push_scope(&mut inner.arenas);

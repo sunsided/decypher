@@ -385,8 +385,13 @@ pub struct UnionOp {
 /// `RETURN items` finalising operation.
 #[derive(Debug, Clone)]
 pub struct ReturnOp {
-    /// The projected return items.
-    pub items: Vec<ProjectionItem>,
+    /// The result columns, in output order: the variables `RETURN *` passes
+    /// through (sorted by name), then the written items. Each is an alias the
+    /// preceding operation binds: a `Project` item, or, when the `RETURN`
+    /// aggregates and no `Project` follows its `Aggregate`, a grouping key or
+    /// aggregate. An item computed around an aggregate (`n.x + count(*) AS s`)
+    /// is always a `Project` item over the `Aggregate`'s bindings.
+    pub columns: Vec<BindingId>,
     /// `true` when `RETURN DISTINCT`.
     pub distinct: bool,
 }
