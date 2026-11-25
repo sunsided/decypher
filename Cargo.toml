@@ -6,6 +6,7 @@ rust-version = "1.94"
 authors = ["Markus Mayer <widemeadows@gmail.com>", "Austin Poor <code@austinpoor.com>"]
 description = "A rust library for parsing openCypher queries."
 documentation = "https://docs.rs/decypher"
+homepage = "https://sunsided.github.io/decypher/"
 readme = "README.md"
 repository = "https://github.com/sunsided/decypher"
 license = "EUPL-1.2 OR MIT OR Apache-2.0"
