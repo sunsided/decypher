@@ -31,6 +31,25 @@ are marked **Breaking** below.
   `ShortestGroups(1)`. A path count of 0 or above 4294967295, and a selector
   in `CREATE` or `MERGE`, are `InvalidPattern` errors. The typed CST has a
   new `PATH_SELECTOR` node (#133).
+- **Breaking:** quantified path patterns keep their quantifier and their
+  place in the path. `MATCH (a) ((x)-[:KNOWS]->(y)){1,2} (c)` used to lower
+  the group once, as a third, unconnected pattern part. Now juxtaposed
+  elements are one pattern part: the AST has the new
+  `PatternElement::Sequence`, and in the typed CST they share one
+  `ANONYMOUS_PATTERN_PART`. The HIR has the new `GraphPattern::quantified`
+  (`QuantifiedPattern`: one repetition as an inner `GraphPattern`, `min`,
+  `max`, the outer nodes `left` and `right`, and the `GroupVariable`s that
+  map each singleton inside the group to its list outside), and
+  `PathPattern::quantified`. Quantified relationships (`-[:R]->{1,3}`) are no
+  longer lowered as one hop; they lower to a group of one relationship.
+  `+` and `*` now parse as quantifiers of groups and relationships. A group
+  variable that is bound already, a group without a relationship, a
+  quantifier with bounds in the wrong order, an upper bound of 0 or a bound
+  above 4294967295, a quantified pattern in `CREATE` or `MERGE`, and two
+  plain paths next to each other without a group between them are errors
+  (#134).
+- The quantifier `{,m}` meant `{m,}` (at least `m` instead of at most `m`)
+  (#134).
 
 ### Added
 

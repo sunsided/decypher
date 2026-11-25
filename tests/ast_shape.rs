@@ -905,3 +905,79 @@ fn operator_precedence_follows_opencypher() {
     };
     check!(matches!(*operators[0].1, Expression::IsNull { .. }));
 }
+
+/// Collects the quantifiers and the juxtaposed sequences of a query.
+#[derive(Default)]
+struct PatternCollector {
+    /// The `(start, end)` bounds of every quantifier, in source order.
+    quantifiers: Vec<(Option<i64>, Option<i64>)>,
+    /// The length of every `PatternElement::Sequence`, in source order.
+    sequences: Vec<usize>,
+}
+
+impl<'ast> decypher::ast::visit::Visit<'ast> for PatternCollector {
+    fn visit_quantifier(&mut self, node: &'ast decypher::ast::pattern::Quantifier) {
+        self.quantifiers.push((node.start, node.end));
+    }
+
+    fn visit_pattern_element(&mut self, node: &'ast decypher::ast::pattern::PatternElement) {
+        if let decypher::ast::pattern::PatternElement::Sequence(elements) = node {
+            self.sequences.push(elements.len());
+        }
+        decypher::ast::visit::walk_pattern_element(self, node);
+    }
+}
+
+/// Parses `query` and collects its quantifiers and sequences.
+fn collect_patterns(query: &str) -> PatternCollector {
+    use decypher::ast::visit::Visit;
+    let parsed = parse(query).unwrap_or_else(|e| panic!("query: {query}, got: {e}"));
+    let mut collector = PatternCollector::default();
+    collector.visit_query(&parsed);
+    collector
+}
+
+/// Every quantifier spelling gives the right bounds (#134); `{,m}` used to
+/// give `{m,}`.
+///
+/// Unit: `parse()` / AST `Quantifier`
+/// Precondition: One query per quantifier spelling.
+/// Expectation: The bounds match the spelling.
+#[test]
+fn test_quantifier_bounds() {
+    for (quantifier, bounds) in [
+        ("{2}", (Some(2), Some(2))),
+        ("{2,}", (Some(2), None)),
+        ("{,3}", (None, Some(3))),
+        ("{2,3}", (Some(2), Some(3))),
+        ("+", (Some(1), None)),
+        ("*", (Some(0), None)),
+    ] {
+        for query in [
+            format!("MATCH (a) ((x)-->(y)){quantifier} (b) RETURN a"),
+            format!("MATCH (a)-->{quantifier}(b) RETURN a"),
+        ] {
+            check!(
+                collect_patterns(&query).quantifiers == [bounds],
+                "query: {query}"
+            );
+        }
+    }
+}
+
+/// Juxtaposed elements form one pattern part (#134).
+///
+/// Unit: `parse()` / AST `PatternElement::Sequence`
+/// Precondition: A path of a node, a group and a node, and a comma-separated
+///               pattern.
+/// Expectation: The first is one sequence of three elements; the second has
+///              no sequence.
+#[test]
+fn test_juxtaposed_elements_form_one_part() {
+    check!(collect_patterns("MATCH (a) ((x)-->(y)){2} (c) RETURN c").sequences == [3]);
+    check!(
+        collect_patterns("MATCH (a), (b) RETURN a")
+            .sequences
+            .is_empty()
+    );
+}

@@ -95,8 +95,8 @@ pub struct AnonymousPatternPart {
     pub element: PatternElement,
 }
 
-/// A pattern element: a node-anchored path, a parenthesized group, or a
-/// quantified subpattern.
+/// A pattern element: a node-anchored path, a parenthesized group, a
+/// quantified subpattern, or a sequence of juxtaposed elements.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum PatternElement {
@@ -118,6 +118,12 @@ pub enum PatternElement {
         /// Byte-offset span of the quantified pattern.
         span: Span,
     },
+    /// Juxtaposed elements that form one path:
+    /// `(a) ((x)-[:R]->(y)){1,3} (b)`.
+    ///
+    /// The last node of each element is the first node of the next one.
+    /// Always has at least two elements; a single element is not wrapped.
+    Sequence(Vec<PatternElement>),
 }
 
 /// A node pattern: `(variable:Label {properties})`.

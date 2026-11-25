@@ -696,6 +696,15 @@ impl ToCypher for PatternElement {
                 }
                 quantifier.write_cypher(w)
             }
+            PatternElement::Sequence(elements) => {
+                for (i, element) in elements.iter().enumerate() {
+                    if i > 0 {
+                        write!(w, " ")?;
+                    }
+                    element.write_cypher(w)?;
+                }
+                Ok(())
+            }
         }
     }
 }

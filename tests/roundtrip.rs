@@ -1100,3 +1100,15 @@ fn rt_path_selectors() {
         roundtrip(query);
     }
 }
+
+/// Round-trip `rt juxtaposed quantified path patterns`: parse → serialise → re-parse must yield equal ASTs.
+///
+/// Unit: `ToCypher::to_cypher` / `parse`
+/// Precondition: Input Cypher is syntactically valid.
+/// Expectation: Re-parsed AST equals the original parsed AST; the
+///              juxtaposed elements stay one path (#134).
+#[test]
+fn rt_juxtaposed_quantified_path_patterns() {
+    roundtrip("MATCH p = (a) ((x WHERE x.v > 1)-[:KNOWS]->(y)){,3} ((u)-->(v)){2,} (c) RETURN p;");
+    roundtrip("MATCH (a)-[r:R WHERE r.w > 1]->{1,3}(b) RETURN r;");
+}

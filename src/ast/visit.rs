@@ -1322,6 +1322,11 @@ pub fn walk_pattern_element<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Pattern
             v.visit_pattern_element(element);
             v.visit_quantifier(quantifier);
         }
+        PatternElement::Sequence(elements) => {
+            for element in elements {
+                v.visit_pattern_element(element);
+            }
+        }
     }
 }
 
@@ -1946,6 +1951,11 @@ pub fn walk_pattern_element_mut<V: VisitMut>(v: &mut V, node: &mut PatternElemen
         } => {
             v.visit_pattern_element(element);
             v.visit_quantifier(quantifier);
+        }
+        PatternElement::Sequence(elements) => {
+            for element in elements {
+                v.visit_pattern_element(element);
+            }
         }
     }
 }

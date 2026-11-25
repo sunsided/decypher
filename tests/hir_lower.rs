@@ -2150,3 +2150,189 @@ fn analyze_rejects_invalid_path_selectors() {
         );
     }
 }
+
+/// Returns the pattern of the first `MATCH` of a query that must be valid.
+fn first_match_pattern(query: &str) -> decypher::hir::GraphPattern {
+    let hir = analyze(query).unwrap_or_else(|e| panic!("query: {query}, got: {e}"));
+    find_match_operation(&hir.parts[0].operations)
+        .pattern
+        .clone()
+}
+
+/// A quantified path pattern keeps its quantifier and stays connected to
+/// its neighbours (#134).
+///
+/// Unit: `analyze()`
+/// Precondition: The reproduction of #134.
+/// Expectation: One path through `a` and `c`, joined by one group that
+///              repeats `(x)-[:KNOWS]->(y)` one or two times. `x` and `y`
+///              are group variables.
+#[test]
+fn analyze_keeps_quantified_path_patterns() {
+    let hir =
+        analyze("MATCH (a) ((x)-[:KNOWS]->(y)){1,2} (c) RETURN c, x").expect("query is valid");
+    let pattern = &find_match_operation(&hir.parts[0].operations).pattern;
+
+    check!(pattern.nodes.len() == 2);
+    check!(pattern.relationships.is_empty());
+    let [path] = pattern.paths.as_slice() else {
+        panic!("expected one path, got {:?}", pattern.paths);
+    };
+    check!(path.nodes == [0, 1]);
+    check!(path.quantified == [0]);
+
+    let group = &pattern.quantified[0];
+    check!(group.min == 1);
+    check!(group.max == Some(2));
+    check!((group.left, group.right) == (0, 1));
+    check!(group.inner.nodes.len() == 2);
+    check!(group.inner.relationships.len() == 1);
+    check!(group.inner.paths.len() == 1);
+
+    let names: Vec<_> = group
+        .group_variables
+        .iter()
+        .map(|g| {
+            check!(g.singleton != g.list);
+            hir.arenas.bindings.get(g.list).name.clone()
+        })
+        .collect();
+    check!(names == ["x", "y"]);
+}
+
+/// Quantifier spellings and quantified relationships lower to groups (#134).
+///
+/// Unit: `analyze()`
+/// Precondition: `+`, `*`, `{n}`, `{,m}` and quantified relationships.
+/// Expectation: The group bounds follow the quantifier, and a quantified
+///              relationship is a group of one relationship between two
+///              anonymous nodes.
+#[test]
+fn analyze_lowers_quantifiers_and_quantified_relationships() {
+    for (query, min, max) in [
+        ("MATCH (a) ((x)-->(y))+ (b) RETURN b", 1, None),
+        ("MATCH (a) ((x)-->(y))* (b) RETURN b", 0, None),
+        ("MATCH (a) ((x)-->(y)){3} (b) RETURN b", 3, Some(3)),
+        ("MATCH (a) ((x)-->(y)){,3} (b) RETURN b", 0, Some(3)),
+        ("MATCH (a) ((x)-->(y)){2,} (b) RETURN b", 2, None),
+        ("MATCH (a)-[:R]->{1,3}(b) RETURN b", 1, Some(3)),
+        ("MATCH (a)-[:R]->+(b) RETURN b", 1, None),
+        ("MATCH (a)-[:R]->*(b) RETURN b", 0, None),
+    ] {
+        let pattern = first_match_pattern(query);
+        check!(pattern.relationships.is_empty(), "query: {query}");
+        let [group] = pattern.quantified.as_slice() else {
+            panic!(
+                "query: {query}, expected one group, got {:?}",
+                pattern.quantified
+            );
+        };
+        check!((group.min, group.max) == (min, max), "query: {query}");
+        check!((group.left, group.right) == (0, 1), "query: {query}");
+    }
+
+    let pattern = first_match_pattern("MATCH (a)-[r:R WHERE r.w > 1]->{1,3}(b) RETURN r");
+    let inner = &pattern.quantified[0].inner;
+    check!(inner.nodes.iter().all(|n| n.binding.is_none()));
+    check!(inner.relationships[0].predicate.is_some());
+    check!(pattern.quantified[0].group_variables.len() == 1);
+}
+
+/// Groups at the ends of a path and next to each other get anonymous
+/// boundary nodes (#134).
+///
+/// Unit: `analyze()`
+/// Precondition: A path that starts with a group, and two neighbouring
+///               groups.
+/// Expectation: Each group joins two distinct outer nodes, and neighbouring
+///              groups share the node between them.
+#[test]
+fn analyze_joins_neighbouring_quantified_groups() {
+    let pattern = first_match_pattern("MATCH ((x)-->(y)){2} RETURN x");
+    check!(pattern.nodes.len() == 2);
+    check!((pattern.quantified[0].left, pattern.quantified[0].right) == (0, 1));
+
+    let pattern = first_match_pattern("MATCH (a) ((x)-->(y)){2} ((u)-->(v))+ (b) RETURN u");
+    check!(pattern.nodes.len() == 3);
+    check!(pattern.paths[0].nodes == [0, 1, 2]);
+    check!(pattern.paths[0].quantified == [0, 1]);
+    check!((pattern.quantified[0].left, pattern.quantified[0].right) == (0, 1));
+    check!((pattern.quantified[1].left, pattern.quantified[1].right) == (1, 2));
+}
+
+/// Inline predicates inside a group stay in the group (#134).
+///
+/// Unit: `analyze()`
+/// Precondition: A group with an inline predicate on its first node.
+/// Expectation: The inner node has the predicate, the outer nodes have none.
+#[test]
+fn analyze_keeps_inline_predicates_in_quantified_groups() {
+    let pattern = first_match_pattern("MATCH (a) ((x WHERE x.v > a.v)-->(y))+ (b) RETURN b");
+    check!(pattern.nodes.iter().all(|n| n.predicate.is_none()));
+    check!(pattern.quantified[0].inner.nodes[0].predicate.is_some());
+}
+
+/// Invalid quantified patterns are reported (#134).
+///
+/// Unit: `analyze()` / `sema::analyze()`
+/// Precondition: One query per rule.
+/// Expectation: Both analyzers report the error kind.
+#[test]
+fn analyze_rejects_invalid_quantified_patterns() {
+    use decypher::ErrorKind;
+    let invalid = |query: &str| -> Vec<ErrorKind> {
+        let err = analyze(query).unwrap_err();
+        let sema = decypher::sema::analyze(&decypher::parse(query).unwrap()).unwrap_err();
+        vec![err.kind, sema.errors[0].kind.clone()]
+    };
+    for (query, reason) in [
+        (
+            "MATCH (a)-->(b) (c) RETURN a",
+            "juxtaposed path patterns need a quantified path pattern between them",
+        ),
+        (
+            "CREATE (a) ((x)-[:R]->(y)){2} (b)",
+            "CREATE and MERGE patterns cannot have a quantified path pattern",
+        ),
+        (
+            "MATCH ((x)){2} RETURN x",
+            "a quantified path pattern needs at least one relationship",
+        ),
+        (
+            "MATCH (a) ((x)-->(y)){3,1} (b) RETURN a",
+            "a quantifier's lower bound cannot be above its upper bound",
+        ),
+        (
+            "MATCH (a)-->{0}(b) RETURN a",
+            "a quantifier's upper bound must be at least 1",
+        ),
+        (
+            "MATCH (a) ((x)-->(y)){4294967296} (b) RETURN a",
+            "a quantifier bound must be at most 4294967295",
+        ),
+    ] {
+        for kind in invalid(query) {
+            check!(
+                kind == ErrorKind::InvalidPattern { reason },
+                "query: {query}"
+            );
+        }
+    }
+    // A group variable cannot refer to a variable bound before. For `r`,
+    // `analyze` reports the type conflict first.
+    let err = analyze("MATCH (x) MATCH (a) ((x)-->(y))+ (b) RETURN b").unwrap_err();
+    check!(
+        matches!(err.kind, ErrorKind::RedeclaredVariable { .. }),
+        "got: {err}"
+    );
+    let query = "MATCH ()-[r]->() MATCH (a)-[r]->+(b) RETURN b";
+    check!(analyze(query).is_err());
+    let sema = decypher::sema::analyze(&decypher::parse(query).unwrap()).unwrap_err();
+    check!(
+        sema.errors
+            .iter()
+            .any(|e| matches!(e.kind, ErrorKind::RedeclaredVariable { .. })),
+        "sema got: {:?}",
+        sema.errors
+    );
+}

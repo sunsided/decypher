@@ -650,8 +650,15 @@ fn parse_label_atom(
     p.builder.finish_node();
 }
 
+/// Parses a quantifier into a `RELATIONSHIP_QUANTIFIER` node: `{n}`,
+/// `{n,m}`, `{n,}`, `{,m}`, or the shorthands `+` (`{1,}`) and `*` (`{0,}`).
 fn parse_relationship_quantifier(p: &mut Parser) {
     p.start_node(SyntaxKind::RELATIONSHIP_QUANTIFIER);
+    if p.at(SyntaxKind::PLUS) || p.at(SyntaxKind::STAR) {
+        p.bump();
+        p.builder.finish_node();
+        return;
+    }
     p.bump();
     p.skip_trivia();
     let mut saw_bound = false;
@@ -2154,12 +2161,6 @@ fn parse_pattern(p: &mut Parser) {
         parse_pattern_part(p);
         p.skip_trivia();
     }
-    // Neo4j quantified path patterns can concatenate pattern parts without commas,
-    // e.g. (:A) ((a)-[:R]->(b)){1,3} (:B)
-    while p.at(SyntaxKind::L_PAREN) {
-        parse_pattern_part(p);
-        p.skip_trivia();
-    }
     p.builder.finish_node();
 }
 
@@ -2268,9 +2269,17 @@ fn parse_selector_count(p: &mut Parser) {
     p.skip_trivia();
 }
 
+/// Parses a path: one pattern element, or several juxtaposed ones
+/// (`(:A) ((a)-[:R]->(b)){1,3} (:B)`). Juxtaposed elements stay in one
+/// `ANONYMOUS_PATTERN_PART`, so they form one path.
 fn parse_anonymous_pattern_part(p: &mut Parser) {
     p.start_node(SyntaxKind::ANONYMOUS_PATTERN_PART);
     parse_pattern_element(p);
+    p.skip_trivia();
+    while p.at(SyntaxKind::L_PAREN) {
+        parse_pattern_element(p);
+        p.skip_trivia();
+    }
     p.builder.finish_node();
 }
 
@@ -2286,11 +2295,12 @@ fn parse_pattern_element(p: &mut Parser) {
 fn parse_pattern_element_unguarded(p: &mut Parser) {
     let checkpoint = p.checkpoint();
     p.start_node(SyntaxKind::PATTERN_ELEMENT);
+    let mut is_nested = false;
     if p.at(SyntaxKind::L_PAREN) {
         // Check if this is a parenthesized PatternElement: ((a)-[r]->(b))
         // or just a regular node pattern: (a)-[r]->(b)
         // Use the same heuristic as parse_atom
-        let is_nested = looks_like_nested_pattern_element(p);
+        is_nested = looks_like_nested_pattern_element(p);
         if is_nested {
             // ((a)-[r]->(b)) — outer parens wrapping inner PatternElement
             p.bump(); // outer (
@@ -2323,8 +2333,9 @@ fn parse_pattern_element_unguarded(p: &mut Parser) {
             Expected::Category(Cow::Borrowed("node pattern")),
         ]);
     }
-    // Optional quantified postfix on the whole element: {m,n}
-    if p.at(SyntaxKind::L_BRACE) {
+    // Optional quantified postfix on the whole element: {m,n}; `+` and `*`
+    // only after a parenthesized group, as in `((a)-->(b))+`.
+    if p.at(SyntaxKind::L_BRACE) || (is_nested && at_quantifier(p)) {
         p.builder.finish_node();
         p.start_node_at(checkpoint, SyntaxKind::QUANTIFIED_PATH_PATTERN);
         parse_relationship_quantifier(p);
@@ -2376,11 +2387,17 @@ fn parse_relationship_pattern(p: &mut Parser) {
         p.bump();
         p.skip_trivia();
     }
-    if p.at(SyntaxKind::L_BRACE) {
+    if at_quantifier(p) {
         parse_relationship_quantifier(p);
         p.skip_trivia();
     }
     p.builder.finish_node();
+}
+
+/// Whether the parser is at a quantifier of a relationship or a path
+/// pattern: `{m,n}`, `+` or `*`.
+fn at_quantifier(p: &Parser) -> bool {
+    p.at(SyntaxKind::L_BRACE) || p.at(SyntaxKind::PLUS) || p.at(SyntaxKind::STAR)
 }
 
 fn parse_relationship_detail(p: &mut Parser) {

@@ -145,6 +145,12 @@ impl AnonymousPatternPart {
     pub fn element(&self) -> Option<PatternElement> {
         child(&self.0)
     }
+
+    /// All pattern elements of the path, in source order. There is more
+    /// than one when elements are juxtaposed (`(a) ((x)-->(y)){2} (b)`).
+    pub fn elements(&self) -> AstChildren<PatternElement> {
+        children(&self.0)
+    }
 }
 
 #[derive(Clone, Debug)]
