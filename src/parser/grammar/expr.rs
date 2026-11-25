@@ -2178,6 +2178,10 @@ fn parse_pattern_part(p: &mut Parser) {
             p.skip_trivia();
         }
     }
+    if at_path_selector(p) {
+        parse_path_selector(p);
+        p.skip_trivia();
+    }
     // shortestPath(...) / allShortestPaths(...) wrappers around a pattern element.
     if (p.at_bare_word("shortestPath") || p.at_bare_word("allShortestPaths"))
         && p.peek_next_non_trivia() == Some(SyntaxKind::L_PAREN)
@@ -2193,6 +2197,75 @@ fn parse_pattern_part(p: &mut Parser) {
         parse_anonymous_pattern_part(p);
     }
     p.builder.finish_node();
+}
+
+/// Whether the parser is at a GQL path selector (`ANY SHORTEST`,
+/// `SHORTEST 2 GROUPS`, `ALL`, …) at the start of a pattern part.
+///
+/// `ANY` and `ALL` are keywords and cannot start a node pattern. `SHORTEST`
+/// is a selector only before a count or `GROUPS`, so a variable called
+/// `shortest` still parses.
+fn at_path_selector(p: &Parser) -> bool {
+    if p.at(SyntaxKind::KW_ANY) || p.at(SyntaxKind::KW_ALL) {
+        return true;
+    }
+    p.at_bare_word("shortest")
+        && matches!(
+            p.peek_next_non_trivia(),
+            Some(SyntaxKind::INTEGER | SyntaxKind::IDENT)
+        )
+}
+
+/// Parses a GQL path selector into a `PATH_SELECTOR` node:
+///
+/// - `ALL`, `ANY [k]`
+/// - `ALL SHORTEST`, `ANY SHORTEST`
+/// - `SHORTEST k`, `SHORTEST [k] GROUP[S]`
+///
+/// Each form can end with `PATH` or `PATHS`. The count is a plain
+/// `INTEGER` token.
+fn parse_path_selector(p: &mut Parser) {
+    p.start_node(SyntaxKind::PATH_SELECTOR);
+    if p.at(SyntaxKind::KW_ALL) || p.at(SyntaxKind::KW_ANY) {
+        let any = p.at(SyntaxKind::KW_ANY);
+        p.bump();
+        p.skip_trivia();
+        if p.at_bare_word("shortest") {
+            p.bump();
+            p.skip_trivia();
+        } else if any && p.at(SyntaxKind::INTEGER) {
+            parse_selector_count(p);
+        }
+    } else {
+        // `SHORTEST`, checked by `at_path_selector`.
+        p.bump();
+        p.skip_trivia();
+        let counted = p.at(SyntaxKind::INTEGER);
+        if counted {
+            parse_selector_count(p);
+        }
+        if p.at_bare_word("groups") || p.at_bare_word("group") {
+            p.bump();
+            p.skip_trivia();
+        } else if !counted {
+            p.error_here_with_help(
+                &[Expected::Category(Cow::Borrowed("path count"))],
+                "use `SHORTEST k` or `SHORTEST [k] GROUPS`",
+            );
+        }
+    }
+    if p.at_bare_word("path") || p.at_bare_word("paths") {
+        p.bump();
+    }
+    p.builder.finish_node();
+}
+
+/// Parses the path count of a path selector into a `NUMBER_LITERAL` node.
+fn parse_selector_count(p: &mut Parser) {
+    p.start_node(SyntaxKind::NUMBER_LITERAL);
+    p.bump();
+    p.builder.finish_node();
+    p.skip_trivia();
 }
 
 fn parse_anonymous_pattern_part(p: &mut Parser) {

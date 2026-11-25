@@ -1076,3 +1076,27 @@ fn rt_inline_pattern_where() {
         "MATCH (n:Person {x: 1} WHERE n.age > 25)-[r:KNOWS WHERE r.since > 2020]->(m) RETURN m;",
     );
 }
+
+/// Round-trip `rt path selectors`: parse → serialise → re-parse must yield equal ASTs.
+///
+/// Unit: `ToCypher::to_cypher` / `parse`
+/// Precondition: Input Cypher is syntactically valid.
+/// Expectation: Re-parsed AST equals the original parsed AST for every
+///              selector spelling (#133).
+#[test]
+fn rt_path_selectors() {
+    for query in [
+        "MATCH p = shortestPath((a)-[*]-(c)) RETURN p;",
+        "MATCH p = allShortestPaths((a)-[*]-(c)) RETURN p;",
+        "MATCH p = ALL (a)-[*]-(c) RETURN p;",
+        "MATCH p = ANY (a)-[*]-(c) RETURN p;",
+        "MATCH p = ANY 2 (a)-[*]-(c) RETURN p;",
+        "MATCH p = ANY SHORTEST (a)-[*]-(c) RETURN p;",
+        "MATCH p = ALL SHORTEST (a)-[*]-(c) RETURN p;",
+        "MATCH p = SHORTEST 3 (a)-[*]-(c) RETURN p;",
+        "MATCH p = SHORTEST GROUPS (a)-[*]-(c) RETURN p;",
+        "MATCH p = SHORTEST 2 GROUPS (a)-[*]-(c) RETURN p;",
+    ] {
+        roundtrip(query);
+    }
+}

@@ -18,6 +18,19 @@ are marked **Breaking** below.
   The predicate can use every variable of its pattern. Name resolution, the
   aggregate check and the boolean type check apply to it like to a clause
   `WHERE` (#132).
+- **Breaking:** `shortestPath(…)` and `allShortestPaths(…)` are no longer
+  dropped silently, and the GQL path selectors parse: `ALL`, `ANY [k]`,
+  `ANY SHORTEST`, `ALL SHORTEST`, `SHORTEST k`, `SHORTEST [k] GROUPS`, each
+  with an optional `PATH`/`PATHS`. The AST keeps the spelling in the new
+  `PatternPart::selector` (`PathSelector`, `PathSelectorKind`). In the HIR,
+  `GraphPattern::path_bindings` (`PathBinding`) is replaced by
+  `GraphPattern::paths` (`PathPattern`): one entry per pattern part, with an
+  optional path variable and a `PathSelector` (`All`, `Any(k)`,
+  `Shortest(k)`, `ShortestGroups(k)`). `shortestPath` and `ANY SHORTEST`
+  lower to `Shortest(1)`; `allShortestPaths` and `ALL SHORTEST` to
+  `ShortestGroups(1)`. A path count of 0 or above 4294967295, and a selector
+  in `CREATE` or `MERGE`, are `InvalidPattern` errors. The typed CST has a
+  new `PATH_SELECTOR` node (#133).
 
 ### Added
 

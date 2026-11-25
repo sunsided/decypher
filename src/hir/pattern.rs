@@ -5,20 +5,27 @@
 //! This representation is easier for an execution engine to process than the
 //! recursive AST form.
 
+use std::num::NonZeroU32;
+
 use super::arena::{BindingId, ExprId, LabelId, RelTypeId};
 
 /// A normalised, flattened graph pattern.
 ///
 /// Nodes and relationships are stored in separate `Vec`s and cross-referenced
-/// by index. All path bindings from the original pattern are also captured.
+/// by index. Each comma-separated part of the original pattern is one entry of
+/// `paths`, with its path variable and path selector.
 #[derive(Debug, Clone)]
 pub struct GraphPattern {
     /// Flat list of node patterns.
     pub nodes: Vec<NodePattern>,
     /// Flat list of relationship patterns (each references two node indices).
     pub relationships: Vec<RelationshipPattern>,
-    /// Path-variable bindings that span subsets of the node/relationship lists.
-    pub path_bindings: Vec<PathBinding>,
+    /// The pattern parts, in source order. Each node and relationship belongs
+    /// to exactly one of them.
+    ///
+    /// The patterns of pattern expressions and pattern comprehensions have
+    /// no parts and leave this empty.
+    pub paths: Vec<PathPattern>,
 }
 
 impl GraphPattern {
@@ -27,7 +34,7 @@ impl GraphPattern {
         Self {
             nodes: Vec::new(),
             relationships: Vec::new(),
-            path_bindings: Vec::new(),
+            paths: Vec::new(),
         }
     }
 }
@@ -101,15 +108,37 @@ pub struct RelationshipPattern {
     pub predicate: Option<ExprId>,
 }
 
-/// A path variable that captures a sub-path in the pattern.
+/// One comma-separated part of a pattern: a path, with its optional path
+/// variable and its path selector.
 #[derive(Debug, Clone)]
-pub struct PathBinding {
-    /// The binding that receives the path value.
-    pub binding: BindingId,
+pub struct PathPattern {
+    /// The path variable (`p` in `p = (a)-->(b)`), or `None` when the part
+    /// has none.
+    pub binding: Option<BindingId>,
+    /// Which of the matching paths to keep.
+    pub selector: PathSelector,
     /// Ordered node indices that form the path.
     pub nodes: Vec<NodeIndex>,
     /// Ordered relationship indices that form the path.
     pub relationships: Vec<RelIndex>,
+}
+
+/// Which of the paths that match a pattern part to keep.
+///
+/// The spellings of the same selection lower to one variant: `shortestPath`
+/// and `ANY SHORTEST` are `Shortest(1)`, `allShortestPaths` and
+/// `ALL SHORTEST` are `ShortestGroups(1)`, and `ANY` is `Any(1)`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PathSelector {
+    /// All matching paths: a plain pattern, or `ALL`.
+    All,
+    /// Any `k` matching paths (`ANY k`).
+    Any(NonZeroU32),
+    /// The `k` shortest paths (`SHORTEST k`). Paths of equal length are
+    /// chosen in no particular order.
+    Shortest(NonZeroU32),
+    /// All paths of the `k` shortest lengths (`SHORTEST k GROUPS`).
+    ShortestGroups(NonZeroU32),
 }
 
 /// Traversal direction of a relationship in the normalised pattern.

@@ -868,6 +868,7 @@ fn build_pattern(p: Pattern) -> Result<ast_c::Pattern> {
 fn build_pattern_part(pp: PatternPart) -> Result<ast_c::PatternPart> {
     let sp = span_of(pp.syntax());
     let variable = pp.variable().map(build_top_variable);
+    let selector = build_path_selector(&pp)?;
     let anonymous = pp
         .anonymous_part()
         .map(build_anonymous_pattern_part)
@@ -875,9 +876,65 @@ fn build_pattern_part(pp: PatternPart) -> Result<ast_c::PatternPart> {
         .ok_or_else(|| internal("missing anonymous part", sp))?;
     Ok(ast_c::PatternPart {
         variable,
+        selector,
         anonymous,
         span: sp,
     })
+}
+
+/// Builds the path selector of a pattern part: the `shortestPath(…)` or
+/// `allShortestPaths(…)` wrapper, or a GQL selector such as `ANY SHORTEST`.
+fn build_path_selector(pp: &PatternPart) -> Result<Option<ast_c::PathSelector>> {
+    use ast_c::PathSelectorKind as K;
+
+    if let Some(name) = pp.shortest_path_function() {
+        let kind = if name.text().eq_ignore_ascii_case("shortestPath") {
+            K::ShortestPathFunction
+        } else {
+            K::AllShortestPathsFunction
+        };
+        return Ok(Some(ast_c::PathSelector {
+            kind,
+            span: token_span(&name),
+        }));
+    }
+
+    let Some(selector) = pp.selector() else {
+        return Ok(None);
+    };
+    let span = span_of(selector.syntax());
+    let count = selector
+        .count()
+        .map(|lit| build_selector_count(lit, span))
+        .transpose()?;
+    let words: Vec<String> = selector
+        .words()
+        .map(|w| w.text().to_ascii_uppercase())
+        .filter(|w| w != "PATH" && w != "PATHS")
+        .collect();
+    let words: Vec<&str> = words.iter().map(String::as_str).collect();
+    let kind = match (words.as_slice(), count) {
+        (["ALL"], None) => K::All,
+        (["ANY"], count) => K::Any { count },
+        (["ALL", "SHORTEST"], None) => K::AllShortest,
+        (["ANY", "SHORTEST"], None) => K::AnyShortest,
+        (["SHORTEST"], Some(count)) => K::Shortest { count },
+        (["SHORTEST", "GROUP" | "GROUPS"], count) => K::ShortestGroups { count },
+        _ => return Err(internal("malformed path selector", span)),
+    };
+
+    Ok(Some(ast_c::PathSelector { kind, span }))
+}
+
+/// Builds the path count of a path selector (`k` in `SHORTEST k`).
+fn build_selector_count(lit: Literal, span: Span) -> Result<i64> {
+    match build_literal(lit)? {
+        ast_c::Expression::Literal(ast_c::Literal::Number {
+            value: ast_c::NumberLiteral::Integer(count),
+            ..
+        }) => Ok(count),
+        _ => Err(internal("expected an integer path count", span)),
+    }
 }
 
 fn build_anonymous_pattern_part(app: AnonymousPatternPart) -> Result<ast_c::AnonymousPatternPart> {
@@ -2224,6 +2281,7 @@ fn build_pattern_or_subquery(
         }
         parts.push(ast_c::PatternPart {
             variable: None,
+            selector: None,
             anonymous: ast_c::AnonymousPatternPart {
                 element: ast_c::PatternElement::Path {
                     start: build_node_pattern(node)?,

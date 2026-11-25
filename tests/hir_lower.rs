@@ -2036,3 +2036,117 @@ fn analyze_checks_inline_pattern_predicates() {
         "got: {err}"
     );
 }
+
+/// Path selectors reach the HIR (#133): every spelling lowers to its meaning.
+///
+/// Unit: `analyze()`
+/// Precondition: One `MATCH` per selector spelling.
+/// Expectation: The pattern part carries the normalised selector, and a part
+///              without a selector selects all paths.
+#[test]
+fn analyze_lowers_path_selectors() {
+    use decypher::hir::PathSelector;
+    use std::num::NonZeroU32;
+
+    let k = |n: u32| NonZeroU32::new(n).expect("test counts are positive");
+    for (query, expected) in [
+        ("MATCH p = (a)-[*]-(c) RETURN p", PathSelector::All),
+        ("MATCH p = ALL (a)-[*]-(c) RETURN p", PathSelector::All),
+        (
+            "MATCH p = ANY (a)-[*]-(c) RETURN p",
+            PathSelector::Any(k(1)),
+        ),
+        (
+            "MATCH p = ANY 3 PATHS (a)-[*]-(c) RETURN p",
+            PathSelector::Any(k(3)),
+        ),
+        (
+            "MATCH p = shortestPath((a)-[*]-(c)) RETURN p",
+            PathSelector::Shortest(k(1)),
+        ),
+        (
+            "MATCH p = ANY SHORTEST (a)-[*]-(c) RETURN p",
+            PathSelector::Shortest(k(1)),
+        ),
+        (
+            "MATCH p = SHORTEST 2 (a)-[*]-(c) RETURN p",
+            PathSelector::Shortest(k(2)),
+        ),
+        (
+            "MATCH p = allShortestPaths((a)-[*]-(c)) RETURN p",
+            PathSelector::ShortestGroups(k(1)),
+        ),
+        (
+            "MATCH p = ALL SHORTEST (a)-[*]-(c) RETURN p",
+            PathSelector::ShortestGroups(k(1)),
+        ),
+        (
+            "MATCH p = SHORTEST 4 GROUPS (a)-[*]-(c) RETURN p",
+            PathSelector::ShortestGroups(k(4)),
+        ),
+        (
+            "MATCH SHORTEST GROUPS (a)-[*]-(c) RETURN a",
+            PathSelector::ShortestGroups(k(1)),
+        ),
+    ] {
+        let hir = analyze(query).unwrap_or_else(|e| panic!("query: {query}, got: {e}"));
+        let m = find_match_operation(&hir.parts[0].operations);
+        check!(m.pattern.paths.len() == 1, "query: {query}");
+        check!(m.pattern.paths[0].selector == expected, "query: {query}");
+    }
+}
+
+/// Each pattern part is one HIR path, with or without a path variable (#133).
+///
+/// Unit: `analyze()`
+/// Precondition: A pattern with a named and an unnamed part.
+/// Expectation: Two paths, each with its own nodes and relationships; only
+///              the first has a binding.
+#[test]
+fn analyze_lowers_every_pattern_part_to_a_path() {
+    let hir = analyze("MATCH p = shortestPath((a)-[*]-(b)), (b)-->(c) RETURN p, c")
+        .expect("query is valid");
+    let m = find_match_operation(&hir.parts[0].operations);
+    let [first, second] = m.pattern.paths.as_slice() else {
+        panic!("expected two paths, got {:?}", m.pattern.paths);
+    };
+
+    check!(first.binding.is_some());
+    check!(first.nodes == [0, 1]);
+    check!(first.relationships == [0]);
+    check!(second.binding.is_none());
+    check!(second.nodes == [2, 3]);
+    check!(second.relationships == [1]);
+    check!(second.selector == decypher::hir::PathSelector::All);
+}
+
+/// Invalid path selectors are reported (#133).
+///
+/// Unit: `analyze()` / `sema::analyze()`
+/// Precondition: A zero or too large path count, and selectors in `CREATE`
+///               and `MERGE`.
+/// Expectation: Each query fails with `InvalidPattern`.
+#[test]
+fn analyze_rejects_invalid_path_selectors() {
+    use decypher::ErrorKind;
+    for query in [
+        "MATCH p = SHORTEST 0 (a)-[*]-(c) RETURN p",
+        "MATCH p = ANY 4294967296 (a)-[*]-(c) RETURN p",
+        "CREATE p = shortestPath((a)-[:R]->(b))",
+        "MERGE ANY SHORTEST (a)-[:R]->(b)",
+    ] {
+        let err = analyze(query).unwrap_err();
+        check!(
+            matches!(err.kind, ErrorKind::InvalidPattern { .. }),
+            "query: {query}, got: {err}"
+        );
+        let sema = decypher::sema::analyze(&decypher::parse(query).unwrap()).unwrap_err();
+        check!(
+            sema.errors
+                .iter()
+                .any(|e| matches!(e.kind, ErrorKind::InvalidPattern { .. })),
+            "query: {query}, sema got: {:?}",
+            sema.errors
+        );
+    }
+}

@@ -9,6 +9,7 @@
 //! The public entry point is [`lower`].
 
 use std::collections::HashMap;
+use std::num::NonZeroU32;
 
 use crate::ast::ToCypher;
 use crate::ast::clause::{
@@ -49,9 +50,9 @@ use super::ops::{
     SortDirection, SortItem, SortOp, UnionOp, UnwindOp,
 };
 use super::pattern::{
-    GraphPattern, LabelExpr as HirLabelExpr, NodeIndex, NodePattern as HirNodePattern, PathBinding,
-    RelIndex, RelationshipDirection as HirRelationshipDirection, RelationshipLength,
-    RelationshipPattern as HirRelationshipPattern,
+    GraphPattern, LabelExpr as HirLabelExpr, NodeIndex, NodePattern as HirNodePattern, PathPattern,
+    PathSelector as HirPathSelector, RelationshipDirection as HirRelationshipDirection,
+    RelationshipLength, RelationshipPattern as HirRelationshipPattern,
 };
 use super::{HirArenas, HirDiagnostic, HirQuery, QueryPart};
 
@@ -1464,11 +1465,11 @@ impl<'cfg> LoweringContext<'cfg> {
     fn lower_pattern_parts(&mut self, parts: &[crate::ast::pattern::PatternPart]) -> GraphPattern {
         let mut nodes = Vec::new();
         let mut relationships = Vec::new();
-        let mut path_bindings = Vec::new();
+        let mut paths = Vec::new();
         let mut predicates = InlinePredicates::default();
 
         for part in parts {
-            let path_binding = part.variable.as_ref().map(|v| {
+            let binding = part.variable.as_ref().map(|v| {
                 let id = self.bind_new(&v.name.name, BindingKind::PatternBound, v.name.span);
                 self.path_variables.push(id);
                 id
@@ -1487,21 +1488,18 @@ impl<'cfg> LoweringContext<'cfg> {
                 rel
             }));
 
-            if let Some(binding_id) = path_binding {
-                let node_indices: Vec<NodeIndex> = (node_start..nodes.len()).collect();
-                let rel_indices: Vec<RelIndex> = (rel_start..relationships.len()).collect();
-                path_bindings.push(PathBinding {
-                    binding: binding_id,
-                    nodes: node_indices,
-                    relationships: rel_indices,
-                });
-            }
+            paths.push(PathPattern {
+                binding,
+                selector: lower_path_selector(part.selector.as_ref()),
+                nodes: (node_start..nodes.len()).collect(),
+                relationships: (rel_start..relationships.len()).collect(),
+            });
         }
 
         let mut pattern = GraphPattern {
             nodes,
             relationships,
-            path_bindings,
+            paths,
         };
         self.lower_inline_predicates(&mut pattern, &predicates);
         pattern
@@ -1664,7 +1662,7 @@ impl<'cfg> LoweringContext<'cfg> {
         let mut pattern = GraphPattern {
             nodes,
             relationships,
-            path_bindings: Vec::new(),
+            paths: Vec::new(),
         };
         self.lower_inline_predicates(&mut pattern, &predicates);
         pattern
@@ -2219,6 +2217,32 @@ impl<'cfg> LoweringContext<'cfg> {
 
 fn expr_span(expr: &Expression) -> Span {
     expr.span()
+}
+
+/// Lowers the path selector of a pattern part to its meaning; see
+/// [`HirPathSelector`] for which spellings are the same.
+///
+/// A count that is not in `1..=u32::MAX` is reported by the structural
+/// checks, so the query fails. Such a count lowers to 1 here only to give the
+/// lowering a value.
+fn lower_path_selector(selector: Option<&crate::ast::pattern::PathSelector>) -> HirPathSelector {
+    use crate::ast::pattern::PathSelectorKind as K;
+
+    let one = NonZeroU32::MIN;
+    let count = |k: Option<i64>| {
+        k.map_or(Some(one), |k| {
+            u32::try_from(k).ok().and_then(NonZeroU32::new)
+        })
+        .unwrap_or(one)
+    };
+    match selector.map(|s| s.kind) {
+        None | Some(K::All) => HirPathSelector::All,
+        Some(K::Any { count: k }) => HirPathSelector::Any(count(k)),
+        Some(K::ShortestPathFunction | K::AnyShortest) => HirPathSelector::Shortest(one),
+        Some(K::Shortest { count: k }) => HirPathSelector::Shortest(count(Some(k))),
+        Some(K::AllShortestPathsFunction | K::AllShortest) => HirPathSelector::ShortestGroups(one),
+        Some(K::ShortestGroups { count: k }) => HirPathSelector::ShortestGroups(count(k)),
+    }
 }
 
 /// The inline `WHERE` predicates of a pattern, collected while its nodes
