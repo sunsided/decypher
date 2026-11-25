@@ -32,6 +32,7 @@ pub(crate) use aggregation::{
 };
 pub use catalog::{Catalog, Signature};
 pub use error::SemaError;
+#[cfg(feature = "hir")]
 pub(crate) use resolve::element_variables;
 pub use resolve::{ResolutionResult, resolve_names, resolve_names_with};
 pub use scope::{ScopeStack, SymbolKind};
