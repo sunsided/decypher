@@ -113,6 +113,8 @@ impl BinaryExpr {
             SyntaxKind::ADD_SUB_EXPR => {
                 if child_token(&self.0, SyntaxKind::PLUS).is_some() {
                     Some(BinOp::Add)
+                } else if child_token(&self.0, SyntaxKind::PIPE_PIPE).is_some() {
+                    Some(BinOp::Concat)
                 } else {
                     Some(BinOp::Sub)
                 }
@@ -217,6 +219,8 @@ pub enum BinOp {
     Ge,
     RegexMatch,
     Add,
+    /// `||`
+    Concat,
     Sub,
     Mul,
     Div,

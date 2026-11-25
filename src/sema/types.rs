@@ -376,6 +376,13 @@ impl<'a> TypeChecker<'a> {
                     BinaryOperator::And | BinaryOperator::Or | BinaryOperator::Xor => {
                         Ty::of(T::BOOLEAN)
                     }
+                    BinaryOperator::Concat if lhs.within(T::STRING) && rhs.within(T::STRING) => {
+                        Ty::of(T::STRING)
+                    }
+                    BinaryOperator::Concat if lhs.within(T::LIST) && rhs.within(T::LIST) => {
+                        Ty::list_of(lhs.element | rhs.element)
+                    }
+                    BinaryOperator::Concat => Ty::ANY,
                     _ if lhs.within(T::INTEGER) && rhs.within(T::INTEGER) => {
                         Ty::of(if *op == BinaryOperator::Power {
                             T::FLOAT
@@ -497,6 +504,7 @@ impl<'a> TypeChecker<'a> {
                     BinaryOperator::Multiply => (arithmetic, "*"),
                     BinaryOperator::Divide => (arithmetic, "/"),
                     BinaryOperator::Add => return self.check_addition(lhs, rhs),
+                    BinaryOperator::Concat => (T::STRING | T::LIST, "||"),
                 };
                 self.expect(lhs, expected, Cow::Borrowed(symbol));
                 self.expect(rhs, expected, Cow::Borrowed(symbol));

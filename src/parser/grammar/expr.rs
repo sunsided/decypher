@@ -130,7 +130,7 @@ fn infix_op_bp(p: &Parser) -> Option<(Prec, ())> {
         | SyntaxKind::LE
         | SyntaxKind::GE
         | SyntaxKind::TILDE_EQ => Some((Prec::COMPARISON, ())),
-        SyntaxKind::PLUS | SyntaxKind::MINUS => Some((Prec::ADD_SUB, ())),
+        SyntaxKind::PLUS | SyntaxKind::MINUS | SyntaxKind::PIPE_PIPE => Some((Prec::ADD_SUB, ())),
         SyntaxKind::STAR | SyntaxKind::SLASH | SyntaxKind::PERCENT => Some((Prec::MUL_DIV_MOD, ())),
         SyntaxKind::POW => Some((Prec::POWER, ())),
         _ => None,
@@ -150,7 +150,7 @@ fn parse_infix_tail(p: &mut Parser, bp: Prec) {
         | SyntaxKind::LE
         | SyntaxKind::GE
         | SyntaxKind::TILDE_EQ => SyntaxKind::COMPARISON_EXPR,
-        SyntaxKind::PLUS | SyntaxKind::MINUS => SyntaxKind::ADD_SUB_EXPR,
+        SyntaxKind::PLUS | SyntaxKind::MINUS | SyntaxKind::PIPE_PIPE => SyntaxKind::ADD_SUB_EXPR,
         SyntaxKind::STAR | SyntaxKind::SLASH | SyntaxKind::PERCENT => SyntaxKind::MUL_DIV_MOD_EXPR,
         SyntaxKind::POW => SyntaxKind::POWER_EXPR,
         _ => SyntaxKind::EXPRESSION,

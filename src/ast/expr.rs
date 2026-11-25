@@ -341,6 +341,8 @@ impl NormalForm {
 pub enum BinaryOperator {
     /// `+`
     Add,
+    /// `||`: string and list concatenation.
+    Concat,
     /// `-`
     Subtract,
     /// `*`
