@@ -8,45 +8,55 @@ are marked **Breaking** below.
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-25
+
+More of Cypher 5, Cypher 25 and GQL parses: `||` concatenation,
+`trim(BOTH 'x' FROM s)`, and dynamic labels in `SET` and `REMOVE`. The HIR
+records the `RETURN` column order, so consumers no longer read it from the
+CST, and `range()` leaves wrongly typed arguments to runtime, as the
+openCypher TCK expects. The new AST and HIR variants and the changed label
+and `ReturnOp` fields are breaking changes, hence 0.4.0.
+
 ### Added
 
 - The Cypher 25 hyperbolic functions `cosh`, `coth`, `sinh` and `tanh` in
-  the function catalog (#138).
+  the function catalog (#138, #147).
 - **Breaking:** the `||` concatenation operator (GQL, Cypher 5) for strings
   and lists, with the precedence of `+`: `SyntaxKind::PIPE_PIPE`,
   `ast::BinaryOperator::Concat` and `hir::BinaryOp::Concat`. Operands that
-  can never be a string or list are reported as `InvalidArgumentType` (#136).
+  can never be a string or list are reported as `InvalidArgumentType`
+  (#136, #150).
 - **Breaking:** `trim([BOTH | LEADING | TRAILING] [character] FROM source)`
   parses, as `ast::Expression::Trim` with a `TrimSpec` (CST: a `TRIM_SPEC`
   node and a `FROM` token in the `FUNCTION_INVOCATION`). The HIR lowers it
   to a call of `btrim`, `ltrim` or `rtrim` (source, then character), so
   consumers need no new node. `BOTH`, `LEADING` and `TRAILING` stay usable as
-  variable names (#137).
+  variable names (#137, #151).
 - **Breaking:** dynamic labels in `SET n:$(expr)` and `REMOVE n:$(expr)`,
   also mixed with static ones (`SET n:A:$(x)`), and `REMOVE n[key]`. The
   label lists of `ast::SetItem::Labels` / `ast::RemoveItem::Labels` are now
   `Vec<LabelExpression>`, and those of `hir::ops::SetItem::SetLabels` /
   `hir::ops::RemoveItem::Labels` `Vec<LabelExpr>` (`Name` or `Dynamic`).
   New `ast::RemoveItem::DynamicProperty` and
-  `hir::ops::RemoveItem::DynamicProperty` (#135).
+  `hir::ops::RemoveItem::DynamicProperty` (#135, #152).
 
 ### Changed
 
 - **Breaking:** `range()` accepts arguments of any type during analysis. The
   TCK expects wrongly typed ones (`range(0, 1, 1.1)`) to fail at runtime
   with `InvalidArgumentType`, so a consumer now reports them when it
-  evaluates the call. The argument count is still checked (#139).
+  evaluates the call. The argument count is still checked (#139, #148).
 - **Breaking:** `ReturnOp::items`, which lowering always left empty, is
   replaced by `ReturnOp::columns: Vec<BindingId>`: the result columns in
   output order, the `RETURN *` variables (sorted by name) first, then the
   written items. Consumers no longer need the CST to order a result table
-  (#140).
+  (#140, #149).
 
 ### Fixed
 
 - A composed expression in a dynamic label or type lost everything after
   its first operand: `MATCH (m:$(n.kind))` became `$(n)`, and
-  `[r:$('A' + 'B')]` became `$('A')`.
+  `[r:$('A' + 'B')]` became `$('A')` (#152).
 
 ## [0.3.0] - 2026-11-25
 
@@ -551,7 +561,8 @@ versioning from here on, so there are no breaking changes within 0.2.x
 See the [GitHub releases](https://github.com/sunsided/decypher/releases) for
 0.2.0-alpha.6 and earlier.
 
-[Unreleased]: https://github.com/sunsided/decypher/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/sunsided/decypher/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/sunsided/decypher/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/sunsided/decypher/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/sunsided/decypher/compare/v0.2.0-alpha.10...v0.2.0
 [0.2.0-alpha.10]: https://github.com/sunsided/decypher/compare/v0.2.0-alpha.9...v0.2.0-alpha.10
