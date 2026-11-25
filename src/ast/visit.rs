@@ -1335,6 +1335,9 @@ pub fn walk_node_pattern<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast NodePatter
     if let Some(props) = &node.properties {
         v.visit_properties(props);
     }
+    if let Some(predicate) = &node.where_clause {
+        v.visit_expression(predicate);
+    }
 }
 
 pub fn walk_pattern_element_chain<'ast, V: Visit<'ast>>(
@@ -1367,6 +1370,9 @@ pub fn walk_relationship_detail<'ast, V: Visit<'ast>>(v: &mut V, node: &'ast Rel
     }
     if let Some(props) = &node.properties {
         v.visit_properties(props);
+    }
+    if let Some(predicate) = &node.where_clause {
+        v.visit_expression(predicate);
     }
 }
 
@@ -1954,6 +1960,9 @@ pub fn walk_node_pattern_mut<V: VisitMut>(v: &mut V, node: &mut NodePattern) {
     if let Some(props) = &mut node.properties {
         v.visit_properties(props);
     }
+    if let Some(predicate) = &mut node.where_clause {
+        v.visit_expression(predicate);
+    }
 }
 
 pub fn walk_pattern_element_chain_mut<V: VisitMut>(v: &mut V, node: &mut PatternElementChain) {
@@ -1982,6 +1991,9 @@ pub fn walk_relationship_detail_mut<V: VisitMut>(v: &mut V, node: &mut Relations
     }
     if let Some(props) = &mut node.properties {
         v.visit_properties(props);
+    }
+    if let Some(predicate) = &mut node.where_clause {
+        v.visit_expression(predicate);
     }
 }
 

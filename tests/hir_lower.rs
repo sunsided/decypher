@@ -1920,3 +1920,103 @@ fn pattern_subquery_bindings_resolve_in_own_arenas() {
         check!(names[1] == "x" || names[1] == "y");
     }
 }
+
+/// Inline `WHERE` in node and relationship patterns (#132) reaches the HIR.
+///
+/// Unit: `analyze()`
+/// Precondition: A `MATCH` with an inline predicate on a node and on a
+///               relationship.
+/// Expectation: The HIR node and relationship carry the predicate, and the
+///              clause has no `WHERE` of its own.
+#[test]
+fn analyze_keeps_inline_pattern_predicates() {
+    let hir =
+        analyze("MATCH (n:Person WHERE n.age > 25)-[r:KNOWS WHERE r.since > 2020]->(m) RETURN m")
+            .expect("query is valid");
+    let m = find_match_operation(&hir.parts[0].operations);
+
+    check!(m.pattern.nodes[0].predicate.is_some());
+    check!(m.pattern.nodes[1].predicate.is_none());
+    check!(m.pattern.relationships[0].predicate.is_some());
+    check!(m.predicates.is_empty());
+
+    let predicate = m.pattern.nodes[0].predicate.expect("checked above");
+    check!(matches!(
+        hir.arenas.expressions.get(predicate).kind,
+        ExprKind::Comparison { .. }
+    ));
+}
+
+/// Inline predicates in pattern expressions and comprehensions (#132).
+///
+/// Unit: `analyze()`
+/// Precondition: A pattern comprehension whose node has an inline predicate.
+/// Expectation: The comprehension's pattern carries the predicate.
+#[test]
+fn analyze_keeps_inline_predicates_in_pattern_comprehensions() {
+    let hir =
+        analyze("MATCH (a) RETURN [(a)-->(b WHERE b.x = 1) | b] AS bs").expect("query is valid");
+    let found = hir.arenas.expressions.iter().any(|(_, e)| {
+        matches!(&e.kind, ExprKind::PatternComprehension(pc)
+            if pc.pattern.nodes[1].predicate.is_some())
+    });
+    check!(found);
+}
+
+/// An inline predicate can use every variable of its pattern, and the usual
+/// rules for `WHERE` apply to it (#132).
+///
+/// Unit: `analyze()` / `sema::analyze()`
+/// Precondition: Valid and invalid inline predicates.
+/// Expectation: A reference to a later variable of the same pattern is
+///              valid; an unknown variable, an aggregate, a non-boolean
+///              predicate and a predicate in `CREATE`/`MERGE` are errors.
+#[test]
+fn analyze_checks_inline_pattern_predicates() {
+    use decypher::ErrorKind;
+    for query in [
+        "MATCH (a WHERE a.x = b.x)-->(b) RETURN a",
+        "MATCH (a)-[r WHERE r.w > a.w]->(b) RETURN b",
+        "MATCH (a WHERE (a)-->()) RETURN a",
+    ] {
+        analyze(query).unwrap_or_else(|e| panic!("query: {query}, got: {e}"));
+        decypher::sema::analyze(&decypher::parse(query).unwrap())
+            .unwrap_or_else(|e| panic!("query: {query}, sema got: {:?}", e.errors));
+    }
+    for (query, expected) in [
+        (
+            "MATCH (a WHERE a.x = nope) RETURN a",
+            ErrorKind::UnresolvedVariable {
+                name: "nope".into(),
+            },
+        ),
+        (
+            "MATCH (a WHERE count(a) > 1) RETURN a",
+            ErrorKind::AggregateNotAllowed {
+                function: "count".into(),
+            },
+        ),
+        (
+            "CREATE (a WHERE a.x = 1)",
+            ErrorKind::PatternPredicateNotAllowed,
+        ),
+        (
+            "MERGE (a)-[:R WHERE true]->(b)",
+            ErrorKind::PatternPredicateNotAllowed,
+        ),
+    ] {
+        let err = analyze(query).unwrap_err();
+        check!(err.kind == expected, "query: {query}, got: {err}");
+        let sema = decypher::sema::analyze(&decypher::parse(query).unwrap()).unwrap_err();
+        check!(
+            sema.errors.iter().any(|e| e.kind == expected),
+            "query: {query}, sema got: {:?}",
+            sema.errors
+        );
+    }
+    let err = analyze("MATCH (a WHERE 1) RETURN a").unwrap_err();
+    check!(
+        matches!(err.kind, ErrorKind::InvalidArgumentType { .. }),
+        "got: {err}"
+    );
+}

@@ -53,6 +53,12 @@ pub enum HirDiagnostic {
         /// Source location of the invalid target.
         span: Span,
     },
+    /// An inline `WHERE` in a `CREATE` or `MERGE` pattern
+    /// (`CREATE (n WHERE n.x = 1)`).
+    PatternPredicateNotAllowed {
+        /// Source location of the predicate.
+        span: Span,
+    },
     /// A relationship pattern its clause cannot use (an untyped or
     /// undirected relationship in `CREATE`, a relationship matched twice).
     InvalidRelationshipPattern {
@@ -180,6 +186,9 @@ impl From<crate::sema::StructuralError> for HirDiagnostic {
                 HirDiagnostic::InvalidRelationshipPattern { reason, span }
             }
             E::InvalidDeleteTarget { span } => HirDiagnostic::InvalidDeleteTarget { span },
+            E::PatternPredicateNotAllowed { span } => {
+                HirDiagnostic::PatternPredicateNotAllowed { span }
+            }
             E::MissingAlias { span } => HirDiagnostic::MissingAlias { span },
             E::InvalidSkipLimit { reason, span } => {
                 HirDiagnostic::InvalidSkipLimit { reason, span }
@@ -265,6 +274,9 @@ impl HirDiagnostic {
                 production: std::borrow::Cow::Owned(feature.clone()),
             },
             HirDiagnostic::InvalidDeleteTarget { .. } => ErrorKind::InvalidDeleteTarget,
+            HirDiagnostic::PatternPredicateNotAllowed { .. } => {
+                ErrorKind::PatternPredicateNotAllowed
+            }
             HirDiagnostic::InvalidRelationshipPattern { reason, .. } => {
                 ErrorKind::InvalidRelationshipPattern { reason }
             }
@@ -330,6 +342,7 @@ impl HirDiagnostic {
             HirDiagnostic::DuplicateVariable { second: span, .. } => *span,
             HirDiagnostic::InvalidAggregation { span, .. } => *span,
             HirDiagnostic::InvalidDeleteTarget { span } => *span,
+            HirDiagnostic::PatternPredicateNotAllowed { span } => *span,
             HirDiagnostic::InvalidRelationshipPattern { span, .. } => *span,
             HirDiagnostic::InvalidClauseComposition { span, .. } => *span,
             HirDiagnostic::MissingAlias { span } => *span,

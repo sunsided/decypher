@@ -331,6 +331,9 @@ pub enum ErrorKind {
     /// A `DELETE` target that is not a node, relationship or path, such as
     /// `DELETE n:Person` (semantic).
     InvalidDeleteTarget,
+    /// An inline `WHERE` in a `CREATE` or `MERGE` pattern, such as
+    /// `CREATE (n WHERE n.x = 1)` (semantic).
+    PatternPredicateNotAllowed,
     /// A `WITH` item other than a variable without `AS` alias (semantic).
     MissingAlias,
     /// `RETURN *` with no variables in scope (semantic).
@@ -508,6 +511,9 @@ impl fmt::Display for ErrorKind {
             ),
             ErrorKind::InvalidDeleteTarget => {
                 write!(f, "DELETE expects nodes, relationships or paths")
+            }
+            ErrorKind::PatternPredicateNotAllowed => {
+                write!(f, "CREATE and MERGE patterns cannot contain WHERE")
             }
             ErrorKind::MissingAlias => {
                 write!(f, "expressions in WITH must be aliased (use AS)")

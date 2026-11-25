@@ -204,6 +204,11 @@ impl NodePattern {
     pub fn properties(&self) -> Option<Properties> {
         child(&self.0)
     }
+
+    /// The inline `WHERE` predicate of the pattern, if any.
+    pub fn where_clause(&self) -> Option<super::clauses::WhereClause> {
+        child(&self.0)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -282,6 +287,11 @@ impl RelationshipDetail {
     }
 
     pub fn properties(&self) -> Option<Properties> {
+        child(&self.0)
+    }
+
+    /// The inline `WHERE` predicate of the pattern, if any.
+    pub fn where_clause(&self) -> Option<super::clauses::WhereClause> {
         child(&self.0)
     }
 }

@@ -1063,3 +1063,16 @@ fn tree(query: &str) -> String {
     out.push_str(rest);
     out
 }
+
+/// Round-trip `rt inline pattern where`: parse → serialise → re-parse must yield equal ASTs.
+///
+/// Unit: `ToCypher::to_cypher` / `parse`
+/// Precondition: Input Cypher is syntactically valid.
+/// Expectation: Re-parsed AST equals the original parsed AST, and the
+///              inline predicates survive (#132).
+#[test]
+fn rt_inline_pattern_where() {
+    roundtrip(
+        "MATCH (n:Person {x: 1} WHERE n.age > 25)-[r:KNOWS WHERE r.since > 2020]->(m) RETURN m;",
+    );
+}

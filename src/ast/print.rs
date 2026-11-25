@@ -681,6 +681,7 @@ impl ToCypher for NodePattern {
             write!(w, " ")?;
             props.write_cypher(w)?;
         }
+        write_inline_where(w, self.where_clause.as_deref())?;
         write!(w, ")")
     }
 }
@@ -732,8 +733,18 @@ impl ToCypher for RelationshipDetail {
             write!(w, " ")?;
             props.write_cypher(w)?;
         }
-        Ok(())
+        write_inline_where(w, self.where_clause.as_deref())
     }
+}
+
+/// Writes the inline ` WHERE predicate` of a node or relationship pattern,
+/// or nothing when there is no predicate.
+fn write_inline_where(w: &mut dyn fmt::Write, predicate: Option<&Expression>) -> fmt::Result {
+    let Some(predicate) = predicate else {
+        return Ok(());
+    };
+    write!(w, " WHERE ")?;
+    predicate.write_cypher(w)
 }
 
 impl ToCypher for RangeLiteral {

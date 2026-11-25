@@ -8,6 +8,23 @@ are marked **Breaking** below.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Breaking:** an inline `WHERE` in a node or relationship pattern
+  (`MATCH (n:Person WHERE n.age > 25)`, `-[r:KNOWS WHERE r.since > 2020]->`)
+  is no longer dropped silently. The AST keeps it in the new `where_clause`
+  field of `NodePattern` and `RelationshipDetail`. The HIR keeps it in the new
+  `predicate` field of `hir::pattern::NodePattern` and `RelationshipPattern`.
+  The predicate can use every variable of its pattern. Name resolution, the
+  aggregate check and the boolean type check apply to it like to a clause
+  `WHERE` (#132).
+
+### Added
+
+- **Breaking:** `ErrorKind::PatternPredicateNotAllowed` and
+  `HirDiagnostic::PatternPredicateNotAllowed`: a `CREATE` or `MERGE` pattern
+  contains an inline `WHERE` (#132).
+
 ## [0.2.0] - 2026-11-13
 
 The first stable release of the 0.2 line: the public API follows semantic

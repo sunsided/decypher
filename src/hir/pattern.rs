@@ -65,6 +65,11 @@ pub struct NodePattern {
     pub label_expression: Option<LabelExpr>,
     /// Optional property constraint expression.
     pub properties: Option<ExprId>,
+    /// Optional inline predicate (`(n WHERE n.age > 25)`).
+    ///
+    /// A match of this node is valid only when the predicate is `true`. The
+    /// predicate can use every variable of the enclosing pattern.
+    pub predicate: Option<ExprId>,
 }
 
 /// A single relationship in a normalised graph pattern.
@@ -89,6 +94,11 @@ pub struct RelationshipPattern {
     pub length: RelationshipLength,
     /// Optional property constraint expression.
     pub properties: Option<ExprId>,
+    /// Optional inline predicate (`[r WHERE r.since > 2020]`).
+    ///
+    /// A match of this relationship is valid only when the predicate is
+    /// `true`. The predicate can use every variable of the enclosing pattern.
+    pub predicate: Option<ExprId>,
 }
 
 /// A path variable that captures a sub-path in the pattern.

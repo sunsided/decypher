@@ -78,6 +78,11 @@ pub struct NodePattern {
     pub labels: Vec<LabelExpression>,
     /// Optional property map or parameter constraint.
     pub properties: Option<Properties>,
+    /// Optional inline predicate: `(n:Person WHERE n.age > 25)`.
+    ///
+    /// It filters the matches of this node like a `WHERE` on the clause.
+    /// `CREATE` and `MERGE` patterns cannot have it.
+    pub where_clause: Option<Box<Expression>>,
     /// Byte-offset span of the node pattern.
     pub span: Span,
 }
@@ -133,6 +138,11 @@ pub struct RelationshipDetail {
     pub range: Option<RangeLiteral>,
     /// Optional property map or parameter constraint.
     pub properties: Option<Properties>,
+    /// Optional inline predicate: `[r:KNOWS WHERE r.since > 2020]`.
+    ///
+    /// It filters the matches of this relationship like a `WHERE` on the
+    /// clause. `CREATE` and `MERGE` patterns cannot have it.
+    pub where_clause: Option<Box<Expression>>,
     /// Byte-offset span of the relationship detail.
     pub span: Span,
 }

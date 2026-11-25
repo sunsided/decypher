@@ -1496,11 +1496,17 @@ impl<'cfg> LoweringContext<'cfg> {
             }
         }
 
-        GraphPattern {
+        let mut pattern = GraphPattern {
             nodes,
             relationships,
             path_bindings,
+        };
+        let mut predicates = InlinePredicates::default();
+        for part in parts {
+            predicates.collect_element(&part.anonymous.element);
         }
+        self.lower_inline_predicates(&mut pattern, &predicates);
+        pattern
     }
 
     fn lower_pattern_element(
@@ -1577,6 +1583,7 @@ impl<'cfg> LoweringContext<'cfg> {
             labels,
             label_expression,
             properties,
+            predicate: None,
         }
     }
 
@@ -1623,6 +1630,7 @@ impl<'cfg> LoweringContext<'cfg> {
             types,
             length,
             properties,
+            predicate: None,
         }
     }
 
@@ -1645,10 +1653,39 @@ impl<'cfg> LoweringContext<'cfg> {
             current = end_idx;
         }
 
-        GraphPattern {
+        let mut pattern = GraphPattern {
             nodes,
             relationships,
             path_bindings: Vec::new(),
+        };
+        let mut predicates = InlinePredicates::default();
+        predicates.collect_path(&rp.start, &rp.chains);
+        self.lower_inline_predicates(&mut pattern, &predicates);
+        pattern
+    }
+
+    /// Lowers the inline `WHERE` predicates of a pattern into its nodes and
+    /// relationships.
+    ///
+    /// This runs after the whole pattern is lowered, so a predicate can use
+    /// every variable of the pattern, as a `WHERE` on the clause can.
+    fn lower_inline_predicates(
+        &mut self,
+        pattern: &mut GraphPattern,
+        predicates: &InlinePredicates,
+    ) {
+        debug_assert_eq!(predicates.nodes.len(), pattern.nodes.len());
+        debug_assert_eq!(predicates.relationships.len(), pattern.relationships.len());
+        for (node, predicate) in pattern.nodes.iter_mut().zip(&predicates.nodes) {
+            node.predicate = predicate.map(|p| self.lower_expr(p));
+        }
+
+        for (rel, predicate) in pattern
+            .relationships
+            .iter_mut()
+            .zip(&predicates.relationships)
+        {
+            rel.predicate = predicate.map(|p| self.lower_expr(p));
         }
     }
 
@@ -2176,6 +2213,47 @@ impl<'cfg> LoweringContext<'cfg> {
 
 fn expr_span(expr: &Expression) -> Span {
     expr.span()
+}
+
+/// The inline `WHERE` predicates of a pattern, in the order in which the
+/// lowering adds its nodes and relationships to a [`GraphPattern`].
+///
+/// Entry `i` of `nodes` belongs to `GraphPattern::nodes[i]`, and entry `i` of
+/// `relationships` to `GraphPattern::relationships[i]`.
+#[derive(Default)]
+struct InlinePredicates<'ast> {
+    /// The predicate of each node pattern, or `None` when it has none.
+    nodes: Vec<Option<&'ast Expression>>,
+    /// The predicate of each relationship pattern, or `None` when it has none.
+    relationships: Vec<Option<&'ast Expression>>,
+}
+
+impl<'ast> InlinePredicates<'ast> {
+    /// Adds the predicates of a pattern element, in the order of
+    /// `LoweringContext::lower_pattern_element`.
+    fn collect_element(&mut self, element: &'ast PatternElement) {
+        match element {
+            PatternElement::Path { start, chains } => self.collect_path(start, chains),
+            PatternElement::Parenthesized(inner) => self.collect_element(inner),
+            PatternElement::Quantified { element, .. } => self.collect_element(element),
+        }
+    }
+
+    /// Adds the predicates of a path: its start node, then one node and one
+    /// relationship for each chain.
+    fn collect_path(
+        &mut self,
+        start: &'ast NodePattern,
+        chains: &'ast [crate::ast::pattern::PatternElementChain],
+    ) {
+        self.nodes.push(start.where_clause.as_deref());
+        for chain in chains {
+            self.nodes.push(chain.node.where_clause.as_deref());
+            let detail = chain.relationship.detail.as_ref();
+            self.relationships
+                .push(detail.and_then(|d| d.where_clause.as_deref()));
+        }
+    }
 }
 
 #[cfg(test)]

@@ -957,10 +957,12 @@ fn build_node_pattern(np: NodePattern) -> Result<ast_c::NodePattern> {
         })
         .collect();
     let properties = np.properties().map(build_properties).transpose()?;
+    let where_clause = build_inline_where(np.where_clause())?;
     Ok(ast_c::NodePattern {
         variable,
         labels: labels?,
         properties,
+        where_clause,
         span: sp,
     })
 }
@@ -1031,13 +1033,27 @@ fn build_relationship_detail(rd: RelationshipDetail) -> Result<ast_c::Relationsh
         .transpose()?;
     let range = rd.range().map(build_range_literal).transpose()?;
     let properties = rd.properties().map(build_properties).transpose()?;
+    let where_clause = build_inline_where(rd.where_clause())?;
     Ok(ast_c::RelationshipDetail {
         variable,
         types,
         range,
         properties,
+        where_clause,
         span: sp,
     })
+}
+
+/// Builds the predicate of an inline `WHERE` in a node or relationship
+/// pattern. A `WHERE` without an expression gives `None`; the parser has
+/// already reported it.
+fn build_inline_where(
+    where_clause: Option<crate::syntax::ast::clauses::WhereClause>,
+) -> Result<Option<Box<ast_c::Expression>>> {
+    where_clause
+        .and_then(|w| w.expr())
+        .map(|e| build_expression(e).map(Box::new))
+        .transpose()
 }
 
 fn build_quantifier(rq: RelationshipQuantifier) -> Result<ast_c::Quantifier> {

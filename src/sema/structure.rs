@@ -29,8 +29,7 @@ use crate::ast::query::*;
 use crate::ast::visit::{
     Visit, walk_collect_subquery_expression, walk_count_subquery_expression, walk_create,
     walk_delete, walk_exists_expression, walk_expression, walk_function_invocation_expr,
-    walk_merge, walk_node_pattern, walk_regular_query, walk_relationship_detail, walk_remove,
-    walk_return, walk_set,
+    walk_merge, walk_regular_query, walk_remove, walk_return, walk_set,
 };
 use std::borrow::Cow;
 
@@ -49,6 +48,9 @@ pub(crate) enum StructuralError {
     InvalidRelationshipPattern { reason: &'static str, span: Span },
     /// A `DELETE` target that is a label check (`DELETE n:Person`).
     InvalidDeleteTarget { span: Span },
+    /// An inline `WHERE` in a `CREATE` or `MERGE` pattern
+    /// (`CREATE (n WHERE n.x = 1)`).
+    PatternPredicateNotAllowed { span: Span },
     /// A `WITH` item that is neither a variable nor aliased.
     MissingAlias { span: Span },
     /// A `SKIP` or `LIMIT` value that is not a constant, non-negative
@@ -101,6 +103,7 @@ impl StructuralError {
                 ErrorKind::InvalidRelationshipPattern { reason }
             }
             Self::InvalidDeleteTarget { .. } => ErrorKind::InvalidDeleteTarget,
+            Self::PatternPredicateNotAllowed { .. } => ErrorKind::PatternPredicateNotAllowed,
             Self::MissingAlias { .. } => ErrorKind::MissingAlias,
             Self::InvalidSkipLimit { reason, .. } => ErrorKind::InvalidSkipLimit { reason },
             Self::InvalidParameterUse { .. } => ErrorKind::InvalidParameterUse,
@@ -154,6 +157,7 @@ impl StructuralError {
             | Self::InvalidClauseComposition { span, .. }
             | Self::InvalidRelationshipPattern { span, .. }
             | Self::InvalidDeleteTarget { span }
+            | Self::PatternPredicateNotAllowed { span }
             | Self::MissingAlias { span }
             | Self::InvalidSkipLimit { span, .. }
             | Self::InvalidParameterUse { span }
@@ -265,6 +269,13 @@ impl StructureChecker<'_> {
     /// Checks the relationships of a `CREATE` (`directed`) or `MERGE`
     /// pattern element.
     fn check_created(&mut self, element: &PatternElement, directed: bool) {
+        for predicate in inline_predicates(element) {
+            self.errors
+                .push(StructuralError::PatternPredicateNotAllowed {
+                    span: predicate.span(),
+                });
+        }
+
         for rel in relationships(element) {
             let reason = match &rel.detail {
                 _ if directed
@@ -377,12 +388,37 @@ impl<'ast> Visit<'ast> for StructureChecker<'_> {
 
     fn visit_node_pattern(&mut self, node: &'ast NodePattern) {
         self.check_properties(node.properties.as_ref());
-        walk_node_pattern(self, node);
+        if let Some(var) = &node.variable {
+            self.visit_variable(var);
+        }
+        for label in &node.labels {
+            self.visit_label_expression(label);
+        }
+        if let Some(props) = &node.properties {
+            self.visit_properties(props);
+        }
+        if let Some(predicate) = &node.where_clause {
+            self.visit_predicate(predicate);
+        }
     }
 
     fn visit_relationship_detail(&mut self, node: &'ast RelationshipDetail) {
         self.check_properties(node.properties.as_ref());
-        walk_relationship_detail(self, node);
+        if let Some(var) = &node.variable {
+            self.visit_variable(var);
+        }
+        if let Some(types) = &node.types {
+            self.visit_label_expression(types);
+        }
+        if let Some(range) = &node.range {
+            self.visit_range_literal(range);
+        }
+        if let Some(props) = &node.properties {
+            self.visit_properties(props);
+        }
+        if let Some(predicate) = &node.where_clause {
+            self.visit_predicate(predicate);
+        }
     }
 
     fn visit_function_invocation_expr(&mut self, node: &'ast FunctionInvocation) {
@@ -589,6 +625,29 @@ fn is_single_type(types: &LabelExpression) -> bool {
 }
 
 /// The relationship patterns of a pattern element, in order.
+/// The inline `WHERE` predicates of the node and relationship patterns of
+/// `element`, in source order.
+fn inline_predicates(element: &PatternElement) -> Vec<&Expression> {
+    match element {
+        PatternElement::Path { start, chains } => {
+            let rels = chains.iter().map(|c| {
+                c.relationship
+                    .detail
+                    .as_ref()
+                    .and_then(|d| d.where_clause.as_deref())
+            });
+            let nodes = chains.iter().map(|c| c.node.where_clause.as_deref());
+            std::iter::once(start.where_clause.as_deref())
+                .chain(rels.zip(nodes).flat_map(|(r, n)| [r, n]))
+                .flatten()
+                .collect()
+        }
+        PatternElement::Parenthesized(inner) => inline_predicates(inner),
+        PatternElement::Quantified { element, .. } => inline_predicates(element),
+    }
+}
+
+/// The relationship patterns of `element`, in source order.
 fn relationships(element: &PatternElement) -> Vec<&RelationshipPattern> {
     match element {
         PatternElement::Path { chains, .. } => chains.iter().map(|c| &c.relationship).collect(),
