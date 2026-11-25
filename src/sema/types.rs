@@ -380,7 +380,7 @@ impl<'a> TypeChecker<'a> {
                         Ty::of(T::STRING)
                     }
                     BinaryOperator::Concat if lhs.within(T::LIST) && rhs.within(T::LIST) => {
-                        Ty::of(T::LIST)
+                        Ty::list_of(lhs.element | rhs.element)
                     }
                     BinaryOperator::Concat => Ty::ANY,
                     _ if lhs.within(T::INTEGER) && rhs.within(T::INTEGER) => {

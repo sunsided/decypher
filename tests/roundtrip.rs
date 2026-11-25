@@ -1125,6 +1125,7 @@ fn rt_concat_operator() {
     roundtrip("RETURN [1, 2] || [3] AS l;");
     roundtrip("RETURN 'a' || 'b' + 'c', 1 + 2 || 3 * 4;");
     roundtrip("RETURN [x IN [1, 2] | x || 'a'] AS l;");
+    roundtrip("RETURN reduce(acc = '', x IN ['a', 'b'] | acc || x) AS r;");
     roundtrip("MATCH (a)-[:A|B]->(b:C|D) RETURN a;");
     let query = decypher::parse("RETURN 'a' || 'b' + 'c' AS s").unwrap();
     check!(query.to_cypher().contains("'a' || 'b' + 'c'"));

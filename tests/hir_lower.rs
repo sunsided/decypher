@@ -1700,6 +1700,7 @@ fn analyze_checks_static_types_and_signatures() {
         ("RETURN 1 + true", &wrong_type),
         ("RETURN 1 || 'a'", &wrong_type),
         ("RETURN 'a' || true", &wrong_type),
+        ("RETURN (['a'] || ['b'])[0] AND true", &wrong_type),
         ("MATCH (n) RETURN n + 1", &wrong_type),
         (
             "WITH 'a' AS n WHERE size(labels(n)) > 0 RETURN n",
