@@ -84,6 +84,11 @@ tasks:
     cmds:
       - "{{.FUZZ_CARGO}} fuzz list"
 
+  verify:
+    desc: Run the Kani proofs (needs cargo-kani, see https://model-checking.github.io/kani/)
+    cmds:
+      - cargo kani
+
   fuzz:build:
     desc: Build fuzz targets with default fuzz features
     cmds:

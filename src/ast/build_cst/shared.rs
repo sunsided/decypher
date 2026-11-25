@@ -118,3 +118,62 @@ pub fn parse_double(s: &str) -> Option<f64> {
         Some(val)
     }
 }
+
+/// Kani proof harnesses for the literal decoders.
+///
+/// Run them with `cargo kani` (`task verify`). Each harness checks every
+/// input up to a fixed length, so the bounds keep the proofs fast; the fuzz
+/// targets cover longer inputs.
+#[cfg(kani)]
+mod verification {
+    use super::{parse_integer, parse_integer_magnitude};
+
+    /// The longest integer literal that the integer proofs check, in bytes.
+    const MAX_INTEGER_LEN: usize = 6;
+
+    /// A symbolic ASCII string of at most `N` bytes, in `buf`.
+    fn any_ascii<const N: usize>(buf: &mut [u8; N]) -> &str {
+        *buf = kani::any();
+        let len: usize = kani::any();
+        kani::assume(len <= N);
+        let bytes = &buf[..len];
+        kani::assume(bytes.iter().all(u8::is_ascii));
+        std::str::from_utf8(bytes).expect("ASCII bytes are valid UTF-8")
+    }
+
+    /// `parse_integer_magnitude` does not panic on any input, also on the
+    /// legacy octal form whose first byte it slices off.
+    #[kani::proof]
+    #[kani::unwind(8)]
+    fn integer_magnitude_never_panics() {
+        let mut buf = [0u8; MAX_INTEGER_LEN];
+        let s = any_ascii(&mut buf);
+        let _ = parse_integer_magnitude(s);
+    }
+
+    /// A decimal literal without a leading zero parses to the value that
+    /// prints back as the same digits.
+    #[kani::proof]
+    #[kani::unwind(8)]
+    fn decimal_magnitude_round_trips() {
+        let mut buf = [0u8; MAX_INTEGER_LEN];
+        let s = any_ascii(&mut buf);
+        kani::assume(!s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()));
+        kani::assume(s == "0" || !s.starts_with('0'));
+
+        let value = parse_integer_magnitude(s).expect("short decimal literals do not overflow");
+        assert_eq!(value.to_string(), s);
+    }
+
+    /// `parse_integer` never gives a negative value: the sign is not part
+    /// of the literal.
+    #[kani::proof]
+    #[kani::unwind(8)]
+    fn integer_is_never_negative() {
+        let mut buf = [0u8; MAX_INTEGER_LEN];
+        let s = any_ascii(&mut buf);
+        if let Some(value) = parse_integer(s) {
+            assert!(value >= 0);
+        }
+    }
+}

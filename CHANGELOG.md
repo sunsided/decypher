@@ -8,6 +8,23 @@ are marked **Breaking** below.
 
 ## [Unreleased]
 
+### Added
+
+- **Breaking:** `ErrorKind::InvalidPattern { reason }` and
+  `HirDiagnostic::InvalidPattern`: a pattern that its clause cannot use, such
+  as a `CREATE` or `MERGE` pattern with an inline `WHERE` (#132).
+- Kani proofs (`task verify`, and a CI job) for the integer literal parser.
+  They cover every ASCII input up to 6 bytes:
+  - `parse_integer_magnitude` does not panic, and short decimal literals
+    print back as written.
+  - `parse_integer` is never negative.
+
+### Changed
+
+- The crate has no `unsafe` code any more and is `#![forbid(unsafe_code)]`.
+  `SyntaxKind::from` used a `transmute`; it now looks the kind up in a table
+  that is generated from the same list as the enum.
+
 ### Fixed
 
 - **Breaking:** an inline `WHERE` in a node or relationship pattern
@@ -50,12 +67,6 @@ are marked **Breaking** below.
   (#134).
 - The quantifier `{,m}` meant `{m,}` (at least `m` instead of at most `m`)
   (#134).
-
-### Added
-
-- **Breaking:** `ErrorKind::InvalidPattern { reason }` and
-  `HirDiagnostic::InvalidPattern`: a pattern that its clause cannot use, such
-  as a `CREATE` or `MERGE` pattern with an inline `WHERE` (#132).
 
 ## [0.2.0] - 2026-11-13
 
