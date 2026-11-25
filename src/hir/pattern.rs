@@ -14,14 +14,17 @@ use super::arena::{BindingId, ExprId, LabelId, RelTypeId};
 /// Nodes and relationships are stored in separate `Vec`s and cross-referenced
 /// by index. Each comma-separated part of the original pattern is one entry of
 /// `paths`, with its path variable and path selector.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct GraphPattern {
     /// Flat list of node patterns.
     pub nodes: Vec<NodePattern>,
     /// Flat list of relationship patterns (each references two node indices).
     pub relationships: Vec<RelationshipPattern>,
+    /// Quantified path patterns and quantified relationships. Each joins two
+    /// nodes of `nodes` with a repeated sub-pattern.
+    pub quantified: Vec<QuantifiedPattern>,
     /// The pattern parts, in source order. Each node and relationship belongs
-    /// to exactly one of them.
+    /// to exactly one of them, and so does each quantified group.
     ///
     /// The patterns of pattern expressions and pattern comprehensions have
     /// no parts and leave this empty.
@@ -34,6 +37,7 @@ impl GraphPattern {
         Self {
             nodes: Vec::new(),
             relationships: Vec::new(),
+            quantified: Vec::new(),
             paths: Vec::new(),
         }
     }
@@ -121,6 +125,49 @@ pub struct PathPattern {
     pub nodes: Vec<NodeIndex>,
     /// Ordered relationship indices that form the path.
     pub relationships: Vec<RelIndex>,
+    /// Indices of the quantified groups of the path, in path order.
+    ///
+    /// The path goes through `nodes` in order. Two neighbouring nodes are
+    /// joined by a relationship of `relationships` or by one of these groups.
+    pub quantified: Vec<QuantifiedIndex>,
+}
+
+/// A quantified path pattern (`((x)-[:R]->(y)){1,3}`) or a quantified
+/// relationship (`-[:R]->{1,3}`, lowered as `(()-[:R]->()){1,3}`).
+///
+/// It matches `min` to `max` repetitions of `inner`, chained end to start:
+/// the last node of one repetition is the first node of the next. The first
+/// node of the first repetition is the outer node `left`, and the last node
+/// of the last repetition is the outer node `right`. With zero repetitions,
+/// `left` and `right` are the same node.
+#[derive(Debug, Clone)]
+pub struct QuantifiedPattern {
+    /// One repetition, with its own node and relationship indices. Its
+    /// first node is `inner.nodes[0]` and its last node the last entry of
+    /// its only path.
+    pub inner: GraphPattern,
+    /// The smallest number of repetitions.
+    pub min: u32,
+    /// The largest number of repetitions, or `None` for no limit.
+    pub max: Option<u32>,
+    /// The outer node where the repetitions start.
+    pub left: NodeIndex,
+    /// The outer node where the repetitions end.
+    pub right: NodeIndex,
+    /// The variables of `inner`, each with the list variable that holds
+    /// its values outside the group.
+    pub group_variables: Vec<GroupVariable>,
+}
+
+/// A variable of a quantified group: one value inside each repetition, and
+/// a list of all of these values outside the group.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GroupVariable {
+    /// The binding inside one repetition, used by `inner`.
+    pub singleton: BindingId,
+    /// The binding outside the group: the list of the singleton's values,
+    /// one for each repetition, in path order.
+    pub list: BindingId,
 }
 
 /// Which of the paths that match a pattern part to keep.
@@ -172,3 +219,5 @@ pub enum RelationshipLength {
 pub type NodeIndex = usize;
 /// An index into [`GraphPattern::relationships`].
 pub type RelIndex = usize;
+/// An index into [`GraphPattern::quantified`].
+pub type QuantifiedIndex = usize;

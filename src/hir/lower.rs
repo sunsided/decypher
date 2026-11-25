@@ -22,8 +22,8 @@ use crate::ast::expr::{
 };
 use crate::ast::names::Variable;
 use crate::ast::pattern::{
-    LabelExpression, NodePattern, Pattern, PatternElement, Properties, RelationshipDirection,
-    RelationshipPattern,
+    LabelExpression, NodePattern, Pattern, PatternElement, Properties, Quantifier,
+    RelationshipDirection, RelationshipPattern,
 };
 use crate::ast::procedure::{InQueryCall, ProcedureInvocation, YieldSpec};
 use crate::ast::query::{
@@ -50,8 +50,9 @@ use super::ops::{
     SortDirection, SortItem, SortOp, UnionOp, UnwindOp,
 };
 use super::pattern::{
-    GraphPattern, LabelExpr as HirLabelExpr, NodeIndex, NodePattern as HirNodePattern, PathPattern,
-    PathSelector as HirPathSelector, RelationshipDirection as HirRelationshipDirection,
+    GraphPattern, GroupVariable, LabelExpr as HirLabelExpr, NodeIndex,
+    NodePattern as HirNodePattern, PathPattern, PathSelector as HirPathSelector, QuantifiedIndex,
+    QuantifiedPattern, RelIndex, RelationshipDirection as HirRelationshipDirection,
     RelationshipLength, RelationshipPattern as HirRelationshipPattern,
 };
 use super::{HirArenas, HirDiagnostic, HirQuery, QueryPart};
@@ -1463,88 +1464,233 @@ impl<'cfg> LoweringContext<'cfg> {
 
     /// Lowers pattern parts, binding each `p = …` path variable.
     fn lower_pattern_parts(&mut self, parts: &[crate::ast::pattern::PatternPart]) -> GraphPattern {
-        let mut nodes = Vec::new();
-        let mut relationships = Vec::new();
-        let mut paths = Vec::new();
-
+        let mut builder = PatternBuilder::default();
         for part in parts {
             let binding = part.variable.as_ref().map(|v| {
                 let id = self.bind_new(&v.name.name, BindingKind::PatternBound, v.name.span);
                 self.path_variables.push(id);
                 id
             });
-
-            let (part_nodes, part_rels) = self.lower_pattern_element(&part.anonymous.element);
-            let node_start = nodes.len();
-            nodes.extend(part_nodes);
-            let rel_start = relationships.len();
-            // A part's relationships index its own nodes; shift them to index
-            // the nodes of the whole pattern.
-            relationships.extend(part_rels.into_iter().map(|mut rel| {
-                rel.left += node_start;
-                rel.right += node_start;
-                rel
-            }));
-
-            paths.push(PathPattern {
-                binding,
-                selector: lower_path_selector(part.selector.as_ref()),
-                nodes: (node_start..nodes.len()).collect(),
-                relationships: (rel_start..relationships.len()).collect(),
-            });
+            let mark = builder.mark();
+            self.lower_element_into(&part.anonymous.element, &mut builder);
+            let path =
+                builder.path_since(mark, binding, lower_path_selector(part.selector.as_ref()));
+            builder.pattern.paths.push(path);
         }
 
-        let mut pattern = GraphPattern {
-            nodes,
-            relationships,
-            paths,
-        };
-        let mut predicates = InlinePredicates::default();
-        for part in parts {
-            predicates.collect_element(&part.anonymous.element);
-        }
-        self.lower_inline_predicates(&mut pattern, &predicates);
-        pattern
+        self.finish_pattern(builder)
     }
 
-    fn lower_pattern_element(
+    /// Lowers a pattern element into `builder` and returns the indices of
+    /// its first and last node.
+    fn lower_element_into<'ast>(
         &mut self,
-        element: &PatternElement,
-    ) -> (Vec<HirNodePattern>, Vec<HirRelationshipPattern>) {
-        let mut nodes = Vec::new();
-        let mut relationships = Vec::new();
-
+        element: &'ast PatternElement,
+        builder: &mut PatternBuilder<'ast>,
+    ) -> (NodeIndex, NodeIndex) {
         match element {
-            PatternElement::Path { start, chains } => {
-                let start_idx = nodes.len();
-                self.check_created_node(start, chains.is_empty());
-                let start_node = self.lower_node_pattern(start);
-                nodes.push(start_node);
-                let mut current = start_idx;
+            PatternElement::Path { start, chains } => self.lower_path_into(start, chains, builder),
+            PatternElement::Parenthesized(inner) => self.lower_element_into(inner, builder),
+            PatternElement::Quantified { .. } => {
+                self.lower_sequence_into(std::slice::from_ref(element), builder)
+            }
+            PatternElement::Sequence(elements) => self.lower_sequence_into(elements, builder),
+        }
+    }
 
-                for chain in chains {
-                    self.check_created_node(&chain.node, false);
-                    let end_node = self.lower_node_pattern(&chain.node);
-                    let end_idx = nodes.len();
-                    nodes.push(end_node);
+    /// Lowers a node-anchored path (`(a)-[r]->(b)…`) into `builder` and
+    /// returns the indices of its first and last node.
+    fn lower_path_into<'ast>(
+        &mut self,
+        start: &'ast NodePattern,
+        chains: &'ast [crate::ast::pattern::PatternElementChain],
+        builder: &mut PatternBuilder<'ast>,
+    ) -> (NodeIndex, NodeIndex) {
+        self.check_created_node(start, chains.is_empty());
+        let first = builder.push_node(self.lower_node_pattern(start), start);
+        let mut current = first;
+        for chain in chains {
+            self.check_created_node(&chain.node, false);
+            let end = builder.push_node(self.lower_node_pattern(&chain.node), &chain.node);
+            self.check_created_relationship(&chain.relationship);
+            if chain.relationship.quantifier.is_some() {
+                self.lower_quantified_relationship_into(&chain.relationship, current, end, builder);
+            } else {
+                let rel = self.lower_relationship_pattern(&chain.relationship, current, end);
+                builder.push_relationship(rel, &chain.relationship);
+            }
+            current = end;
+        }
 
-                    self.check_created_relationship(&chain.relationship);
-                    let rel =
-                        self.lower_relationship_pattern(&chain.relationship, current, end_idx);
-                    relationships.push(rel);
-                    current = end_idx;
+        (first, current)
+    }
+
+    /// Lowers juxtaposed elements (`(a) ((x)-->(y)){2} (b)`) into `builder`
+    /// and returns the indices of the first and last node of the whole
+    /// sequence.
+    ///
+    /// A quantified group joins the last node before it and the first node
+    /// after it. Where the group starts or ends the sequence, or two groups
+    /// meet, an anonymous node takes that place. Two plain paths next to
+    /// each other are an error of the structural checks; here they stay
+    /// unconnected.
+    fn lower_sequence_into<'ast>(
+        &mut self,
+        elements: &'ast [PatternElement],
+        builder: &mut PatternBuilder<'ast>,
+    ) -> (NodeIndex, NodeIndex) {
+        let mut first = None;
+        let mut last = None;
+        let mut open_group: Option<QuantifiedIndex> = None;
+        for element in elements {
+            if let Some((inner, quantifier)) = as_quantified(element) {
+                let left = last.take().unwrap_or_else(|| builder.push_anonymous_node());
+                if let Some(group) = open_group.take() {
+                    builder.pattern.quantified[group].right = left;
                 }
-            }
-            PatternElement::Parenthesized(inner) => {
-                return self.lower_pattern_element(inner);
-            }
-            PatternElement::Quantified { element, .. } => {
-                // For now, lower the inner element without the quantifier
-                return self.lower_pattern_element(element);
+                first.get_or_insert(left);
+                let group = self.lower_quantified_group(inner, quantifier, left);
+                open_group = Some(builder.push_quantified(group));
+            } else {
+                let (start, end) = self.lower_element_into(element, builder);
+                if let Some(group) = open_group.take() {
+                    builder.pattern.quantified[group].right = start;
+                }
+                first.get_or_insert(start);
+                last = Some(end);
             }
         }
 
-        (nodes, relationships)
+        if let Some(group) = open_group {
+            let right = builder.push_anonymous_node();
+            builder.pattern.quantified[group].right = right;
+            last = Some(right);
+        }
+        let first = first.unwrap_or_else(|| builder.push_anonymous_node());
+
+        (first, last.unwrap_or(first))
+    }
+
+    /// Lowers one iteration of a quantified path pattern into its own
+    /// [`GraphPattern`], in a scope of its own.
+    ///
+    /// The variables of the group are singletons inside it. Outside, each
+    /// one becomes a new group variable that holds the list of its values.
+    /// `right` is set to `left` here; the caller sets the real node.
+    fn lower_quantified_group(
+        &mut self,
+        element: &PatternElement,
+        quantifier: &Quantifier,
+        left: NodeIndex,
+    ) -> QuantifiedPattern {
+        self.report_bound_group_variables(crate::sema::element_variables(element));
+        let (inner, group_variables) = self.lower_group_scope(|this, builder| {
+            this.lower_element_into(element, builder);
+        });
+
+        QuantifiedPattern {
+            inner,
+            min: quantifier_bound(quantifier.start).unwrap_or(0),
+            max: quantifier_bound(quantifier.end),
+            left,
+            right: left,
+            group_variables,
+        }
+    }
+
+    /// Lowers a quantified relationship (`(a)-[r:R]->{1,3}(b)`) between the
+    /// nodes `left` and `right`, as the group `(()-[r:R]->()){1,3}`.
+    fn lower_quantified_relationship_into<'ast>(
+        &mut self,
+        rel: &'ast RelationshipPattern,
+        left: NodeIndex,
+        right: NodeIndex,
+        builder: &mut PatternBuilder<'ast>,
+    ) {
+        let variable = rel.detail.as_ref().and_then(|d| d.variable.as_ref());
+        self.report_bound_group_variables(variable.into_iter().collect());
+        let (inner, group_variables) = self.lower_group_scope(|this, builder| {
+            let start = builder.push_anonymous_node();
+            let end = builder.push_anonymous_node();
+            let lowered = this.lower_relationship_pattern(rel, start, end);
+            builder.push_relationship(lowered, rel);
+        });
+        let quantifier = rel
+            .quantifier
+            .as_ref()
+            .expect("caller checked that the relationship has a quantifier");
+
+        builder.push_quantified(QuantifiedPattern {
+            inner,
+            min: quantifier_bound(quantifier.start).unwrap_or(0),
+            max: quantifier_bound(quantifier.end),
+            left,
+            right,
+            group_variables,
+        });
+    }
+
+    /// Runs `lower` on a new pattern in a new scope, then binds a group
+    /// variable in the enclosing scope for each variable of that scope.
+    ///
+    /// Returns the inner pattern, with one path that covers all of it, and
+    /// the group variables.
+    fn lower_group_scope<'ast>(
+        &mut self,
+        lower: impl FnOnce(&mut Self, &mut PatternBuilder<'ast>),
+    ) -> (GraphPattern, Vec<GroupVariable>) {
+        let scope = self.scope_stack.push_scope(&mut self.arenas);
+        let mut builder = PatternBuilder::default();
+        let mark = builder.mark();
+        lower(self, &mut builder);
+        let path = builder.path_since(mark, None, HirPathSelector::All);
+        builder.pattern.paths.push(path);
+        let inner = self.finish_pattern(builder);
+        self.scope_stack.pop_scope();
+
+        let singletons = self.arenas.scopes.get(scope).bindings.clone();
+        let group_variables = singletons
+            .into_iter()
+            .map(|singleton| {
+                let binding = self.arenas.bindings.get(singleton);
+                let (name, span) = (binding.name.clone(), binding.introduced_at);
+                let list = self.bind_new(&name, BindingKind::PatternBound, span);
+                GroupVariable { singleton, list }
+            })
+            .collect();
+
+        (inner, group_variables)
+    }
+
+    /// Reports each variable of a quantified group that is visible already:
+    /// a group variable is a new list, so it cannot refer to it.
+    fn report_bound_group_variables(&mut self, variables: Vec<&Variable>) {
+        for v in variables {
+            if let Some(existing) = self.scope_stack.resolve(&v.name.name) {
+                self.report_redeclared(&v.name.name, existing, v.name.span);
+            }
+        }
+    }
+
+    /// Lowers the inline predicates that `builder` collected and returns
+    /// the finished pattern.
+    ///
+    /// This runs after the whole pattern is lowered, so a predicate can use
+    /// every variable of the pattern, as a `WHERE` on the clause can.
+    fn finish_pattern(&mut self, builder: PatternBuilder<'_>) -> GraphPattern {
+        let PatternBuilder {
+            mut pattern,
+            pending,
+        } = builder;
+        for predicate in pending {
+            let lowered = Some(self.lower_expr(predicate.expression));
+            match predicate.target {
+                PredicateTarget::Node(i) => pattern.nodes[i].predicate = lowered,
+                PredicateTarget::Relationship(i) => pattern.relationships[i].predicate = lowered,
+            }
+        }
+
+        pattern
     }
 
     /// Binding for a node or relationship variable in a pattern: a variable
@@ -1636,55 +1782,9 @@ impl<'cfg> LoweringContext<'cfg> {
         &mut self,
         rp: &crate::ast::pattern::RelationshipsPattern,
     ) -> GraphPattern {
-        let mut nodes = Vec::new();
-        let mut relationships = Vec::new();
-
-        let start_idx = nodes.len();
-        nodes.push(self.lower_node_pattern(&rp.start));
-        let mut current = start_idx;
-
-        for chain in &rp.chains {
-            let end_idx = nodes.len();
-            nodes.push(self.lower_node_pattern(&chain.node));
-            let rel = self.lower_relationship_pattern(&chain.relationship, current, end_idx);
-            relationships.push(rel);
-            current = end_idx;
-        }
-
-        let mut pattern = GraphPattern {
-            nodes,
-            relationships,
-            paths: Vec::new(),
-        };
-        let mut predicates = InlinePredicates::default();
-        predicates.collect_path(&rp.start, &rp.chains);
-        self.lower_inline_predicates(&mut pattern, &predicates);
-        pattern
-    }
-
-    /// Lowers the inline `WHERE` predicates of a pattern into its nodes and
-    /// relationships.
-    ///
-    /// This runs after the whole pattern is lowered, so a predicate can use
-    /// every variable of the pattern, as a `WHERE` on the clause can.
-    fn lower_inline_predicates(
-        &mut self,
-        pattern: &mut GraphPattern,
-        predicates: &InlinePredicates,
-    ) {
-        debug_assert_eq!(predicates.nodes.len(), pattern.nodes.len());
-        debug_assert_eq!(predicates.relationships.len(), pattern.relationships.len());
-        for (node, predicate) in pattern.nodes.iter_mut().zip(&predicates.nodes) {
-            node.predicate = predicate.map(|p| self.lower_expr(p));
-        }
-
-        for (rel, predicate) in pattern
-            .relationships
-            .iter_mut()
-            .zip(&predicates.relationships)
-        {
-            rel.predicate = predicate.map(|p| self.lower_expr(p));
-        }
+        let mut builder = PatternBuilder::default();
+        self.lower_path_into(&rp.start, &rp.chains, &mut builder);
+        self.finish_pattern(builder)
     }
 
     fn lower_pattern_part_as_graph(
@@ -2239,45 +2339,140 @@ fn lower_path_selector(selector: Option<&crate::ast::pattern::PathSelector>) -> 
     }
 }
 
-/// The inline `WHERE` predicates of a pattern, in the order in which the
-/// lowering adds its nodes and relationships to a [`GraphPattern`].
-///
-/// Entry `i` of `nodes` belongs to `GraphPattern::nodes[i]`, and entry `i` of
-/// `relationships` to `GraphPattern::relationships[i]`.
+/// A [`GraphPattern`] under construction, with the inline predicates that
+/// wait until all of its variables are bound.
 #[derive(Default)]
-struct InlinePredicates<'ast> {
-    /// The predicate of each node pattern, or `None` when it has none.
-    nodes: Vec<Option<&'ast Expression>>,
-    /// The predicate of each relationship pattern, or `None` when it has none.
-    relationships: Vec<Option<&'ast Expression>>,
+struct PatternBuilder<'ast> {
+    /// The pattern so far. Its `paths` are added by the caller.
+    pattern: GraphPattern,
+    /// The inline `WHERE` predicates still to lower, in source order.
+    pending: Vec<PendingPredicate<'ast>>,
 }
 
-impl<'ast> InlinePredicates<'ast> {
-    /// Adds the predicates of a pattern element, in the order of
-    /// `LoweringContext::lower_pattern_element`.
-    fn collect_element(&mut self, element: &'ast PatternElement) {
-        match element {
-            PatternElement::Path { start, chains } => self.collect_path(start, chains),
-            PatternElement::Parenthesized(inner) => self.collect_element(inner),
-            PatternElement::Quantified { element, .. } => self.collect_element(element),
+/// The sizes of the lists of a [`PatternBuilder`] at one point, so that a
+/// path can take the entries added after it.
+#[derive(Clone, Copy)]
+struct BuilderMark {
+    /// The number of nodes at the mark.
+    nodes: usize,
+    /// The number of relationships at the mark.
+    relationships: usize,
+    /// The number of quantified groups at the mark.
+    quantified: usize,
+}
+
+impl<'ast> PatternBuilder<'ast> {
+    /// Adds a node, and its inline predicate if it has one. Returns its index.
+    fn push_node(&mut self, node: HirNodePattern, ast: &'ast NodePattern) -> NodeIndex {
+        let index = self.pattern.nodes.len();
+        self.pattern.nodes.push(node);
+        if let Some(expression) = ast.where_clause.as_deref() {
+            self.pending.push(PendingPredicate {
+                target: PredicateTarget::Node(index),
+                expression,
+            });
+        }
+
+        index
+    }
+
+    /// Adds an anonymous node without constraints: the boundary of a
+    /// quantified group that has no node pattern of its own.
+    fn push_anonymous_node(&mut self) -> NodeIndex {
+        let index = self.pattern.nodes.len();
+        self.pattern.nodes.push(HirNodePattern {
+            binding: None,
+            labels: Vec::new(),
+            label_expression: None,
+            properties: None,
+            predicate: None,
+        });
+
+        index
+    }
+
+    /// Adds a relationship, and its inline predicate if it has one.
+    fn push_relationship(&mut self, rel: HirRelationshipPattern, ast: &'ast RelationshipPattern) {
+        let index = self.pattern.relationships.len();
+        self.pattern.relationships.push(rel);
+        let predicate = ast.detail.as_ref().and_then(|d| d.where_clause.as_deref());
+        if let Some(expression) = predicate {
+            self.pending.push(PendingPredicate {
+                target: PredicateTarget::Relationship(index),
+                expression,
+            });
         }
     }
 
-    /// Adds the predicates of a path: its start node, then one node and one
-    /// relationship for each chain.
-    fn collect_path(
-        &mut self,
-        start: &'ast NodePattern,
-        chains: &'ast [crate::ast::pattern::PatternElementChain],
-    ) {
-        self.nodes.push(start.where_clause.as_deref());
-        for chain in chains {
-            self.nodes.push(chain.node.where_clause.as_deref());
-            let detail = chain.relationship.detail.as_ref();
-            self.relationships
-                .push(detail.and_then(|d| d.where_clause.as_deref()));
+    /// Adds a quantified group and returns its index.
+    fn push_quantified(&mut self, group: QuantifiedPattern) -> QuantifiedIndex {
+        self.pattern.quantified.push(group);
+        self.pattern.quantified.len() - 1
+    }
+
+    /// The current sizes of the lists.
+    fn mark(&self) -> BuilderMark {
+        BuilderMark {
+            nodes: self.pattern.nodes.len(),
+            relationships: self.pattern.relationships.len(),
+            quantified: self.pattern.quantified.len(),
         }
     }
+
+    /// A path of the nodes, relationships and groups added since `mark`.
+    fn path_since(
+        &self,
+        mark: BuilderMark,
+        binding: Option<BindingId>,
+        selector: HirPathSelector,
+    ) -> PathPattern {
+        PathPattern {
+            binding,
+            selector,
+            nodes: (mark.nodes..self.pattern.nodes.len()).collect(),
+            relationships: (mark.relationships..self.pattern.relationships.len()).collect(),
+            quantified: (mark.quantified..self.pattern.quantified.len()).collect(),
+        }
+    }
+}
+
+/// An inline `WHERE` predicate that waits until its pattern is lowered.
+struct PendingPredicate<'ast> {
+    /// The node or relationship that the predicate filters.
+    target: PredicateTarget,
+    /// The predicate.
+    expression: &'ast Expression,
+}
+
+/// The element of a pattern that an inline predicate filters.
+enum PredicateTarget {
+    /// The node with this index in [`GraphPattern::nodes`].
+    Node(NodeIndex),
+    /// The relationship with this index in [`GraphPattern::relationships`].
+    Relationship(RelIndex),
+}
+
+/// The inner element and the quantifier of a quantified path pattern, also
+/// in parentheses; `None` for every other element.
+fn as_quantified(element: &PatternElement) -> Option<(&PatternElement, &Quantifier)> {
+    match element {
+        PatternElement::Quantified {
+            element,
+            quantifier,
+            ..
+        } => Some((element, quantifier)),
+        PatternElement::Parenthesized(inner) => as_quantified(inner),
+        PatternElement::Path { .. } | PatternElement::Sequence(_) => None,
+    }
+}
+
+/// A quantifier bound as a `u32`.
+///
+/// A bound above `u32::MAX` is reported by the structural checks, so the
+/// query fails. It lowers to `u32::MAX` here only to give the lowering a
+/// value.
+fn quantifier_bound(bound: Option<i64>) -> Option<u32> {
+    bound.map(|b| u32::try_from(b.max(0)).unwrap_or(u32::MAX))
 }
 
 #[cfg(test)]

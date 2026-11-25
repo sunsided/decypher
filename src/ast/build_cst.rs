@@ -938,11 +938,15 @@ fn build_selector_count(lit: Literal, span: Span) -> Result<i64> {
 }
 
 fn build_anonymous_pattern_part(app: AnonymousPatternPart) -> Result<ast_c::AnonymousPatternPart> {
-    let element = app
-        .element()
+    let mut elements = app
+        .elements()
         .map(build_pattern_element)
-        .transpose()?
-        .ok_or_else(|| internal("missing element", span_of(app.syntax())))?;
+        .collect::<Result<Vec<_>>>()?;
+    let element = match elements.len() {
+        0 => return Err(internal("missing element", span_of(app.syntax()))),
+        1 => elements.remove(0),
+        _ => ast_c::PatternElement::Sequence(elements),
+    };
     Ok(ast_c::AnonymousPatternPart { element })
 }
 
@@ -1115,7 +1119,32 @@ fn build_inline_where(
 
 fn build_quantifier(rq: RelationshipQuantifier) -> Result<ast_c::Quantifier> {
     let sp = span_of(rq.syntax());
-    let nums: Result<Vec<i64>> = rq
+    let (start, end) = match quantifier_shorthand(&rq) {
+        Some(bounds) => bounds,
+        None => quantifier_bounds(&rq, sp)?,
+    };
+    Ok(ast_c::Quantifier {
+        start,
+        end,
+        span: sp,
+    })
+}
+
+/// The bounds of a `+` (`{1,}`) or `*` (`{0,}`) quantifier, or `None` for a
+/// quantifier in braces.
+fn quantifier_shorthand(rq: &RelationshipQuantifier) -> Option<(Option<i64>, Option<i64>)> {
+    let first = rq.syntax().first_token()?;
+    match first.kind() {
+        SyntaxKind::PLUS => Some((Some(1), None)),
+        SyntaxKind::STAR => Some((Some(0), None)),
+        _ => None,
+    }
+}
+
+/// The bounds of a quantifier in braces: `{n}` is exactly `n`, `{n,}` at
+/// least `n`, `{,m}` at most `m`, and `{n,m}` between `n` and `m`.
+fn quantifier_bounds(rq: &RelationshipQuantifier, sp: Span) -> Result<(Option<i64>, Option<i64>)> {
+    let nums: Vec<i64> = rq
         .numbers()
         .map(|lit| match build_literal(lit)? {
             ast_c::Expression::Literal(ast_c::Literal::Number {
@@ -1124,28 +1153,25 @@ fn build_quantifier(rq: RelationshipQuantifier) -> Result<ast_c::Quantifier> {
             }) => Ok(i),
             _ => Err(internal("expected integer quantifier bound", sp)),
         })
-        .collect();
-    let nums = nums?;
-    let has_comma = rq.syntax().children_with_tokens().any(|t| {
-        t.as_token()
-            .is_some_and(|tok| tok.kind() == SyntaxKind::COMMA)
-    });
-    let (start, end) = match nums.as_slice() {
-        [a, b] => (Some(*a), Some(*b)),
-        // `{n}` (no comma) means exactly n; `{n,}` (with comma) means n or more.
-        [a] => {
-            if has_comma {
-                (Some(*a), None)
-            } else {
-                (Some(*a), Some(*a))
-            }
-        }
-        _ => (None, None),
+        .collect::<Result<_>>()?;
+    let comma = rq
+        .syntax()
+        .children_with_tokens()
+        .filter_map(|t| t.into_token())
+        .find(|tok| tok.kind() == SyntaxKind::COMMA)
+        .map(|tok| tok.text_range().start());
+    let number_before_comma = |comma| {
+        rq.numbers()
+            .next()
+            .is_some_and(|n| n.syntax().text_range().start() < comma)
     };
-    Ok(ast_c::Quantifier {
-        start,
-        end,
-        span: sp,
+
+    Ok(match (nums.as_slice(), comma) {
+        ([a, b], _) => (Some(*a), Some(*b)),
+        ([a], None) => (Some(*a), Some(*a)),
+        ([a], Some(comma)) if number_before_comma(comma) => (Some(*a), None),
+        ([b], Some(_)) => (None, Some(*b)),
+        _ => (None, None),
     })
 }
 

@@ -29,7 +29,8 @@ use crate::ast::query::*;
 use crate::ast::visit::{
     Visit, walk_collect_subquery_expression, walk_count_subquery_expression, walk_create,
     walk_delete, walk_exists_expression, walk_expression, walk_function_invocation_expr,
-    walk_merge, walk_pattern_part, walk_regular_query, walk_remove, walk_return, walk_set,
+    walk_merge, walk_pattern_element, walk_pattern_part, walk_regular_query, walk_remove,
+    walk_return, walk_set,
 };
 use std::borrow::Cow;
 
@@ -266,6 +267,21 @@ impl StructureChecker<'_> {
         self.read_only = outer;
     }
 
+    /// Checks the elements of a juxtaposed path: two neighbours cannot both
+    /// be plain paths (`(a)-->(b) (c)`), because only a quantified path
+    /// pattern can join them.
+    fn check_juxtaposition(&mut self, elements: &[PatternElement]) {
+        for pair in elements.windows(2) {
+            let [left, right] = pair else { continue };
+            if !is_quantified(left) && !is_quantified(right) {
+                self.errors.push(StructuralError::InvalidPattern {
+                    reason: "juxtaposed path patterns need a quantified path pattern between them",
+                    span: element_start(right),
+                });
+            }
+        }
+    }
+
     /// Checks a `CREATE` (`directed`) or `MERGE` pattern part: it cannot
     /// select paths or filter, and every relationship must be creatable.
     fn check_created(&mut self, part: &PatternPart, directed: bool) {
@@ -277,6 +293,13 @@ impl StructureChecker<'_> {
         }
 
         let element = &part.anonymous.element;
+        for span in quantified_spans(element) {
+            self.errors.push(StructuralError::InvalidPattern {
+                reason: "CREATE and MERGE patterns cannot have a quantified path pattern",
+                span,
+            });
+        }
+
         for predicate in inline_predicates(element) {
             self.errors.push(StructuralError::InvalidPattern {
                 reason: "CREATE and MERGE patterns cannot contain WHERE",
@@ -405,6 +428,43 @@ impl<'ast> Visit<'ast> for StructureChecker<'_> {
         }
 
         walk_pattern_part(self, node);
+    }
+
+    fn visit_pattern_element(&mut self, node: &'ast PatternElement) {
+        match node {
+            PatternElement::Sequence(elements) => self.check_juxtaposition(elements),
+            PatternElement::Quantified { element, span, .. }
+                if relationships(element).is_empty() =>
+            {
+                self.errors.push(StructuralError::InvalidPattern {
+                    reason: "a quantified path pattern needs at least one relationship",
+                    span: *span,
+                });
+            }
+            _ => {}
+        }
+
+        walk_pattern_element(self, node);
+    }
+
+    fn visit_quantifier(&mut self, node: &'ast Quantifier) {
+        let max = i64::from(u32::MAX);
+        let reason = match (node.start, node.end) {
+            (Some(n), _) | (_, Some(n)) if n > max => {
+                Some("a quantifier bound must be at most 4294967295")
+            }
+            (Some(lower), Some(upper)) if lower > upper => {
+                Some("a quantifier's lower bound cannot be above its upper bound")
+            }
+            (_, Some(0)) => Some("a quantifier's upper bound must be at least 1"),
+            _ => None,
+        };
+        if let Some(reason) = reason {
+            self.errors.push(StructuralError::InvalidPattern {
+                reason,
+                span: node.span,
+            });
+        }
     }
 
     fn visit_node_pattern(&mut self, node: &'ast NodePattern) {
@@ -657,6 +717,47 @@ fn has_valid_path_count(kind: PathSelectorKind) -> bool {
     count.is_none_or(|k| (1..=i64::from(u32::MAX)).contains(&k))
 }
 
+/// Whether `element` is a quantified path pattern.
+fn is_quantified(element: &PatternElement) -> bool {
+    match element {
+        PatternElement::Quantified { .. } => true,
+        PatternElement::Parenthesized(inner) => is_quantified(inner),
+        PatternElement::Path { .. } | PatternElement::Sequence(_) => false,
+    }
+}
+
+/// The span of the start of `element`: its first node, or the whole
+/// quantified pattern.
+fn element_start(element: &PatternElement) -> Span {
+    match element {
+        PatternElement::Path { start, .. } => start.span,
+        PatternElement::Quantified { span, .. } => *span,
+        PatternElement::Parenthesized(inner) => element_start(inner),
+        PatternElement::Sequence(elements) => {
+            elements.first().map_or(Span::new(0, 0), element_start)
+        }
+    }
+}
+
+/// The spans of the quantified path patterns and quantified relationships
+/// of `element`.
+fn quantified_spans(element: &PatternElement) -> Vec<Span> {
+    match element {
+        PatternElement::Path { chains, .. } => chains
+            .iter()
+            .filter_map(|c| {
+                c.relationship
+                    .quantifier
+                    .as_ref()
+                    .map(|_| c.relationship.span)
+            })
+            .collect(),
+        PatternElement::Quantified { span, .. } => vec![*span],
+        PatternElement::Parenthesized(inner) => quantified_spans(inner),
+        PatternElement::Sequence(elements) => elements.iter().flat_map(quantified_spans).collect(),
+    }
+}
+
 /// The inline `WHERE` predicates of the node and relationship patterns of
 /// `element`, in source order.
 fn inline_predicates(element: &PatternElement) -> Vec<&Expression> {
@@ -676,6 +777,7 @@ fn inline_predicates(element: &PatternElement) -> Vec<&Expression> {
         }
         PatternElement::Parenthesized(inner) => inline_predicates(inner),
         PatternElement::Quantified { element, .. } => inline_predicates(element),
+        PatternElement::Sequence(elements) => elements.iter().flat_map(inline_predicates).collect(),
     }
 }
 
@@ -685,5 +787,6 @@ fn relationships(element: &PatternElement) -> Vec<&RelationshipPattern> {
         PatternElement::Path { chains, .. } => chains.iter().map(|c| &c.relationship).collect(),
         PatternElement::Parenthesized(inner) => relationships(inner),
         PatternElement::Quantified { element, .. } => relationships(element),
+        PatternElement::Sequence(elements) => elements.iter().flat_map(relationships).collect(),
     }
 }
