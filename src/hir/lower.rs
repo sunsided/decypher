@@ -1465,6 +1465,7 @@ impl<'cfg> LoweringContext<'cfg> {
         let mut nodes = Vec::new();
         let mut relationships = Vec::new();
         let mut path_bindings = Vec::new();
+        let mut predicates = InlinePredicates::default();
 
         for part in parts {
             let path_binding = part.variable.as_ref().map(|v| {
@@ -1473,7 +1474,8 @@ impl<'cfg> LoweringContext<'cfg> {
                 id
             });
 
-            let (part_nodes, part_rels) = self.lower_pattern_element(&part.anonymous.element);
+            let (part_nodes, part_rels) =
+                self.lower_pattern_element(&part.anonymous.element, &mut predicates);
             let node_start = nodes.len();
             nodes.extend(part_nodes);
             let rel_start = relationships.len();
@@ -1496,16 +1498,21 @@ impl<'cfg> LoweringContext<'cfg> {
             }
         }
 
-        GraphPattern {
+        let mut pattern = GraphPattern {
             nodes,
             relationships,
             path_bindings,
-        }
+        };
+        self.lower_inline_predicates(&mut pattern, &predicates);
+        pattern
     }
 
-    fn lower_pattern_element(
+    /// Lowers a pattern element. Its inline `WHERE`s go to `predicates`, one
+    /// entry per lowered node and relationship; they are lowered later.
+    fn lower_pattern_element<'ast>(
         &mut self,
-        element: &PatternElement,
+        element: &'ast PatternElement,
+        predicates: &mut InlinePredicates<'ast>,
     ) -> (Vec<HirNodePattern>, Vec<HirRelationshipPattern>) {
         let mut nodes = Vec::new();
         let mut relationships = Vec::new();
@@ -1516,6 +1523,7 @@ impl<'cfg> LoweringContext<'cfg> {
                 self.check_created_node(start, chains.is_empty());
                 let start_node = self.lower_node_pattern(start);
                 nodes.push(start_node);
+                predicates.node(start);
                 let mut current = start_idx;
 
                 for chain in chains {
@@ -1523,20 +1531,22 @@ impl<'cfg> LoweringContext<'cfg> {
                     let end_node = self.lower_node_pattern(&chain.node);
                     let end_idx = nodes.len();
                     nodes.push(end_node);
+                    predicates.node(&chain.node);
 
                     self.check_created_relationship(&chain.relationship);
                     let rel =
                         self.lower_relationship_pattern(&chain.relationship, current, end_idx);
                     relationships.push(rel);
+                    predicates.relationship(&chain.relationship);
                     current = end_idx;
                 }
             }
             PatternElement::Parenthesized(inner) => {
-                return self.lower_pattern_element(inner);
+                return self.lower_pattern_element(inner, predicates);
             }
             PatternElement::Quantified { element, .. } => {
                 // For now, lower the inner element without the quantifier
-                return self.lower_pattern_element(element);
+                return self.lower_pattern_element(element, predicates);
             }
         }
 
@@ -1577,6 +1587,7 @@ impl<'cfg> LoweringContext<'cfg> {
             labels,
             label_expression,
             properties,
+            predicate: None,
         }
     }
 
@@ -1623,6 +1634,7 @@ impl<'cfg> LoweringContext<'cfg> {
             types,
             length,
             properties,
+            predicate: None,
         }
     }
 
@@ -1632,23 +1644,54 @@ impl<'cfg> LoweringContext<'cfg> {
     ) -> GraphPattern {
         let mut nodes = Vec::new();
         let mut relationships = Vec::new();
+        let mut predicates = InlinePredicates::default();
 
         let start_idx = nodes.len();
         nodes.push(self.lower_node_pattern(&rp.start));
+        predicates.node(&rp.start);
         let mut current = start_idx;
 
         for chain in &rp.chains {
             let end_idx = nodes.len();
             nodes.push(self.lower_node_pattern(&chain.node));
+            predicates.node(&chain.node);
             let rel = self.lower_relationship_pattern(&chain.relationship, current, end_idx);
             relationships.push(rel);
+            predicates.relationship(&chain.relationship);
             current = end_idx;
         }
 
-        GraphPattern {
+        let mut pattern = GraphPattern {
             nodes,
             relationships,
             path_bindings: Vec::new(),
+        };
+        self.lower_inline_predicates(&mut pattern, &predicates);
+        pattern
+    }
+
+    /// Lowers the inline `WHERE` predicates of a pattern into its nodes and
+    /// relationships.
+    ///
+    /// This runs after the whole pattern is lowered, so a predicate can use
+    /// every variable of the pattern, as a `WHERE` on the clause can.
+    fn lower_inline_predicates(
+        &mut self,
+        pattern: &mut GraphPattern,
+        predicates: &InlinePredicates,
+    ) {
+        debug_assert_eq!(predicates.nodes.len(), pattern.nodes.len());
+        debug_assert_eq!(predicates.relationships.len(), pattern.relationships.len());
+        for (node, predicate) in pattern.nodes.iter_mut().zip(&predicates.nodes) {
+            node.predicate = predicate.map(|p| self.lower_expr(p));
+        }
+
+        for (rel, predicate) in pattern
+            .relationships
+            .iter_mut()
+            .zip(&predicates.relationships)
+        {
+            rel.predicate = predicate.map(|p| self.lower_expr(p));
         }
     }
 
@@ -2176,6 +2219,33 @@ impl<'cfg> LoweringContext<'cfg> {
 
 fn expr_span(expr: &Expression) -> Span {
     expr.span()
+}
+
+/// The inline `WHERE` predicates of a pattern, collected while its nodes
+/// and relationships are lowered.
+///
+/// Entry `i` of `nodes` belongs to `GraphPattern::nodes[i]`, and entry `i` of
+/// `relationships` to `GraphPattern::relationships[i]`.
+#[derive(Default)]
+struct InlinePredicates<'ast> {
+    /// The predicate of each node pattern, or `None` when it has none.
+    nodes: Vec<Option<&'ast Expression>>,
+    /// The predicate of each relationship pattern, or `None` when it has none.
+    relationships: Vec<Option<&'ast Expression>>,
+}
+
+impl<'ast> InlinePredicates<'ast> {
+    /// Records the predicate of the node just added to the pattern.
+    fn node(&mut self, node: &'ast NodePattern) {
+        self.nodes.push(node.where_clause.as_deref());
+    }
+
+    /// Records the predicate of the relationship just added to the pattern.
+    fn relationship(&mut self, rel: &'ast RelationshipPattern) {
+        let detail = rel.detail.as_ref();
+        self.relationships
+            .push(detail.and_then(|d| d.where_clause.as_deref()));
+    }
 }
 
 #[cfg(test)]

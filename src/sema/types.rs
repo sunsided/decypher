@@ -36,8 +36,8 @@ use crate::ast::query::*;
 use crate::ast::visit::{
     Visit, walk_call_subquery, walk_create, walk_delete, walk_exists_inner, walk_expression,
     walk_filter_expression, walk_foreach, walk_in_query_call, walk_list_comprehension, walk_match,
-    walk_merge, walk_pattern_comprehension, walk_reduce_expression, walk_standalone_call,
-    walk_unwind,
+    walk_merge, walk_node_pattern, walk_pattern_comprehension, walk_reduce_expression,
+    walk_relationship_detail, walk_standalone_call, walk_unwind,
 };
 use crate::error::{Span, ValueTypes, VariableKind};
 
@@ -545,6 +545,20 @@ impl<'ast> Visit<'ast> for TypeChecker<'_> {
         }
         self.vars = outer;
         self.next_start = columns;
+    }
+
+    fn visit_node_pattern(&mut self, node: &'ast NodePattern) {
+        if let Some(predicate) = &node.where_clause {
+            self.expect_predicate(predicate, "WHERE");
+        }
+        walk_node_pattern(self, node);
+    }
+
+    fn visit_relationship_detail(&mut self, node: &'ast RelationshipDetail) {
+        if let Some(predicate) = &node.where_clause {
+            self.expect_predicate(predicate, "WHERE");
+        }
+        walk_relationship_detail(self, node);
     }
 
     fn visit_match(&mut self, node: &'ast Match) {

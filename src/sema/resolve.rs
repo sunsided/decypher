@@ -495,6 +495,8 @@ impl<'ast> Visit<'ast> for NameResolver<'_> {
                     false,
                     &mut self.errors,
                 );
+                // Property maps and inline `WHERE`s inside the pattern.
+                self.visit_pattern(pattern);
                 if let Some(w) = where_clause {
                     self.visit_expression(w);
                 }
@@ -573,6 +575,8 @@ impl<'ast> Visit<'ast> for NameResolver<'_> {
             });
         }
         bind_relationships_pattern(&mut self.scopes, &node.pattern, SymbolKind::PatternBound);
+        // Property maps and inline `WHERE`s inside the pattern.
+        self.visit_relationships_pattern(&node.pattern);
         if let Some(wc) = &node.where_clause {
             self.visit_expression(wc);
         }
