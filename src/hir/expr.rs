@@ -230,6 +230,8 @@ pub enum UnaryOp {
 pub enum BinaryOp {
     /// `+`
     Add,
+    /// `||`: string and list concatenation.
+    Concat,
     /// `-`
     Subtract,
     /// `*`

@@ -376,6 +376,13 @@ impl<'a> TypeChecker<'a> {
                     BinaryOperator::And | BinaryOperator::Or | BinaryOperator::Xor => {
                         Ty::of(T::BOOLEAN)
                     }
+                    BinaryOperator::Concat if lhs.within(T::STRING) && rhs.within(T::STRING) => {
+                        Ty::of(T::STRING)
+                    }
+                    BinaryOperator::Concat if lhs.within(T::LIST) && rhs.within(T::LIST) => {
+                        Ty::list_of(lhs.element | rhs.element)
+                    }
+                    BinaryOperator::Concat => Ty::ANY,
                     _ if lhs.within(T::INTEGER) && rhs.within(T::INTEGER) => {
                         Ty::of(if *op == BinaryOperator::Power {
                             T::FLOAT
@@ -419,6 +426,7 @@ impl<'a> TypeChecker<'a> {
                 if list.top == T::LIST { list } else { Ty::ANY }
             }
             Expression::FunctionCall(call) => self.result_of(call),
+            Expression::Trim { .. } => Ty::of(T::STRING),
             Expression::CountStar { .. } | Expression::CountSubquery(_) => Ty::of(T::INTEGER),
             Expression::ListComprehension(lc) if lc.map.is_none() => {
                 Ty::list_of(self.type_of(&lc.collection).element().top)
@@ -496,6 +504,7 @@ impl<'a> TypeChecker<'a> {
                     BinaryOperator::Multiply => (arithmetic, "*"),
                     BinaryOperator::Divide => (arithmetic, "/"),
                     BinaryOperator::Add => return self.check_addition(lhs, rhs),
+                    BinaryOperator::Concat => (T::STRING | T::LIST, "||"),
                 };
                 self.expect(lhs, expected, Cow::Borrowed(symbol));
                 self.expect(rhs, expected, Cow::Borrowed(symbol));
@@ -519,6 +528,13 @@ impl<'a> TypeChecker<'a> {
                 Cow::Borrowed("indexing"),
             ),
             Expression::FunctionCall(call) => self.check_function_call(call),
+            Expression::Trim {
+                character, source, ..
+            } => {
+                for operand in character.iter().chain([source]) {
+                    self.expect(operand, T::STRING, Cow::Borrowed("trim()"));
+                }
+            }
             _ => {}
         }
     }

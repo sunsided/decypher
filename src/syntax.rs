@@ -82,6 +82,8 @@ pub enum SyntaxKind {
     PERCENT,
     POW,
     PLUSEQ,
+    // `||`: string and list concatenation.
+    PIPE_PIPE,
     TILDE_EQ,
     TILDE,
     ARROW_LEFT,
@@ -298,6 +300,8 @@ pub enum SyntaxKind {
     SYMBOLIC_NAME,
     FUNCTION_INVOCATION,
     FUNCTION_NAME,
+    // `BOTH`, `LEADING` or `TRAILING` in `trim(… FROM …)`.
+    TRIM_SPEC,
     NAMESPACE,
     EXPLICIT_PROCEDURE_INVOCATION,
     IMPLICIT_PROCEDURE_INVOCATION,

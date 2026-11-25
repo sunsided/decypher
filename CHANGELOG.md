@@ -12,6 +12,16 @@ are marked **Breaking** below.
 
 - The Cypher 25 hyperbolic functions `cosh`, `coth`, `sinh` and `tanh` in
   the function catalog (#138).
+- **Breaking:** the `||` concatenation operator (GQL, Cypher 5) for strings
+  and lists, with the precedence of `+`: `SyntaxKind::PIPE_PIPE`,
+  `ast::BinaryOperator::Concat` and `hir::BinaryOp::Concat`. Operands that
+  can never be a string or list are reported as `InvalidArgumentType` (#136).
+- **Breaking:** `trim([BOTH | LEADING | TRAILING] [character] FROM source)`
+  parses, as `ast::Expression::Trim` with a `TrimSpec` (CST: a `TRIM_SPEC`
+  node and a `FROM` token in the `FUNCTION_INVOCATION`). The HIR lowers it
+  to a call of `btrim`, `ltrim` or `rtrim` (source, then character), so
+  consumers need no new node. `BOTH`, `LEADING` and `TRAILING` stay usable as
+  variable names (#137).
 - **Breaking:** dynamic labels in `SET n:$(expr)` and `REMOVE n:$(expr)`,
   also mixed with static ones (`SET n:A:$(x)`), and `REMOVE n[key]`. The
   label lists of `ast::SetItem::Labels` / `ast::RemoveItem::Labels` are now

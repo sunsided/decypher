@@ -1675,6 +1675,12 @@ fn finish_binary_expr(
                     rhs: Box::new(rhs),
                     span: sp,
                 }),
+                Some(BinOp::Concat) => Ok(ast_c::Expression::BinaryOp {
+                    op: ast_c::BinaryOperator::Concat,
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                    span: sp,
+                }),
                 Some(BinOp::Sub) => Ok(ast_c::Expression::BinaryOp {
                     op: ast_c::BinaryOperator::Subtract,
                     lhs: Box::new(lhs),
@@ -2059,7 +2065,29 @@ fn build_function_invocation(f: FunctionInvocation) -> Result<ast_c::Expression>
     }
 
     let args: Result<Vec<_>> = f.arguments().map(build_expression).collect();
-    let args = args?;
+    let mut args = args?;
+
+    // Only `trim` takes `FROM`; elsewhere the parser reports it.
+    if let (Some(_), [name]) = (f.from_token(), name_parts.as_slice())
+        && name.name.eq_ignore_ascii_case("trim")
+    {
+        let spec = f
+            .trim_spec()
+            .map(|t| match t.text().to_ascii_uppercase().as_str() {
+                "LEADING" => ast_c::TrimSpec::Leading,
+                "TRAILING" => ast_c::TrimSpec::Trailing,
+                _ => ast_c::TrimSpec::Both,
+            });
+        let source = args
+            .pop()
+            .ok_or_else(|| internal("missing source in trim", sp))?;
+        return Ok(ast_c::Expression::Trim {
+            spec,
+            character: args.pop().map(Box::new),
+            source: Box::new(source),
+            span: sp,
+        });
+    }
 
     if star
         && args.is_empty()

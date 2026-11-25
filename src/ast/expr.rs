@@ -223,6 +223,19 @@ pub enum Expression {
     },
     /// A function invocation: `f(args)` or `ns.f(args)`.
     FunctionCall(FunctionInvocation),
+    /// `trim([BOTH | LEADING | TRAILING] [character] FROM source)`; the plain
+    /// `trim(source)` stays a [`Expression::FunctionCall`].
+    Trim {
+        /// `BOTH`, `LEADING` or `TRAILING`, if written; trimming defaults to
+        /// both ends.
+        spec: Option<TrimSpec>,
+        /// The character to trim, or `None` for whitespace.
+        character: Option<Box<Expression>>,
+        /// The string to trim.
+        source: Box<Expression>,
+        /// Byte-offset span of the call.
+        span: Span,
+    },
     /// `count(*)` — the special aggregate form.
     CountStar {
         /// Byte-offset span of the `count(*)` expression.
@@ -263,6 +276,39 @@ pub enum Expression {
     MapProjection(Box<MapProjection>),
 }
 
+/// Which end `trim(… FROM …)` trims.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub enum TrimSpec {
+    /// `BOTH`
+    Both,
+    /// `LEADING`
+    Leading,
+    /// `TRAILING`
+    Trailing,
+}
+
+impl TrimSpec {
+    /// The keyword spelling (`BOTH`, …).
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TrimSpec::Both => "BOTH",
+            TrimSpec::Leading => "LEADING",
+            TrimSpec::Trailing => "TRAILING",
+        }
+    }
+
+    /// The catalog function `trim` with this spec evaluates as: `btrim`,
+    /// `ltrim` or `rtrim`.
+    pub fn function_name(self) -> &'static str {
+        match self {
+            TrimSpec::Both => "btrim",
+            TrimSpec::Leading => "ltrim",
+            TrimSpec::Trailing => "rtrim",
+        }
+    }
+}
+
 /// A Unicode normal form for `IS [NOT] <form> NORMALIZED`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
@@ -295,6 +341,8 @@ impl NormalForm {
 pub enum BinaryOperator {
     /// `+`
     Add,
+    /// `||`: string and list concatenation.
+    Concat,
     /// `-`
     Subtract,
     /// `*`
@@ -577,6 +625,7 @@ impl Expression {
             | Expression::IsNormalized { span, .. }
             | Expression::IsTyped { span, .. } => *span,
             Expression::FunctionCall(fc) => fc.span,
+            Expression::Trim { span, .. } => *span,
             Expression::CountStar { span } => *span,
             Expression::Case(case) => case.span,
             Expression::ListComprehension(lc) => lc.span,

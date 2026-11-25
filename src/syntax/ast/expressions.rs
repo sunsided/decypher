@@ -113,6 +113,8 @@ impl BinaryExpr {
             SyntaxKind::ADD_SUB_EXPR => {
                 if child_token(&self.0, SyntaxKind::PLUS).is_some() {
                     Some(BinOp::Add)
+                } else if child_token(&self.0, SyntaxKind::PIPE_PIPE).is_some() {
+                    Some(BinOp::Concat)
                 } else {
                     Some(BinOp::Sub)
                 }
@@ -217,6 +219,8 @@ pub enum BinOp {
     Ge,
     RegexMatch,
     Add,
+    /// `||`
+    Concat,
     Sub,
     Mul,
     Div,
@@ -686,9 +690,11 @@ impl FunctionInvocation {
         let mut current = None;
 
         for child in self.0.children_with_tokens() {
+            // `FROM` separates the character from the source in
+            // `trim('x' FROM s)`.
             if child
                 .as_token()
-                .is_some_and(|t| t.kind() == SyntaxKind::COMMA)
+                .is_some_and(|t| matches!(t.kind(), SyntaxKind::COMMA | SyntaxKind::KW_FROM))
             {
                 if let Some(expr) = current.take() {
                     args.push(expr);
@@ -754,6 +760,19 @@ impl FunctionInvocation {
 
     pub fn star_token(&self) -> Option<SyntaxToken> {
         child_token(&self.0, SyntaxKind::STAR)
+    }
+
+    /// The `FROM` of `trim(… FROM source)`.
+    pub fn from_token(&self) -> Option<SyntaxToken> {
+        child_token(&self.0, SyntaxKind::KW_FROM)
+    }
+
+    /// The `BOTH`, `LEADING` or `TRAILING` of `trim(… FROM source)`.
+    pub fn trim_spec(&self) -> Option<SyntaxToken> {
+        self.0
+            .children()
+            .find(|c| c.kind() == SyntaxKind::TRIM_SPEC)
+            .and_then(|c| c.first_token())
     }
 }
 

@@ -172,6 +172,11 @@ impl<'a> Lexer<'a> {
                 self.bump();
                 Some(self.make_token(SyntaxKind::COLON, start))
             }
+            '|' if self.peek2() == Some('|') => {
+                self.bump();
+                self.bump();
+                Some(self.make_token(SyntaxKind::PIPE_PIPE, start))
+            }
             '|' => {
                 self.bump();
                 Some(self.make_token(SyntaxKind::PIPE, start))

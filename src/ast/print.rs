@@ -901,6 +901,24 @@ impl ToCypher for Expression {
                 write!(w, " IN ")?;
                 rhs.write_cypher(w)
             }
+            Expression::Trim {
+                spec,
+                character,
+                source,
+                ..
+            } => {
+                write!(w, "trim(")?;
+                if let Some(spec) = spec {
+                    write!(w, "{} ", spec.as_str())?;
+                }
+                if let Some(c) = character {
+                    c.write_cypher(w)?;
+                    write!(w, " ")?;
+                }
+                write!(w, "FROM ")?;
+                source.write_cypher(w)?;
+                write!(w, ")")
+            }
             Expression::IsNormalized {
                 operand,
                 negated,
@@ -1074,6 +1092,7 @@ impl ToCypher for BinaryOperator {
     fn write_cypher(&self, w: &mut dyn fmt::Write) -> fmt::Result {
         match self {
             BinaryOperator::Add => write!(w, "+"),
+            BinaryOperator::Concat => write!(w, "||"),
             BinaryOperator::Subtract => write!(w, "-"),
             BinaryOperator::Multiply => write!(w, "*"),
             BinaryOperator::Divide => write!(w, "/"),

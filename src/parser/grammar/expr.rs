@@ -130,7 +130,7 @@ fn infix_op_bp(p: &Parser) -> Option<(Prec, ())> {
         | SyntaxKind::LE
         | SyntaxKind::GE
         | SyntaxKind::TILDE_EQ => Some((Prec::COMPARISON, ())),
-        SyntaxKind::PLUS | SyntaxKind::MINUS => Some((Prec::ADD_SUB, ())),
+        SyntaxKind::PLUS | SyntaxKind::MINUS | SyntaxKind::PIPE_PIPE => Some((Prec::ADD_SUB, ())),
         SyntaxKind::STAR | SyntaxKind::SLASH | SyntaxKind::PERCENT => Some((Prec::MUL_DIV_MOD, ())),
         SyntaxKind::POW => Some((Prec::POWER, ())),
         _ => None,
@@ -150,7 +150,7 @@ fn parse_infix_tail(p: &mut Parser, bp: Prec) {
         | SyntaxKind::LE
         | SyntaxKind::GE
         | SyntaxKind::TILDE_EQ => SyntaxKind::COMPARISON_EXPR,
-        SyntaxKind::PLUS | SyntaxKind::MINUS => SyntaxKind::ADD_SUB_EXPR,
+        SyntaxKind::PLUS | SyntaxKind::MINUS | SyntaxKind::PIPE_PIPE => SyntaxKind::ADD_SUB_EXPR,
         SyntaxKind::STAR | SyntaxKind::SLASH | SyntaxKind::PERCENT => SyntaxKind::MUL_DIV_MOD_EXPR,
         SyntaxKind::POW => SyntaxKind::POWER_EXPR,
         _ => SyntaxKind::EXPRESSION,
@@ -164,6 +164,57 @@ fn parse_infix_tail(p: &mut Parser, bp: Prec) {
     // `2 ^ 3 ^ 2` is `(2 ^ 3) ^ 2`).
     expr_bp(p, Prec(bp.0 + 1));
     p.builder.finish_node();
+}
+
+/// `trim([BOTH | LEADING | TRAILING] [character] FROM source)`, or the
+/// plain `trim(source)` arguments. `BOTH`, `LEADING` and `TRAILING` are not
+/// reserved: they only start a `TRIM_SPEC` when an operand or `FROM` follows,
+/// so `trim(both)` still trims the variable `both`.
+fn parse_trim_arguments(p: &mut Parser) {
+    let is_spec = ["BOTH", "LEADING", "TRAILING"]
+        .iter()
+        .any(|spec| current_text(p).eq_ignore_ascii_case(spec))
+        && matches!(
+            p.peek_next_non_trivia(),
+            Some(
+                SyntaxKind::KW_FROM
+                    | SyntaxKind::STRING
+                    | SyntaxKind::DOLLAR
+                    | SyntaxKind::IDENT
+                    | SyntaxKind::ESCAPED_IDENT
+            )
+        );
+    if is_spec {
+        p.start_node(SyntaxKind::TRIM_SPEC);
+        p.bump();
+        p.builder.finish_node();
+        p.skip_trivia();
+        if !p.at(SyntaxKind::KW_FROM) {
+            expr_bp(p, Prec::MIN);
+            p.skip_trivia();
+        }
+        p.expect(SyntaxKind::KW_FROM);
+        p.skip_trivia();
+        expr_bp(p, Prec::MIN);
+        p.skip_trivia();
+        return;
+    }
+    if p.at(SyntaxKind::R_PAREN) {
+        return;
+    }
+    expr_bp(p, Prec::MIN);
+    p.skip_trivia();
+    if p.eat(SyntaxKind::KW_FROM) {
+        p.skip_trivia();
+        expr_bp(p, Prec::MIN);
+        p.skip_trivia();
+        return;
+    }
+    while p.eat(SyntaxKind::COMMA) {
+        p.skip_trivia();
+        expr_bp(p, Prec::MIN);
+        p.skip_trivia();
+    }
 }
 
 fn parse_property_lookup(p: &mut Parser) {
@@ -994,6 +1045,7 @@ fn parse_atom(p: &mut Parser) {
                 p.builder.finish_node();
             } else if next == Some(SyntaxKind::L_PAREN) {
                 // FunctionInvocation: var(args)
+                let is_trim = current_text(p).eq_ignore_ascii_case("trim");
                 p.start_node(SyntaxKind::FUNCTION_INVOCATION);
                 p.start_node(SyntaxKind::FUNCTION_NAME);
                 p.start_node(SyntaxKind::SYMBOLIC_NAME);
@@ -1005,7 +1057,9 @@ fn parse_atom(p: &mut Parser) {
                 p.skip_trivia();
                 p.eat(SyntaxKind::KW_DISTINCT);
                 p.skip_trivia();
-                if !p.at(SyntaxKind::R_PAREN) {
+                if is_trim {
+                    parse_trim_arguments(p);
+                } else if !p.at(SyntaxKind::R_PAREN) {
                     expr_bp(p, Prec::MIN);
                     p.skip_trivia();
                     while p.eat(SyntaxKind::COMMA) {
