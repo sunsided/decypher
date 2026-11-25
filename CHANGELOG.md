@@ -10,6 +10,8 @@ are marked **Breaking** below.
 
 ### Added
 
+- The Cypher 25 hyperbolic functions `cosh`, `coth`, `sinh` and `tanh` in
+  the function catalog (#138).
 - **Breaking:** dynamic labels in `SET n:$(expr)` and `REMOVE n:$(expr)`,
   also mixed with static ones (`SET n:A:$(x)`), and `REMOVE n[key]`. The
   label lists of `ast::SetItem::Labels` / `ast::RemoveItem::Labels` are now

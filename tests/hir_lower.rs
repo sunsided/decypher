@@ -1800,6 +1800,8 @@ fn strict_catalog_reports_unknown_functions_and_procedures() {
         "CALL test.my.proc('Dobby')",
         "CALL test.my.proc",
         "RETURN apoc.text.join(['a'], ',') AS j, toUpper('a') AS u",
+        // Cypher 25 hyperbolic functions (#138).
+        "RETURN cosh(1.0), coth(1.0), sinh(1), tanh(1.0)",
     ] {
         check!(first_error(query).is_none(), "query: {query}");
     }
