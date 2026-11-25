@@ -8,6 +8,14 @@ are marked **Breaking** below.
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking:** `ReturnOp::items`, which lowering always left empty, is
+  replaced by `ReturnOp::columns: Vec<BindingId>`: the result columns in
+  output order, the `RETURN *` variables (sorted by name) first, then the
+  written items. Consumers no longer need the CST to order a result table
+  (#140).
+
 ## [0.3.0] - 2026-11-25
 
 Patterns keep everything they say: inline `WHERE`, path selectors such as

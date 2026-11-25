@@ -375,8 +375,10 @@ pub struct UnionOp {
 /// `RETURN items` finalising operation.
 #[derive(Debug, Clone)]
 pub struct ReturnOp {
-    /// The projected return items.
-    pub items: Vec<ProjectionItem>,
+    /// The result columns, in output order: the variables `RETURN *` passes
+    /// through (sorted by name), then the written items. The preceding
+    /// `Project` or `Aggregate` operation computes them.
+    pub columns: Vec<BindingId>,
     /// `true` when `RETURN DISTINCT`.
     pub distinct: bool,
 }
