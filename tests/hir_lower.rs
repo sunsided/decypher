@@ -2349,3 +2349,39 @@ fn analyze_rejects_invalid_quantified_patterns() {
         sema.errors
     );
 }
+
+/// `ReturnOp::columns` lists the result columns in output order: the
+/// `RETURN *` bindings sorted by name, then the items as written, also when
+/// an aggregation splits them into grouping keys and aggregates (#140).
+///
+/// Unit: `analyze()`
+/// Precondition: Queries ending in aggregating, star and plain `RETURN`s.
+/// Expectation: The column names follow the written order.
+#[test]
+fn return_lists_its_columns_in_written_order() {
+    for (query, expected) in [
+        (
+            "MATCH (a)-[:K]->(b) RETURN count(b) AS c, a.name AS name",
+            &["c", "name"][..],
+        ),
+        ("MATCH (b)-->(a) RETURN *, a.x AS x", &["a", "b", "x"]),
+        (
+            "MATCH (b)-->(a) WITH * RETURN DISTINCT b AS z, a",
+            &["z", "a"],
+        ),
+        ("MATCH (n) RETURN n.x + count(*) AS s, n", &["s", "n"]),
+        ("UNWIND [1] AS x RETURN x, x + 1", &["x", "x + 1"]),
+    ] {
+        let hir = analyze(query).unwrap();
+        let part = hir.parts.last().unwrap();
+        let Some(Operation::Return(ret)) = part.operations.last() else {
+            panic!("expected a final Return for {query}");
+        };
+        let names: Vec<&str> = ret
+            .columns
+            .iter()
+            .map(|&id| hir.arenas.bindings.get(id).name.as_str())
+            .collect();
+        check!(names == expected, "query: {query}");
+    }
+}
