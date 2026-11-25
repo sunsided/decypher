@@ -36,8 +36,8 @@ use crate::ast::query::*;
 use crate::ast::visit::{
     Visit, walk_call_subquery, walk_create, walk_delete, walk_exists_inner, walk_expression,
     walk_filter_expression, walk_foreach, walk_in_query_call, walk_list_comprehension, walk_match,
-    walk_merge, walk_pattern_comprehension, walk_reduce_expression, walk_standalone_call,
-    walk_unwind,
+    walk_merge, walk_node_pattern, walk_pattern_comprehension, walk_reduce_expression,
+    walk_relationship_detail, walk_relationship_pattern, walk_standalone_call, walk_unwind,
 };
 use crate::error::{Span, ValueTypes, VariableKind};
 
@@ -172,6 +172,11 @@ impl<'a> TypeChecker<'a> {
             PatternElement::Parenthesized(inner) => self.bind_element(inner),
             // Variables of a quantified path pattern are lists; not tracked.
             PatternElement::Quantified { .. } => {}
+            PatternElement::Sequence(elements) => {
+                for element in elements {
+                    self.bind_element(element);
+                }
+            }
         }
     }
 
@@ -545,6 +550,43 @@ impl<'ast> Visit<'ast> for TypeChecker<'_> {
         }
         self.vars = outer;
         self.next_start = columns;
+    }
+
+    fn visit_node_pattern(&mut self, node: &'ast NodePattern) {
+        if let Some(predicate) = &node.where_clause {
+            self.expect_predicate(predicate, "WHERE");
+        }
+        walk_node_pattern(self, node);
+    }
+
+    fn visit_relationship_pattern(&mut self, node: &'ast RelationshipPattern) {
+        // Inside a quantified relationship, the variable is one relationship
+        // per hop; outside, it is the list of them.
+        let per_hop = node
+            .quantifier
+            .as_ref()
+            .and(node.detail.as_ref())
+            .and_then(|d| d.variable.as_ref());
+        let Some(var) = per_hop else {
+            walk_relationship_pattern(self, node);
+            return;
+        };
+        let outer = self.vars.get(&var.name.name).copied();
+        self.shadow(var, RELATIONSHIP);
+        walk_relationship_pattern(self, node);
+        match outer {
+            Some(ty) => self.shadow(var, ty),
+            None => {
+                self.vars.remove(&var.name.name);
+            }
+        }
+    }
+
+    fn visit_relationship_detail(&mut self, node: &'ast RelationshipDetail) {
+        if let Some(predicate) = &node.where_clause {
+            self.expect_predicate(predicate, "WHERE");
+        }
+        walk_relationship_detail(self, node);
     }
 
     fn visit_match(&mut self, node: &'ast Match) {

@@ -495,6 +495,8 @@ impl<'ast> Visit<'ast> for NameResolver<'_> {
                     false,
                     &mut self.errors,
                 );
+                // Property maps and inline `WHERE`s inside the pattern.
+                self.visit_pattern(pattern);
                 if let Some(w) = where_clause {
                     self.visit_expression(w);
                 }
@@ -573,6 +575,8 @@ impl<'ast> Visit<'ast> for NameResolver<'_> {
             });
         }
         bind_relationships_pattern(&mut self.scopes, &node.pattern, SymbolKind::PatternBound);
+        // Property maps and inline `WHERE`s inside the pattern.
+        self.visit_relationships_pattern(&node.pattern);
         if let Some(wc) = &node.where_clause {
             self.visit_expression(wc);
         }
@@ -703,9 +707,11 @@ fn bind_node_pattern(
                     .as_ref()
                     .and_then(|d| d.variable.as_ref())
                 {
-                    // A created relationship is always new.
+                    // A created relationship is always new, and so is the
+                    // group variable of a quantified relationship.
+                    let new = creating || chain.relationship.quantifier.is_some();
                     match scopes.resolve(&var.name.name) {
-                        Some((entry, _)) if creating => errors.push(redeclared(var, entry.span)),
+                        Some((entry, _)) if new => errors.push(redeclared(var, entry.span)),
                         _ => bind_or_reuse(scopes, var, kind),
                     }
                 }
@@ -716,8 +722,44 @@ fn bind_node_pattern(
             bind_node_pattern(scopes, inner, kind, creating, errors);
         }
         PatternElement::Quantified { element, .. } => {
+            // Group variables are new: they are lists outside the group, so
+            // they cannot refer to a variable bound before.
+            for var in element_variables(element) {
+                if let Some((entry, _)) = scopes.resolve(&var.name.name) {
+                    errors.push(redeclared(var, entry.span));
+                }
+            }
             bind_node_pattern(scopes, element, kind, creating, errors);
         }
+        PatternElement::Sequence(elements) => {
+            for element in elements {
+                bind_node_pattern(scopes, element, kind, creating, errors);
+            }
+        }
+    }
+}
+
+/// The node and relationship variables of `element`, in source order. A
+/// variable used twice is listed twice.
+pub(crate) fn element_variables(element: &PatternElement) -> Vec<&crate::ast::names::Variable> {
+    match element {
+        PatternElement::Path { start, chains } => {
+            let rest = chains.iter().flat_map(|chain| {
+                let rel = chain
+                    .relationship
+                    .detail
+                    .as_ref()
+                    .and_then(|d| d.variable.as_ref());
+                [rel, chain.node.variable.as_ref()]
+            });
+            std::iter::once(start.variable.as_ref())
+                .chain(rest)
+                .flatten()
+                .collect()
+        }
+        PatternElement::Parenthesized(inner)
+        | PatternElement::Quantified { element: inner, .. } => element_variables(inner),
+        PatternElement::Sequence(elements) => elements.iter().flat_map(element_variables).collect(),
     }
 }
 

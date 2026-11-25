@@ -29,10 +29,62 @@ pub struct Pattern {
 pub struct PatternPart {
     /// Optional path variable (`p = ...`).
     pub variable: Option<Variable>,
+    /// Optional path selector (`shortestPath(…)`, `ANY SHORTEST`, …).
+    ///
+    /// `None` matches all paths, like the GQL `ALL` selector, but `ALL`
+    /// itself is kept as [`PathSelectorKind::All`] so that it prints back.
+    pub selector: Option<PathSelector>,
     /// The anonymous path pattern.
     pub anonymous: AnonymousPatternPart,
     /// Byte-offset span of this part.
     pub span: Span,
+}
+
+/// A path selector: which of the matching paths of a pattern part to keep.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub struct PathSelector {
+    /// The selector as written.
+    pub kind: PathSelectorKind,
+    /// Byte-offset span of the selector: the keywords, or the function name
+    /// for `shortestPath(…)` and `allShortestPaths(…)`.
+    pub span: Span,
+}
+
+/// The spellings of a path selector.
+///
+/// Several spellings select the same paths: `shortestPath(…)` and
+/// `ANY SHORTEST` are `SHORTEST 1`, and `allShortestPaths(…)` and
+/// `ALL SHORTEST` are `SHORTEST 1 GROUPS`. The AST keeps the spelling, so the
+/// query prints back as written. The HIR keeps only the meaning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
+pub enum PathSelectorKind {
+    /// `shortestPath(…)`: one shortest path.
+    ShortestPathFunction,
+    /// `allShortestPaths(…)`: all paths of the shortest length.
+    AllShortestPathsFunction,
+    /// `ALL`: all paths.
+    All,
+    /// `ANY [k]`: any `k` paths; `count` is `None` for one path.
+    Any {
+        /// The number of paths, as written, or `None` when omitted.
+        count: Option<i64>,
+    },
+    /// `ANY SHORTEST`: one shortest path.
+    AnyShortest,
+    /// `ALL SHORTEST`: all paths of the shortest length.
+    AllShortest,
+    /// `SHORTEST k`: the `k` shortest paths.
+    Shortest {
+        /// The number of paths, as written.
+        count: i64,
+    },
+    /// `SHORTEST [k] GROUPS`: all paths of the `k` shortest lengths.
+    ShortestGroups {
+        /// The number of length groups, as written, or `None` for one group.
+        count: Option<i64>,
+    },
 }
 
 /// An anonymous pattern part (the path without an optional path variable).
@@ -43,8 +95,8 @@ pub struct AnonymousPatternPart {
     pub element: PatternElement,
 }
 
-/// A pattern element: a node-anchored path, a parenthesized group, or a
-/// quantified subpattern.
+/// A pattern element: a node-anchored path, a parenthesized group, a
+/// quantified subpattern, or a sequence of juxtaposed elements.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 pub enum PatternElement {
@@ -66,6 +118,12 @@ pub enum PatternElement {
         /// Byte-offset span of the quantified pattern.
         span: Span,
     },
+    /// Juxtaposed elements that form one path:
+    /// `(a) ((x)-[:R]->(y)){1,3} (b)`.
+    ///
+    /// The last node of each element is the first node of the next one.
+    /// Always has at least two elements; a single element is not wrapped.
+    Sequence(Vec<PatternElement>),
 }
 
 /// A node pattern: `(variable:Label {properties})`.
@@ -78,6 +136,11 @@ pub struct NodePattern {
     pub labels: Vec<LabelExpression>,
     /// Optional property map or parameter constraint.
     pub properties: Option<Properties>,
+    /// Optional inline predicate: `(n:Person WHERE n.age > 25)`.
+    ///
+    /// It filters the matches of this node like a `WHERE` on the clause.
+    /// `CREATE` and `MERGE` patterns cannot have it.
+    pub where_clause: Option<Box<Expression>>,
     /// Byte-offset span of the node pattern.
     pub span: Span,
 }
@@ -133,6 +196,11 @@ pub struct RelationshipDetail {
     pub range: Option<RangeLiteral>,
     /// Optional property map or parameter constraint.
     pub properties: Option<Properties>,
+    /// Optional inline predicate: `[r:KNOWS WHERE r.since > 2020]`.
+    ///
+    /// It filters the matches of this relationship like a `WHERE` on the
+    /// clause. `CREATE` and `MERGE` patterns cannot have it.
+    pub where_clause: Option<Box<Expression>>,
     /// Byte-offset span of the relationship detail.
     pub span: Span,
 }

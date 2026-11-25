@@ -1063,3 +1063,52 @@ fn tree(query: &str) -> String {
     out.push_str(rest);
     out
 }
+
+/// Round-trip `rt inline pattern where`: parse → serialise → re-parse must yield equal ASTs.
+///
+/// Unit: `ToCypher::to_cypher` / `parse`
+/// Precondition: Input Cypher is syntactically valid.
+/// Expectation: Re-parsed AST equals the original parsed AST, and the
+///              inline predicates survive (#132).
+#[test]
+fn rt_inline_pattern_where() {
+    roundtrip(
+        "MATCH (n:Person {x: 1} WHERE n.age > 25)-[r:KNOWS WHERE r.since > 2020]->(m) RETURN m;",
+    );
+}
+
+/// Round-trip `rt path selectors`: parse → serialise → re-parse must yield equal ASTs.
+///
+/// Unit: `ToCypher::to_cypher` / `parse`
+/// Precondition: Input Cypher is syntactically valid.
+/// Expectation: Re-parsed AST equals the original parsed AST for every
+///              selector spelling (#133).
+#[test]
+fn rt_path_selectors() {
+    for query in [
+        "MATCH p = shortestPath((a)-[*]-(c)) RETURN p;",
+        "MATCH p = allShortestPaths((a)-[*]-(c)) RETURN p;",
+        "MATCH p = ALL (a)-[*]-(c) RETURN p;",
+        "MATCH p = ANY (a)-[*]-(c) RETURN p;",
+        "MATCH p = ANY 2 (a)-[*]-(c) RETURN p;",
+        "MATCH p = ANY SHORTEST (a)-[*]-(c) RETURN p;",
+        "MATCH p = ALL SHORTEST (a)-[*]-(c) RETURN p;",
+        "MATCH p = SHORTEST 3 (a)-[*]-(c) RETURN p;",
+        "MATCH p = SHORTEST GROUPS (a)-[*]-(c) RETURN p;",
+        "MATCH p = SHORTEST 2 GROUPS (a)-[*]-(c) RETURN p;",
+    ] {
+        roundtrip(query);
+    }
+}
+
+/// Round-trip `rt juxtaposed quantified path patterns`: parse → serialise → re-parse must yield equal ASTs.
+///
+/// Unit: `ToCypher::to_cypher` / `parse`
+/// Precondition: Input Cypher is syntactically valid.
+/// Expectation: Re-parsed AST equals the original parsed AST; the
+///              juxtaposed elements stay one path (#134).
+#[test]
+fn rt_juxtaposed_quantified_path_patterns() {
+    roundtrip("MATCH p = (a) ((x WHERE x.v > 1)-[:KNOWS]->(y)){,3} ((u)-->(v)){2,} (c) RETURN p;");
+    roundtrip("MATCH (a)-[r:R WHERE r.w > 1]->{1,3}(b) RETURN r;");
+}

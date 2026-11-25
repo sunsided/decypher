@@ -29,7 +29,7 @@ use crate::ast::query::*;
 use crate::ast::visit::{
     Visit, walk_collect_subquery_expression, walk_count_subquery_expression, walk_create,
     walk_delete, walk_exists_expression, walk_expression, walk_function_invocation_expr,
-    walk_merge, walk_node_pattern, walk_regular_query, walk_relationship_detail, walk_remove,
+    walk_merge, walk_pattern_element, walk_pattern_part, walk_regular_query, walk_remove,
     walk_return, walk_set,
 };
 use std::borrow::Cow;
@@ -49,6 +49,9 @@ pub(crate) enum StructuralError {
     InvalidRelationshipPattern { reason: &'static str, span: Span },
     /// A `DELETE` target that is a label check (`DELETE n:Person`).
     InvalidDeleteTarget { span: Span },
+    /// A pattern that its clause cannot use, such as an inline `WHERE` in a
+    /// `CREATE` or `MERGE` pattern (`CREATE (n WHERE n.x = 1)`).
+    InvalidPattern { reason: &'static str, span: Span },
     /// A `WITH` item that is neither a variable nor aliased.
     MissingAlias { span: Span },
     /// A `SKIP` or `LIMIT` value that is not a constant, non-negative
@@ -101,6 +104,7 @@ impl StructuralError {
                 ErrorKind::InvalidRelationshipPattern { reason }
             }
             Self::InvalidDeleteTarget { .. } => ErrorKind::InvalidDeleteTarget,
+            Self::InvalidPattern { reason, .. } => ErrorKind::InvalidPattern { reason },
             Self::MissingAlias { .. } => ErrorKind::MissingAlias,
             Self::InvalidSkipLimit { reason, .. } => ErrorKind::InvalidSkipLimit { reason },
             Self::InvalidParameterUse { .. } => ErrorKind::InvalidParameterUse,
@@ -154,6 +158,7 @@ impl StructuralError {
             | Self::InvalidClauseComposition { span, .. }
             | Self::InvalidRelationshipPattern { span, .. }
             | Self::InvalidDeleteTarget { span }
+            | Self::InvalidPattern { span, .. }
             | Self::MissingAlias { span }
             | Self::InvalidSkipLimit { span, .. }
             | Self::InvalidParameterUse { span }
@@ -262,9 +267,46 @@ impl StructureChecker<'_> {
         self.read_only = outer;
     }
 
-    /// Checks the relationships of a `CREATE` (`directed`) or `MERGE`
-    /// pattern element.
-    fn check_created(&mut self, element: &PatternElement, directed: bool) {
+    /// Checks the elements of a juxtaposed path: two neighbours cannot both
+    /// be plain paths (`(a)-->(b) (c)`), because only a quantified path
+    /// pattern can join them.
+    fn check_juxtaposition(&mut self, elements: &[PatternElement]) {
+        for pair in elements.windows(2) {
+            let [left, right] = pair else { continue };
+            if !is_quantified(left) && !is_quantified(right) {
+                self.errors.push(StructuralError::InvalidPattern {
+                    reason: "juxtaposed path patterns need a quantified path pattern between them",
+                    span: element_start(right),
+                });
+            }
+        }
+    }
+
+    /// Checks a `CREATE` (`directed`) or `MERGE` pattern part: it cannot
+    /// select paths or filter, and every relationship must be creatable.
+    fn check_created(&mut self, part: &PatternPart, directed: bool) {
+        if let Some(selector) = &part.selector {
+            self.errors.push(StructuralError::InvalidPattern {
+                reason: "CREATE and MERGE patterns cannot have a path selector",
+                span: selector.span,
+            });
+        }
+
+        let element = &part.anonymous.element;
+        for span in quantified_spans(element) {
+            self.errors.push(StructuralError::InvalidPattern {
+                reason: "CREATE and MERGE patterns cannot have a quantified path pattern",
+                span,
+            });
+        }
+
+        for predicate in inline_predicates(element) {
+            self.errors.push(StructuralError::InvalidPattern {
+                reason: "CREATE and MERGE patterns cannot contain WHERE",
+                span: predicate.span(),
+            });
+        }
+
         for rel in relationships(element) {
             let reason = match &rel.detail {
                 _ if directed
@@ -340,7 +382,7 @@ impl<'ast> Visit<'ast> for StructureChecker<'_> {
     fn visit_create(&mut self, node: &'ast Create) {
         self.report_update(node.span);
         for part in &node.pattern.parts {
-            self.check_created(&part.anonymous.element, true);
+            self.check_created(part, true);
         }
         let outer = std::mem::replace(&mut self.creating, true);
         walk_create(self, node);
@@ -349,7 +391,7 @@ impl<'ast> Visit<'ast> for StructureChecker<'_> {
 
     fn visit_merge(&mut self, node: &'ast Merge) {
         self.report_update(node.span);
-        self.check_created(&node.pattern.anonymous.element, false);
+        self.check_created(&node.pattern, false);
         walk_merge(self, node);
     }
 
@@ -375,14 +417,89 @@ impl<'ast> Visit<'ast> for StructureChecker<'_> {
         walk_remove(self, node);
     }
 
+    fn visit_pattern_part(&mut self, node: &'ast PatternPart) {
+        if let Some(selector) = &node.selector
+            && !has_valid_path_count(selector.kind)
+        {
+            self.errors.push(StructuralError::InvalidPattern {
+                reason: "a path count must be a positive integer of at most 4294967295",
+                span: selector.span,
+            });
+        }
+
+        walk_pattern_part(self, node);
+    }
+
+    fn visit_pattern_element(&mut self, node: &'ast PatternElement) {
+        match node {
+            PatternElement::Sequence(elements) => self.check_juxtaposition(elements),
+            PatternElement::Quantified { element, span, .. }
+                if relationships(element).is_empty() =>
+            {
+                self.errors.push(StructuralError::InvalidPattern {
+                    reason: "a quantified path pattern needs at least one relationship",
+                    span: *span,
+                });
+            }
+            _ => {}
+        }
+
+        walk_pattern_element(self, node);
+    }
+
+    fn visit_quantifier(&mut self, node: &'ast Quantifier) {
+        let max = i64::from(u32::MAX);
+        let reason = match (node.start, node.end) {
+            (Some(n), _) | (_, Some(n)) if n > max => {
+                Some("a quantifier bound must be at most 4294967295")
+            }
+            (Some(lower), Some(upper)) if lower > upper => {
+                Some("a quantifier's lower bound cannot be above its upper bound")
+            }
+            (_, Some(0)) => Some("a quantifier's upper bound must be at least 1"),
+            _ => None,
+        };
+        if let Some(reason) = reason {
+            self.errors.push(StructuralError::InvalidPattern {
+                reason,
+                span: node.span,
+            });
+        }
+    }
+
     fn visit_node_pattern(&mut self, node: &'ast NodePattern) {
         self.check_properties(node.properties.as_ref());
-        walk_node_pattern(self, node);
+        if let Some(var) = &node.variable {
+            self.visit_variable(var);
+        }
+        for label in &node.labels {
+            self.visit_label_expression(label);
+        }
+        if let Some(props) = &node.properties {
+            self.visit_properties(props);
+        }
+        if let Some(predicate) = &node.where_clause {
+            self.visit_predicate(predicate);
+        }
     }
 
     fn visit_relationship_detail(&mut self, node: &'ast RelationshipDetail) {
         self.check_properties(node.properties.as_ref());
-        walk_relationship_detail(self, node);
+        if let Some(var) = &node.variable {
+            self.visit_variable(var);
+        }
+        if let Some(types) = &node.types {
+            self.visit_label_expression(types);
+        }
+        if let Some(range) = &node.range {
+            self.visit_range_literal(range);
+        }
+        if let Some(props) = &node.properties {
+            self.visit_properties(props);
+        }
+        if let Some(predicate) = &node.where_clause {
+            self.visit_predicate(predicate);
+        }
     }
 
     fn visit_function_invocation_expr(&mut self, node: &'ast FunctionInvocation) {
@@ -589,10 +706,80 @@ fn is_single_type(types: &LabelExpression) -> bool {
 }
 
 /// The relationship patterns of a pattern element, in order.
+/// Whether the path count of a selector, if it has one, is in
+/// `1..=u32::MAX`, the range the HIR keeps.
+fn has_valid_path_count(kind: PathSelectorKind) -> bool {
+    let count = match kind {
+        PathSelectorKind::Any { count } | PathSelectorKind::ShortestGroups { count } => count,
+        PathSelectorKind::Shortest { count } => Some(count),
+        _ => None,
+    };
+    count.is_none_or(|k| (1..=i64::from(u32::MAX)).contains(&k))
+}
+
+/// Whether `element` is a quantified path pattern.
+fn is_quantified(element: &PatternElement) -> bool {
+    match element {
+        PatternElement::Quantified { .. } => true,
+        PatternElement::Parenthesized(inner) => is_quantified(inner),
+        PatternElement::Path { .. } | PatternElement::Sequence(_) => false,
+    }
+}
+
+/// The span of the start of `element`: its first node, or the whole
+/// quantified pattern.
+fn element_start(element: &PatternElement) -> Span {
+    match element {
+        PatternElement::Path { start, .. } => start.span,
+        PatternElement::Quantified { span, .. } => *span,
+        PatternElement::Parenthesized(inner) => element_start(inner),
+        PatternElement::Sequence(elements) => {
+            elements.first().map_or(Span::new(0, 0), element_start)
+        }
+    }
+}
+
+/// The spans of the quantified path patterns of `element`. Quantified
+/// relationships are not included: `check_created` reports them as
+/// variable-length relationships.
+fn quantified_spans(element: &PatternElement) -> Vec<Span> {
+    match element {
+        PatternElement::Path { .. } => Vec::new(),
+        PatternElement::Quantified { span, .. } => vec![*span],
+        PatternElement::Parenthesized(inner) => quantified_spans(inner),
+        PatternElement::Sequence(elements) => elements.iter().flat_map(quantified_spans).collect(),
+    }
+}
+
+/// The inline `WHERE` predicates of the node and relationship patterns of
+/// `element`, in source order.
+fn inline_predicates(element: &PatternElement) -> Vec<&Expression> {
+    match element {
+        PatternElement::Path { start, chains } => {
+            let rels = chains.iter().map(|c| {
+                c.relationship
+                    .detail
+                    .as_ref()
+                    .and_then(|d| d.where_clause.as_deref())
+            });
+            let nodes = chains.iter().map(|c| c.node.where_clause.as_deref());
+            std::iter::once(start.where_clause.as_deref())
+                .chain(rels.zip(nodes).flat_map(|(r, n)| [r, n]))
+                .flatten()
+                .collect()
+        }
+        PatternElement::Parenthesized(inner) => inline_predicates(inner),
+        PatternElement::Quantified { element, .. } => inline_predicates(element),
+        PatternElement::Sequence(elements) => elements.iter().flat_map(inline_predicates).collect(),
+    }
+}
+
+/// The relationship patterns of `element`, in source order.
 fn relationships(element: &PatternElement) -> Vec<&RelationshipPattern> {
     match element {
         PatternElement::Path { chains, .. } => chains.iter().map(|c| &c.relationship).collect(),
         PatternElement::Parenthesized(inner) => relationships(inner),
         PatternElement::Quantified { element, .. } => relationships(element),
+        PatternElement::Sequence(elements) => elements.iter().flat_map(relationships).collect(),
     }
 }

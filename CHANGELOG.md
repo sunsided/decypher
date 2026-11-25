@@ -8,19 +8,65 @@ are marked **Breaking** below.
 
 ## [Unreleased]
 
+### Added
+
+- **Breaking:** `ErrorKind::InvalidPattern { reason }` and
+  `HirDiagnostic::InvalidPattern`: a pattern that its clause cannot use, such
+  as a `CREATE` or `MERGE` pattern with an inline `WHERE` (#132).
+- Kani proofs (`task verify`, and a CI job) for the integer literal parser.
+  They cover every ASCII input up to 6 bytes:
+  - `parse_integer_magnitude` does not panic, and short decimal literals
+    print back as written.
+  - `parse_integer` is never negative.
+
 ### Changed
 
 - The crate has no `unsafe` code any more and is `#![forbid(unsafe_code)]`.
   `SyntaxKind::from` used a `transmute`; it now looks the kind up in a table
   that is generated from the same list as the enum.
 
-### Added
+### Fixed
 
-- Kani proofs (`task verify`, and a CI job) for the integer literal parser.
-  They cover every ASCII input up to 6 bytes:
-  - `parse_integer_magnitude` does not panic, and short decimal literals
-    print back as written.
-  - `parse_integer` is never negative.
+- **Breaking:** an inline `WHERE` in a node or relationship pattern
+  (`MATCH (n:Person WHERE n.age > 25)`, `-[r:KNOWS WHERE r.since > 2020]->`)
+  is no longer dropped silently. The AST keeps it in the new `where_clause`
+  field of `NodePattern` and `RelationshipDetail`. The HIR keeps it in the new
+  `predicate` field of `hir::pattern::NodePattern` and `RelationshipPattern`.
+  The predicate can use every variable of its pattern. Name resolution, the
+  aggregate check and the boolean type check apply to it like to a clause
+  `WHERE` (#132).
+- **Breaking:** `shortestPath(…)` and `allShortestPaths(…)` are no longer
+  dropped silently, and the GQL path selectors parse: `ALL`, `ANY [k]`,
+  `ANY SHORTEST`, `ALL SHORTEST`, `SHORTEST k`, `SHORTEST [k] GROUPS`, each
+  with an optional `PATH`/`PATHS`. The AST keeps the spelling in the new
+  `PatternPart::selector` (`PathSelector`, `PathSelectorKind`). In the HIR,
+  `GraphPattern::path_bindings` (`PathBinding`) is replaced by
+  `GraphPattern::paths` (`PathPattern`): one entry per pattern part, with an
+  optional path variable and a `PathSelector` (`All`, `Any(k)`,
+  `Shortest(k)`, `ShortestGroups(k)`). `shortestPath` and `ANY SHORTEST`
+  lower to `Shortest(1)`; `allShortestPaths` and `ALL SHORTEST` to
+  `ShortestGroups(1)`. A path count of 0 or above 4294967295, and a selector
+  in `CREATE` or `MERGE`, are `InvalidPattern` errors. The typed CST has a
+  new `PATH_SELECTOR` node (#133).
+- **Breaking:** quantified path patterns keep their quantifier and their
+  place in the path. `MATCH (a) ((x)-[:KNOWS]->(y)){1,2} (c)` used to lower
+  the group once, as a third, unconnected pattern part. Now juxtaposed
+  elements are one pattern part: the AST has the new
+  `PatternElement::Sequence`, and in the typed CST they share one
+  `ANONYMOUS_PATTERN_PART`. The HIR has the new `GraphPattern::quantified`
+  (`QuantifiedPattern`: one repetition as an inner `GraphPattern`, `min`,
+  `max`, the outer nodes `left` and `right`, and the `GroupVariable`s that
+  map each singleton inside the group to its list outside), and
+  `PathPattern::quantified`. Quantified relationships (`-[:R]->{1,3}`) are no
+  longer lowered as one hop; they lower to a group of one relationship.
+  `+` and `*` now parse as quantifiers of groups and relationships. A group
+  variable that is bound already, a group without a relationship, a
+  quantifier with bounds in the wrong order, an upper bound of 0 or a bound
+  above 4294967295, a quantified pattern in `CREATE` or `MERGE`, and two
+  plain paths next to each other without a group between them are errors
+  (#134).
+- The quantifier `{,m}` meant `{m,}` (at least `m` instead of at most `m`)
+  (#134).
 
 ## [0.2.0] - 2026-11-13
 

@@ -43,8 +43,8 @@ pub use diagnostic::HirDiagnostic;
 pub use expr::{ExprKind, HirExpr};
 pub use ops::{Operation, QueryPart};
 pub use pattern::{
-    GraphPattern, LabelExpr, NodePattern, RelationshipDirection, RelationshipLength,
-    RelationshipPattern,
+    GraphPattern, GroupVariable, LabelExpr, NodePattern, PathPattern, PathSelector,
+    QuantifiedPattern, RelationshipDirection, RelationshipLength, RelationshipPattern,
 };
 
 /// A fully lowered and scope-resolved HIR query.

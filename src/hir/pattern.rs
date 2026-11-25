@@ -5,20 +5,30 @@
 //! This representation is easier for an execution engine to process than the
 //! recursive AST form.
 
+use std::num::NonZeroU32;
+
 use super::arena::{BindingId, ExprId, LabelId, RelTypeId};
 
 /// A normalised, flattened graph pattern.
 ///
 /// Nodes and relationships are stored in separate `Vec`s and cross-referenced
-/// by index. All path bindings from the original pattern are also captured.
-#[derive(Debug, Clone)]
+/// by index. Each comma-separated part of the original pattern is one entry of
+/// `paths`, with its path variable and path selector.
+#[derive(Debug, Clone, Default)]
 pub struct GraphPattern {
     /// Flat list of node patterns.
     pub nodes: Vec<NodePattern>,
     /// Flat list of relationship patterns (each references two node indices).
     pub relationships: Vec<RelationshipPattern>,
-    /// Path-variable bindings that span subsets of the node/relationship lists.
-    pub path_bindings: Vec<PathBinding>,
+    /// Quantified path patterns and quantified relationships. Each joins two
+    /// nodes of `nodes` with a repeated sub-pattern.
+    pub quantified: Vec<QuantifiedPattern>,
+    /// The pattern parts, in source order. Each node and relationship belongs
+    /// to exactly one of them, and so does each quantified group.
+    ///
+    /// The patterns of pattern expressions and pattern comprehensions have
+    /// no parts and leave this empty.
+    pub paths: Vec<PathPattern>,
 }
 
 impl GraphPattern {
@@ -27,7 +37,8 @@ impl GraphPattern {
         Self {
             nodes: Vec::new(),
             relationships: Vec::new(),
-            path_bindings: Vec::new(),
+            quantified: Vec::new(),
+            paths: Vec::new(),
         }
     }
 }
@@ -65,6 +76,13 @@ pub struct NodePattern {
     pub label_expression: Option<LabelExpr>,
     /// Optional property constraint expression.
     pub properties: Option<ExprId>,
+    /// Optional inline predicate (`(n WHERE n.age > 25)`).
+    ///
+    /// A match of this node is valid only when the predicate is `true`. The
+    /// predicate can use every variable of the enclosing pattern. Inside a
+    /// [`QuantifiedPattern`], that is the group's own variables and the
+    /// variables bound before the group.
+    pub predicate: Option<ExprId>,
 }
 
 /// A single relationship in a normalised graph pattern.
@@ -89,17 +107,89 @@ pub struct RelationshipPattern {
     pub length: RelationshipLength,
     /// Optional property constraint expression.
     pub properties: Option<ExprId>,
+    /// Optional inline predicate (`[r WHERE r.since > 2020]`).
+    ///
+    /// A match of this relationship is valid only when the predicate is
+    /// `true`. The predicate can use every variable of the enclosing pattern.
+    /// Inside a [`QuantifiedPattern`], that is the group's own variables and
+    /// the variables bound before the group.
+    pub predicate: Option<ExprId>,
 }
 
-/// A path variable that captures a sub-path in the pattern.
+/// One comma-separated part of a pattern: a path, with its optional path
+/// variable and its path selector.
 #[derive(Debug, Clone)]
-pub struct PathBinding {
-    /// The binding that receives the path value.
-    pub binding: BindingId,
+pub struct PathPattern {
+    /// The path variable (`p` in `p = (a)-->(b)`), or `None` when the part
+    /// has none.
+    pub binding: Option<BindingId>,
+    /// Which of the matching paths to keep.
+    pub selector: PathSelector,
     /// Ordered node indices that form the path.
     pub nodes: Vec<NodeIndex>,
     /// Ordered relationship indices that form the path.
     pub relationships: Vec<RelIndex>,
+    /// Indices of the quantified groups of the path, in path order.
+    ///
+    /// The path goes through `nodes` in order. Two neighbouring nodes are
+    /// joined by a relationship of `relationships` or by one of these groups.
+    pub quantified: Vec<QuantifiedIndex>,
+}
+
+/// A quantified path pattern (`((x)-[:R]->(y)){1,3}`) or a quantified
+/// relationship (`-[:R]->{1,3}`, lowered as `(()-[:R]->()){1,3}`).
+///
+/// It matches `min` to `max` repetitions of `inner`, chained end to start:
+/// the last node of one repetition is the first node of the next. The first
+/// node of the first repetition is the outer node `left`, and the last node
+/// of the last repetition is the outer node `right`. With zero repetitions,
+/// `left` and `right` are the same node.
+#[derive(Debug, Clone)]
+pub struct QuantifiedPattern {
+    /// One repetition, with its own node and relationship indices. Its
+    /// first node is `inner.nodes[0]` and its last node the last entry of
+    /// its only path.
+    pub inner: GraphPattern,
+    /// The smallest number of repetitions.
+    pub min: u32,
+    /// The largest number of repetitions, or `None` for no limit.
+    pub max: Option<u32>,
+    /// The outer node where the repetitions start.
+    pub left: NodeIndex,
+    /// The outer node where the repetitions end.
+    pub right: NodeIndex,
+    /// The variables of `inner`, each with the list variable that holds
+    /// its values outside the group.
+    pub group_variables: Vec<GroupVariable>,
+}
+
+/// A variable of a quantified group: one value inside each repetition, and
+/// a list of all of these values outside the group.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GroupVariable {
+    /// The binding inside one repetition, used by `inner`.
+    pub singleton: BindingId,
+    /// The binding outside the group: the list of the singleton's values,
+    /// one for each repetition, in path order.
+    pub list: BindingId,
+}
+
+/// Which of the paths that match a pattern part to keep.
+///
+/// The spellings of the same selection lower to one variant: `shortestPath`
+/// and `ANY SHORTEST` are `Shortest(1)`, `allShortestPaths` and
+/// `ALL SHORTEST` are `ShortestGroups(1)`, and `ANY` is `Any(1)`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PathSelector {
+    /// All matching paths: a plain pattern, or `ALL`.
+    All,
+    /// Any `k` matching paths (`ANY k`).
+    Any(NonZeroU32),
+    /// The `k` shortest paths (`SHORTEST k`). Paths of equal length are
+    /// chosen in no particular order.
+    Shortest(NonZeroU32),
+    /// All paths of the `k` shortest lengths (`SHORTEST k GROUPS`).
+    ShortestGroups(NonZeroU32),
 }
 
 /// Traversal direction of a relationship in the normalised pattern.
@@ -133,3 +223,5 @@ pub enum RelationshipLength {
 pub type NodeIndex = usize;
 /// An index into [`GraphPattern::relationships`].
 pub type RelIndex = usize;
+/// An index into [`GraphPattern::quantified`].
+pub type QuantifiedIndex = usize;

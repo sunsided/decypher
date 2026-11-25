@@ -868,6 +868,7 @@ fn build_pattern(p: Pattern) -> Result<ast_c::Pattern> {
 fn build_pattern_part(pp: PatternPart) -> Result<ast_c::PatternPart> {
     let sp = span_of(pp.syntax());
     let variable = pp.variable().map(build_top_variable);
+    let selector = build_path_selector(&pp)?;
     let anonymous = pp
         .anonymous_part()
         .map(build_anonymous_pattern_part)
@@ -875,17 +876,77 @@ fn build_pattern_part(pp: PatternPart) -> Result<ast_c::PatternPart> {
         .ok_or_else(|| internal("missing anonymous part", sp))?;
     Ok(ast_c::PatternPart {
         variable,
+        selector,
         anonymous,
         span: sp,
     })
 }
 
+/// Builds the path selector of a pattern part: the `shortestPath(…)` or
+/// `allShortestPaths(…)` wrapper, or a GQL selector such as `ANY SHORTEST`.
+fn build_path_selector(pp: &PatternPart) -> Result<Option<ast_c::PathSelector>> {
+    use ast_c::PathSelectorKind as K;
+
+    if let Some(name) = pp.shortest_path_function() {
+        let kind = if name.text().eq_ignore_ascii_case("shortestPath") {
+            K::ShortestPathFunction
+        } else {
+            K::AllShortestPathsFunction
+        };
+        return Ok(Some(ast_c::PathSelector {
+            kind,
+            span: token_span(&name),
+        }));
+    }
+
+    let Some(selector) = pp.selector() else {
+        return Ok(None);
+    };
+    let span = span_of(selector.syntax());
+    let count = selector
+        .count()
+        .map(|lit| build_selector_count(lit, span))
+        .transpose()?;
+    let words: Vec<String> = selector
+        .words()
+        .map(|w| w.text().to_ascii_uppercase())
+        .filter(|w| w != "PATH" && w != "PATHS")
+        .collect();
+    let words: Vec<&str> = words.iter().map(String::as_str).collect();
+    let kind = match (words.as_slice(), count) {
+        (["ALL"], None) => K::All,
+        (["ANY"], count) => K::Any { count },
+        (["ALL", "SHORTEST"], None) => K::AllShortest,
+        (["ANY", "SHORTEST"], None) => K::AnyShortest,
+        (["SHORTEST"], Some(count)) => K::Shortest { count },
+        (["SHORTEST", "GROUP" | "GROUPS"], count) => K::ShortestGroups { count },
+        _ => return Err(internal("malformed path selector", span)),
+    };
+
+    Ok(Some(ast_c::PathSelector { kind, span }))
+}
+
+/// Builds the path count of a path selector (`k` in `SHORTEST k`).
+fn build_selector_count(lit: Literal, span: Span) -> Result<i64> {
+    match build_literal(lit)? {
+        ast_c::Expression::Literal(ast_c::Literal::Number {
+            value: ast_c::NumberLiteral::Integer(count),
+            ..
+        }) => Ok(count),
+        _ => Err(internal("expected an integer path count", span)),
+    }
+}
+
 fn build_anonymous_pattern_part(app: AnonymousPatternPart) -> Result<ast_c::AnonymousPatternPart> {
-    let element = app
-        .element()
+    let mut elements = app
+        .elements()
         .map(build_pattern_element)
-        .transpose()?
-        .ok_or_else(|| internal("missing element", span_of(app.syntax())))?;
+        .collect::<Result<Vec<_>>>()?;
+    let element = match elements.len() {
+        0 => return Err(internal("missing element", span_of(app.syntax()))),
+        1 => elements.remove(0),
+        _ => ast_c::PatternElement::Sequence(elements),
+    };
     Ok(ast_c::AnonymousPatternPart { element })
 }
 
@@ -957,10 +1018,12 @@ fn build_node_pattern(np: NodePattern) -> Result<ast_c::NodePattern> {
         })
         .collect();
     let properties = np.properties().map(build_properties).transpose()?;
+    let where_clause = build_inline_where(np.where_clause())?;
     Ok(ast_c::NodePattern {
         variable,
         labels: labels?,
         properties,
+        where_clause,
         span: sp,
     })
 }
@@ -1031,18 +1094,57 @@ fn build_relationship_detail(rd: RelationshipDetail) -> Result<ast_c::Relationsh
         .transpose()?;
     let range = rd.range().map(build_range_literal).transpose()?;
     let properties = rd.properties().map(build_properties).transpose()?;
+    let where_clause = build_inline_where(rd.where_clause())?;
     Ok(ast_c::RelationshipDetail {
         variable,
         types,
         range,
         properties,
+        where_clause,
         span: sp,
     })
 }
 
+/// Builds the predicate of an inline `WHERE` in a node or relationship
+/// pattern. A `WHERE` without an expression gives `None`; the parser has
+/// already reported it.
+fn build_inline_where(
+    where_clause: Option<crate::syntax::ast::clauses::WhereClause>,
+) -> Result<Option<Box<ast_c::Expression>>> {
+    where_clause
+        .and_then(|w| w.expr())
+        .map(|e| build_expression(e).map(Box::new))
+        .transpose()
+}
+
 fn build_quantifier(rq: RelationshipQuantifier) -> Result<ast_c::Quantifier> {
     let sp = span_of(rq.syntax());
-    let nums: Result<Vec<i64>> = rq
+    let (start, end) = match quantifier_shorthand(&rq) {
+        Some(bounds) => bounds,
+        None => quantifier_bounds(&rq, sp)?,
+    };
+    Ok(ast_c::Quantifier {
+        start,
+        end,
+        span: sp,
+    })
+}
+
+/// The bounds of a `+` (`{1,}`) or `*` (`{0,}`) quantifier, or `None` for a
+/// quantifier in braces.
+fn quantifier_shorthand(rq: &RelationshipQuantifier) -> Option<(Option<i64>, Option<i64>)> {
+    let first = rq.syntax().first_token()?;
+    match first.kind() {
+        SyntaxKind::PLUS => Some((Some(1), None)),
+        SyntaxKind::STAR => Some((Some(0), None)),
+        _ => None,
+    }
+}
+
+/// The bounds of a quantifier in braces: `{n}` is exactly `n`, `{n,}` at
+/// least `n`, `{,m}` at most `m`, and `{n,m}` between `n` and `m`.
+fn quantifier_bounds(rq: &RelationshipQuantifier, sp: Span) -> Result<(Option<i64>, Option<i64>)> {
+    let nums: Vec<i64> = rq
         .numbers()
         .map(|lit| match build_literal(lit)? {
             ast_c::Expression::Literal(ast_c::Literal::Number {
@@ -1051,28 +1153,25 @@ fn build_quantifier(rq: RelationshipQuantifier) -> Result<ast_c::Quantifier> {
             }) => Ok(i),
             _ => Err(internal("expected integer quantifier bound", sp)),
         })
-        .collect();
-    let nums = nums?;
-    let has_comma = rq.syntax().children_with_tokens().any(|t| {
-        t.as_token()
-            .is_some_and(|tok| tok.kind() == SyntaxKind::COMMA)
-    });
-    let (start, end) = match nums.as_slice() {
-        [a, b] => (Some(*a), Some(*b)),
-        // `{n}` (no comma) means exactly n; `{n,}` (with comma) means n or more.
-        [a] => {
-            if has_comma {
-                (Some(*a), None)
-            } else {
-                (Some(*a), Some(*a))
-            }
-        }
-        _ => (None, None),
+        .collect::<Result<_>>()?;
+    let comma = rq
+        .syntax()
+        .children_with_tokens()
+        .filter_map(|t| t.into_token())
+        .find(|tok| tok.kind() == SyntaxKind::COMMA)
+        .map(|tok| tok.text_range().start());
+    let number_before_comma = |comma| {
+        rq.numbers()
+            .next()
+            .is_some_and(|n| n.syntax().text_range().start() < comma)
     };
-    Ok(ast_c::Quantifier {
-        start,
-        end,
-        span: sp,
+
+    Ok(match (nums.as_slice(), comma) {
+        ([a, b], _) => (Some(*a), Some(*b)),
+        ([a], None) => (Some(*a), Some(*a)),
+        ([a], Some(comma)) if number_before_comma(comma) => (Some(*a), None),
+        ([b], Some(_)) => (None, Some(*b)),
+        _ => (None, None),
     })
 }
 
@@ -2208,6 +2307,7 @@ fn build_pattern_or_subquery(
         }
         parts.push(ast_c::PatternPart {
             variable: None,
+            selector: None,
             anonymous: ast_c::AnonymousPatternPart {
                 element: ast_c::PatternElement::Path {
                     start: build_node_pattern(node)?,
