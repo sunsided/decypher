@@ -1800,9 +1800,20 @@ fn strict_catalog_reports_unknown_functions_and_procedures() {
         "CALL test.my.proc('Dobby')",
         "CALL test.my.proc",
         "RETURN apoc.text.join(['a'], ',') AS j, toUpper('a') AS u",
+        // The TCK reports wrongly typed `range()` arguments at runtime (#139).
+        "RETURN range(true, 1, 1), range(0, 1, 1.1), range(0, 'xyz', 1)",
     ] {
         check!(first_error(query).is_none(), "query: {query}");
     }
+    check!(
+        first_error("RETURN range(1)")
+            == Some(ErrorKind::InvalidNumberOfArguments {
+                name: "range()".into(),
+                min: 2,
+                max: Some(3),
+                found: 1,
+            })
+    );
 }
 
 /// `UNION` lowers to one `Union` operation holding every branch as its own

@@ -8,6 +8,13 @@ are marked **Breaking** below.
 
 ## [Unreleased]
 
+### Changed
+
+- `range()` accepts arguments of any type during analysis. The openCypher
+  TCK expects wrongly typed ones (`range(0, 1, 1.1)`) to fail at runtime
+  with `InvalidArgumentType`, so a consumer now reports them when it
+  evaluates the call. The argument count is still checked (#139).
+
 ## [0.3.0] - 2026-11-25
 
 Patterns keep everything they say: inline `WHERE`, path selectors such as

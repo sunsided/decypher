@@ -312,7 +312,8 @@ fn builtins() -> Vec<(String, Signature)> {
         ("keys", f(&[NODE | REL | M]).returns_list_of(S)),
         ("labels", f(&[NODE]).returns_list_of(S)),
         ("nodes", f(&[PATH]).returns_list_of(NODE)),
-        ("range", f(&[I, I, I]).optional(1).returns_list_of(I)),
+        // Wrongly typed arguments are a runtime error (TCK List11 [5]).
+        ("range", f(&[A, A, A]).optional(1).returns_list_of(I)),
         ("relationships", f(&[PATH]).returns_list_of(REL)),
         ("reverse", f(&[L | S]).returns(L | S)),
         ("tail", f(&[L]).returns(L)),
