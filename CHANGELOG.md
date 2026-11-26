@@ -8,6 +8,13 @@ are marked **Breaking** below.
 
 ## [Unreleased]
 
+### Fixed
+
+- The HIR puts the `Filter` of a `WITH ... WHERE` after the `Sort`, `Skip`
+  and `Limit` of the same clause, the order in which they apply. Before, it
+  came first, so a consumer running the operations in order filtered before
+  sorting and cutting.
+
 ## [0.4.0] - 2026-11-25
 
 More of Cypher 5, Cypher 25 and GQL parses: `||` concatenation,
