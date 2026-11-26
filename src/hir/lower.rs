@@ -17,8 +17,9 @@ use crate::ast::clause::{
     Return, Set, SetItem, SetOperator, Unwind, With,
 };
 use crate::ast::expr::{
-    BinaryOperator, ComparisonOperator, ExistsInner, Expression, FunctionInvocation, Literal,
-    MapProjectionItem, NumberLiteral, TrimSpec, UnaryOperator,
+    BinaryOperator, ComparisonOperator, ExistsInner, Expression, FilterExpression,
+    FunctionInvocation, ListComprehension, Literal, MapProjectionItem, NumberLiteral,
+    PatternComprehension, ReduceExpression, TrimSpec, UnaryOperator,
 };
 use crate::ast::names::Variable;
 use crate::ast::pattern::{
@@ -980,17 +981,68 @@ impl<'cfg> LoweringContext<'cfg> {
 
     // ── Expression lowering ──────────────────────────────────────────────
 
-    /// Whether `expr` names a variable that a comprehension, quantifier or
+    /// Whether `expr` uses a variable that a comprehension, quantifier or
     /// reduction around it binds. Its text then means that variable, also
-    /// where it reads like a projected item.
+    /// where it reads like a projected item. A name that `expr` binds again
+    /// is its own where that binding holds.
     fn names_local(&self, expr: &Expression) -> bool {
         struct Finder<'n> {
             names: &'n [String],
+            /// The names bound again by the constructs being walked.
+            rebound: Vec<String>,
             found: bool,
+        }
+        impl Finder<'_> {
+            fn rebinding(&mut self, variables: &[&Variable], walk: impl FnOnce(&mut Self)) {
+                let outer = self.rebound.len();
+                self.rebound
+                    .extend(variables.iter().map(|v| v.name.name.clone()));
+                walk(self);
+                self.rebound.truncate(outer);
+            }
         }
         impl<'ast> Visit<'ast> for Finder<'_> {
             fn visit_variable(&mut self, node: &'ast Variable) {
-                self.found |= self.names.contains(&node.name.name);
+                let name = &node.name.name;
+                self.found |= self.names.contains(name) && !self.rebound.contains(name);
+            }
+            fn visit_list_comprehension(&mut self, node: &'ast ListComprehension) {
+                self.visit_expression(&node.collection);
+                self.rebinding(&[&node.variable], |v| {
+                    if let Some(filter) = &node.filter {
+                        v.visit_expression(filter);
+                    }
+                    if let Some(map) = &node.map {
+                        v.visit_expression(map);
+                    }
+                });
+            }
+            fn visit_filter_expression(&mut self, node: &'ast FilterExpression) {
+                self.visit_expression(&node.collection);
+                self.rebinding(&[&node.variable], |v| {
+                    if let Some(predicate) = &node.predicate {
+                        v.visit_expression(predicate);
+                    }
+                });
+            }
+            fn visit_reduce_expression(&mut self, node: &'ast ReduceExpression) {
+                self.visit_expression(&node.init);
+                self.visit_expression(&node.list);
+                self.rebinding(&[&node.accumulator, &node.variable], |v| {
+                    v.visit_expression(&node.expression);
+                });
+            }
+            fn visit_pattern_comprehension(&mut self, node: &'ast PatternComprehension) {
+                // Only the path variable is always new: a pattern variable
+                // that is bound outside is a use of it.
+                let path: Vec<&Variable> = node.variable.iter().collect();
+                self.rebinding(&path, |v| {
+                    v.visit_relationships_pattern(&node.pattern);
+                    if let Some(filter) = &node.where_clause {
+                        v.visit_expression(filter);
+                    }
+                    v.visit_expression(&node.map);
+                });
             }
         }
         if self.local_names.is_empty() {
@@ -998,6 +1050,7 @@ impl<'cfg> LoweringContext<'cfg> {
         }
         let mut finder = Finder {
             names: &self.local_names,
+            rebound: Vec::new(),
             found: false,
         };
         finder.visit_expression(expr);
