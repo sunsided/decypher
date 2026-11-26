@@ -8,6 +8,15 @@ are marked **Breaking** below.
 
 ## [Unreleased]
 
+### Fixed
+
+- In the `WHERE` and `ORDER BY` of a `DISTINCT` or aggregating projection,
+  text that reads like a projected item is no longer replaced by that item's
+  column where it names a variable bound by a list or pattern comprehension,
+  a quantifier (`all`, `any`, `none`, `single`) or `reduce` around it.
+  Before, `WITH x, count(*) AS c WHERE [x IN [7] | x][0] = 7` read the column
+  `x` inside the comprehension.
+
 ## [0.4.0] - 2026-11-25
 
 More of Cypher 5, Cypher 25 and GQL parses: `||` concatenation,

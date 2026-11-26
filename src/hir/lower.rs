@@ -30,6 +30,7 @@ use crate::ast::query::{
     CallSubquery, MultiPartQuery, OnErrorBehavior, Query, QueryBody, ReadingClause, RegularQuery,
     SinglePartBody, SinglePartQuery, SingleQuery, SingleQueryKind, UpdatingClause,
 };
+use crate::ast::visit::Visit;
 use crate::error::{Diagnostics, Span};
 
 use super::arena::{BindingId, ExprId, FunctionId, Id, LabelId, PropertyKeyId, RelTypeId, ScopeId};
@@ -119,6 +120,9 @@ struct LoweringContext<'cfg> {
     /// While lowering the `ORDER BY` of a `DISTINCT` or aggregating
     /// projection: each item's printed expression and its column.
     projected_columns: Vec<(String, BindingId)>,
+    /// The names bound by the comprehensions, quantifiers and reductions
+    /// whose bodies are being lowered, innermost last.
+    local_names: Vec<String>,
     /// Bindings of `p = …` path variables, which no node or relationship
     /// of a pattern may reuse.
     path_variables: Vec<BindingId>,
@@ -284,6 +288,7 @@ impl<'cfg> LoweringContext<'cfg> {
             current_part_ops: Vec::new(),
             config,
             projected_columns: Vec::new(),
+            local_names: Vec::new(),
             path_variables: Vec::new(),
             creating: false,
         }
@@ -975,12 +980,51 @@ impl<'cfg> LoweringContext<'cfg> {
 
     // ── Expression lowering ──────────────────────────────────────────────
 
+    /// Whether `expr` names a variable that a comprehension, quantifier or
+    /// reduction around it binds. Its text then means that variable, also
+    /// where it reads like a projected item.
+    fn names_local(&self, expr: &Expression) -> bool {
+        struct Finder<'n> {
+            names: &'n [String],
+            found: bool,
+        }
+        impl<'ast> Visit<'ast> for Finder<'_> {
+            fn visit_variable(&mut self, node: &'ast Variable) {
+                self.found |= self.names.contains(&node.name.name);
+            }
+        }
+        if self.local_names.is_empty() {
+            return false;
+        }
+        let mut finder = Finder {
+            names: &self.local_names,
+            found: false,
+        };
+        finder.visit_expression(expr);
+        finder.found
+    }
+
+    /// Runs `lower` with `names` bound locally (see [`Self::names_local`]).
+    fn with_local_names<T>(
+        &mut self,
+        names: impl IntoIterator<Item = String>,
+        lower: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let outer = self.local_names.len();
+        self.local_names.extend(names);
+        let lowered = lower(self);
+        self.local_names.truncate(outer);
+        lowered
+    }
+
     fn lower_expr(&mut self, expr: &Expression) -> ExprId {
         if !self.projected_columns.is_empty()
             && !matches!(expr, Expression::Literal(_) | Expression::Parameter(_))
         {
             let text = expr.to_cypher();
-            if let Some(&(_, column)) = self.projected_columns.iter().find(|(t, _)| *t == text) {
+            if let Some(&(_, column)) = self.projected_columns.iter().find(|(t, _)| *t == text)
+                && !self.names_local(expr)
+            {
                 return self.arenas.expressions.alloc(HirExpr {
                     kind: ExprKind::Binding(column),
                     span: expr_span(expr),
@@ -1186,8 +1230,13 @@ impl<'cfg> LoweringContext<'cfg> {
                     BindingKind::ComprehensionVar,
                     lc.variable.name.span,
                 );
-                let filter = lc.filter.as_ref().map(|f| self.lower_expr(f));
-                let map = lc.map.as_ref().map(|m| self.lower_expr(m));
+                let (filter, map) =
+                    self.with_local_names([lc.variable.name.name.clone()], |this| {
+                        (
+                            lc.filter.as_ref().map(|f| this.lower_expr(f)),
+                            lc.map.as_ref().map(|m| this.lower_expr(m)),
+                        )
+                    });
                 self.scope_stack.pop_scope();
                 ExprKind::ListComprehension(HirListComprehension {
                     variable: var,
@@ -1199,6 +1248,21 @@ impl<'cfg> LoweringContext<'cfg> {
             Expression::PatternComprehension(pc) => {
                 // The path variable and the pattern's variables are local to
                 // the comprehension.
+                let rp = &pc.pattern;
+                let own: Vec<String> = std::iter::once(&rp.start)
+                    .chain(rp.chains.iter().map(|chain| &chain.node))
+                    .filter_map(|node| node.variable.as_ref())
+                    .chain(rp.chains.iter().filter_map(|chain| {
+                        chain
+                            .relationship
+                            .detail
+                            .as_ref()
+                            .and_then(|detail| detail.variable.as_ref())
+                    }))
+                    .filter(|v| self.scope_stack.resolve(&v.name.name).is_none())
+                    .chain(pc.variable.as_ref())
+                    .map(|v| v.name.name.clone())
+                    .collect();
                 let _scope = self.scope_stack.push_scope(&mut self.arenas);
                 let var = pc.variable.as_ref().map(|v| {
                     self.scope_stack.bind(
@@ -1208,9 +1272,13 @@ impl<'cfg> LoweringContext<'cfg> {
                         v.name.span,
                     )
                 });
-                let pattern = self.lower_relationships_pattern(&pc.pattern);
-                let filter = pc.where_clause.as_ref().map(|w| self.lower_expr(w));
-                let map = self.lower_expr(&pc.map);
+                let (pattern, filter, map) = self.with_local_names(own, |this| {
+                    (
+                        this.lower_relationships_pattern(&pc.pattern),
+                        pc.where_clause.as_ref().map(|w| this.lower_expr(w)),
+                        this.lower_expr(&pc.map),
+                    )
+                });
                 self.scope_stack.pop_scope();
                 ExprKind::PatternComprehension(HirPatternComprehension {
                     variable: var,
@@ -1239,7 +1307,9 @@ impl<'cfg> LoweringContext<'cfg> {
                     BindingKind::ComprehensionVar,
                     fe.variable.name.span,
                 );
-                let predicate = fe.predicate.as_ref().map(|p| self.lower_expr(p));
+                let predicate = self.with_local_names([fe.variable.name.name.clone()], |this| {
+                    fe.predicate.as_ref().map(|p| this.lower_expr(p))
+                });
                 self.scope_stack.pop_scope();
                 ExprKind::CollectionFilter {
                     quantifier,
@@ -1266,7 +1336,13 @@ impl<'cfg> LoweringContext<'cfg> {
                     BindingKind::ComprehensionVar,
                     r.variable.name.span,
                 );
-                let expression = self.lower_expr(&r.expression);
+                let expression = self.with_local_names(
+                    [
+                        r.accumulator.name.name.clone(),
+                        r.variable.name.name.clone(),
+                    ],
+                    |this| this.lower_expr(&r.expression),
+                );
                 self.scope_stack.pop_scope();
                 ExprKind::Reduce {
                     accumulator,
