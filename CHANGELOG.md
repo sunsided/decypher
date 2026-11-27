@@ -18,6 +18,12 @@ are marked **Breaking** below.
   and `Limit` of the same clause, the order in which they apply. Before, it
   came first, so a consumer running the operations in order filtered before
   sorting and cutting.
+- In the `WHERE` and `ORDER BY` of a `DISTINCT` or aggregating projection,
+  text that reads like a projected item is no longer replaced by that item's
+  column where it names a variable bound by a list or pattern comprehension,
+  a quantifier (`all`, `any`, `none`, `single`) or `reduce` around it.
+  Before, `WITH x, count(*) AS c WHERE [x IN [7] | x][0] = 7` read the column
+  `x` inside the comprehension.
 
 ## [0.4.0] - 2026-11-25
 

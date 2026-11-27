@@ -2552,3 +2552,135 @@ fn with_where_filters_after_order_skip_and_limit() {
         assert_eq!(operations(query), expected, "{query}");
     }
 }
+
+/// After a narrowing projection, text that reads like a projected item stands
+/// for its column, but not where it names a variable that a comprehension, a
+/// quantifier or a reduction around it binds.
+///
+/// Unit: `analyze()`
+/// Precondition: Each binding construct, in the `WHERE` or `ORDER BY` of an
+///               aggregating or `DISTINCT` projection, with a body that reads
+///               like a projected item.
+/// Expectation: The body refers to the local variable; text that names no
+///              local variable still refers to the column.
+#[test]
+fn text_of_a_projected_item_does_not_replace_a_local_variable() {
+    use decypher::hir::{BindingId, ExprId, HirQuery};
+
+    // The binding an expression starts from: itself, its base or its left side.
+    fn root(hir: &HirQuery, id: ExprId) -> BindingId {
+        match &hir.arenas.expressions.get(id).kind {
+            ExprKind::Binding(binding) => *binding,
+            ExprKind::Property { base, .. } => root(hir, *base),
+            ExprKind::Binary { left, .. } => root(hir, *left),
+            ExprKind::Comparison { left, .. } => root(hir, *left),
+            other => panic!("no binding in {other:?}"),
+        }
+    }
+    // The first binding construct: its variable and the root of its body.
+    fn bound_and_read(query: &str) -> (HirQuery, BindingId, BindingId) {
+        let hir = analyze(query).unwrap_or_else(|e| panic!("query: {query}, got: {e}"));
+        let found = hir
+            .arenas
+            .expressions
+            .iter()
+            .find_map(|(_, e)| match &e.kind {
+                ExprKind::ListComprehension(c) => Some((c.variable, c.map.or(c.filter)?)),
+                ExprKind::CollectionFilter {
+                    variable,
+                    predicate,
+                    ..
+                } => Some((*variable, (*predicate)?)),
+                ExprKind::Reduce {
+                    accumulator,
+                    expression,
+                    ..
+                } => Some((*accumulator, *expression)),
+                ExprKind::PatternComprehension(c) => {
+                    let last = c.pattern.nodes.last()?;
+                    Some((last.binding?, c.map))
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no binding construct: {query}"));
+        let read = root(&hir, found.1);
+        (hir, found.0, read)
+    }
+
+    for query in [
+        "UNWIND [1, 2] AS x WITH x, count(*) AS c WHERE [x IN [7] | x][0] = 7 RETURN x, c",
+        "UNWIND [1, 2] AS x RETURN DISTINCT x ORDER BY [x IN [0] | x][0]",
+        "MATCH (a) RETURN a.name AS n, count(*) AS c ORDER BY [a IN [{name: 'z'}] | a.name]",
+        "UNWIND [1, 2] AS x RETURN DISTINCT x ORDER BY any(x IN [0] WHERE x = 0)",
+        "UNWIND [1, 2] AS x RETURN DISTINCT x ORDER BY none(x IN [0] WHERE x = 0)",
+        "UNWIND [1, 2] AS x RETURN x + 1 AS y, count(*) ORDER BY reduce(x = 0, v IN [1] | x + 1)",
+        "MATCH (b) RETURN b.name AS n, count(*) AS c ORDER BY size([(c2)-->(b) | b.name])",
+    ] {
+        let (_, bound, read) = bound_and_read(query);
+        assert_eq!(read, bound, "{query}");
+    }
+
+    let query = "MATCH (a) RETURN a.name AS n, count(*) AS c ORDER BY [x IN [1] | a.name]";
+    let (hir, bound, read) = bound_and_read(query);
+    assert_ne!(read, bound, "{query}");
+    assert_eq!(hir.arenas.bindings.get(read).name, "n", "{query}");
+}
+
+/// A name that a nested construct binds again is that construct's own: text
+/// that only uses it that way still stands for the projected column, while a
+/// use of the enclosing local, also in a nested collection, does not.
+///
+/// Unit: `analyze()`
+/// Precondition: `ORDER BY [x IN [0] | item]` after `RETURN DISTINCT item AS
+///               n`, with `item` binding `x` again, or reading the outer `x`.
+/// Expectation: The former lowers to the column, the latter does not.
+#[test]
+fn a_nested_binding_that_shadows_a_local_does_not_use_it() {
+    // What the outer comprehension in `ORDER BY` maps to: a column's name, or
+    // `None` for an expression lowered as written.
+    let mapped = |query: &str| -> Option<String> {
+        let hir = analyze(query).unwrap_or_else(|e| panic!("query: {query}, got: {e}"));
+        let sort = hir
+            .parts
+            .iter()
+            .flat_map(|part| &part.operations)
+            .find_map(|op| match op {
+                Operation::Sort(sort) => Some(sort),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no Sort: {query}"));
+        let ExprKind::ListComprehension(outer) =
+            &hir.arenas.expressions.get(sort.items[0].expression).kind
+        else {
+            panic!("no comprehension: {query}");
+        };
+        match &hir.arenas.expressions.get(outer.map?).kind {
+            ExprKind::Binding(binding) => Some(hir.arenas.bindings.get(*binding).name.clone()),
+            _ => None,
+        }
+    };
+    let query =
+        |item: &str| format!("MATCH (a) RETURN DISTINCT {item} AS n ORDER BY [x IN [0] | {item}]");
+    for item in [
+        "[x IN [1] | a.name]",
+        "[y IN [1] | [x IN [y] | x]]",
+        "any(x IN [1] WHERE a.ok)",
+        "reduce(x = 0, y IN [1] | x + a.v)",
+        "reduce(y = 0, x IN [1] | y + x)",
+        "[x = (a)-->() | x]",
+    ] {
+        assert_eq!(mapped(&query(item)).as_deref(), Some("n"), "{item}");
+    }
+    for item in [
+        "[y IN [1] | x]",
+        "[x IN [x] | 1]",
+        "any(y IN [x] WHERE y > 0)",
+        "reduce(y = x, x IN [1] | y)",
+        "[p = (a)-->() | x]",
+    ] {
+        let query = format!(
+            "UNWIND [1] AS x MATCH (a) RETURN DISTINCT {item} AS n ORDER BY [x IN [0] | {item}]"
+        );
+        assert_eq!(mapped(&query), None, "{item}");
+    }
+}
