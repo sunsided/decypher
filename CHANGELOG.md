@@ -8,6 +8,13 @@ are marked **Breaking** below.
 
 ## [Unreleased]
 
+### Fixed
+
+- A projection item without `AS` is named by its text up to its last token.
+  Before, whitespace and comments that followed an expression became part of
+  the name (`RETURN 1 + 1 LIMIT 1` named the column `1 + 1 `), and two items
+  that differed only in them were not reported as duplicate columns.
+
 ## [0.4.0] - 2026-11-25
 
 More of Cypher 5, Cypher 25 and GQL parses: `||` concatenation,

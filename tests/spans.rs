@@ -83,3 +83,49 @@ fn spans_cover_operands_literals_and_parentheses() {
         );
     }
 }
+
+/// An item without `AS` is named by its text, which ends at its last token:
+/// whitespace and comments that follow are no part of the column's name, so
+/// two items that differ only in them are duplicates.
+#[cfg(feature = "hir")]
+#[test]
+fn unaliased_column_names_end_at_the_last_token() {
+    for (source, expected) in [
+        ("MATCH (a) RETURN a.age + 1 LIMIT 1", vec!["a.age + 1"]),
+        (
+            "RETURN 1 + 1 /* c */ , NOT true\n",
+            vec!["1 + 1", "NOT true"],
+        ),
+        (
+            "MATCH (a) RETURN a.x < 3   , a.x IN [1]  , -a.x // c\n",
+            vec!["a.x < 3", "a.x IN [1]", "-a.x"],
+        ),
+        // Trivia inside an item stays part of its name.
+        ("RETURN 1   +   1   ", vec!["1   +   1"]),
+    ] {
+        let hir = decypher::analyze(source).unwrap_or_else(|e| panic!("{source:?}: {e}"));
+        let columns = hir
+            .parts
+            .iter()
+            .flat_map(|part| &part.operations)
+            .find_map(|op| match op {
+                decypher::hir::ops::Operation::Return(r) => Some(&r.columns),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{source:?}: no Return"));
+        let names: Vec<&str> = columns
+            .iter()
+            .map(|&id| hir.arenas.bindings.get(id).name.as_str())
+            .collect();
+        assert_eq!(names, expected, "{source:?}");
+    }
+    for source in [
+        "RETURN 1 + 1 , 1 + 1   ",
+        "MATCH (a) RETURN a.x < 3, a.x < 3 /* again */",
+    ] {
+        assert!(
+            decypher::analyze(source).is_err(),
+            "{source:?} names a column twice"
+        );
+    }
+}
