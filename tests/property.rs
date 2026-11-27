@@ -4,10 +4,11 @@
 //! Cypher fragments and verify that:
 //! - All generated queries parse losslessly via the CST path.
 //! - Round-tripping (parse → `to_cypher` → re-parse) preserves the AST.
+//! - A projection item's text excludes the trivia around it.
 
 use decypher::ast::ToCypher;
 use decypher::ast::clause::ProjectionItem;
-use decypher::ast::visit::{VisitMut, walk_projection_item_mut};
+use decypher::ast::visit::{Visit, VisitMut, walk_projection_item_mut};
 use decypher::cst::AstNode;
 use decypher::{cst, parse};
 use proptest::prelude::*;
@@ -239,6 +240,61 @@ proptest! {
             .unwrap_or_else(|err| panic!("AST reparse failed for emitted `{emitted}` from `{query}`: {err}"));
         prop_assert_eq!(without_source_text(parsed), without_source_text(reparsed));
     }
+
+    /// An item's text, which names its column without `AS`, is the expression
+    /// as written: trivia inside it stays, trivia around it does not.
+    ///
+    /// Unit: `parse()`, `ProjectionItem::expression_text` / `expression_span`
+    /// Precondition: `RETURN <expr>` with its inner spaces replaced by
+    ///               `inner`, surrounded by trivia and followed by another
+    ///               item, a `LIMIT` or the end of the query.
+    /// Expectation: The text is the expression with `inner`, and the span
+    ///              covers exactly that text.
+    #[test]
+    fn prop_item_text_is_the_expression_without_surrounding_trivia(
+        expression in expr(),
+        inner in trivia(),
+        before in trivia(),
+        after in prop_oneof![Just(String::new()), trivia()],
+        tail in prop_oneof![Just(""), Just(", 1 AS z"), Just(" LIMIT 1")],
+    ) {
+        let written = expression.replace(' ', &inner);
+        let query = format!("RETURN{before}{written}{after}{tail}");
+        let parsed = parse(&query).unwrap_or_else(|err| panic!("{query:?}: {err}"));
+        let item = first_projection_item(&parsed);
+        prop_assert_eq!(&item.expression_text, &written, "{:?}", query);
+        let span = item.expression_span;
+        prop_assert_eq!(&query[span.start..span.end], written.as_str(), "{:?}", query);
+    }
+}
+
+/// Generate whitespace and comments, at least one character long.
+fn trivia() -> impl Strategy<Value = String> {
+    proptest::collection::vec(
+        prop_oneof![
+            Just(" "),
+            Just("   "),
+            Just("\n"),
+            Just("\t"),
+            Just("/* c */"),
+            Just("// c\n"),
+        ],
+        1..4,
+    )
+    .prop_map(|parts| format!(" {}", parts.concat()))
+}
+
+/// The first projection item of `query`.
+fn first_projection_item(query: &decypher::ast::query::Query) -> &ProjectionItem {
+    struct First<'q>(Option<&'q ProjectionItem>);
+    impl<'q> Visit<'q> for First<'q> {
+        fn visit_projection_item(&mut self, node: &'q ProjectionItem) {
+            self.0.get_or_insert(node);
+        }
+    }
+    let mut first = First(None);
+    first.visit_query(query);
+    first.0.expect("a projection item")
 }
 
 /// The AST with each projection item's source text blanked: printing
