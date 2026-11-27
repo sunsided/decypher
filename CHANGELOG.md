@@ -8,22 +8,30 @@ are marked **Breaking** below.
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-11-27
+
+Three fixes found by arqlet while moving to 0.4.0: column names of items
+without `AS`, the order of a `WITH`'s `WHERE` against its `ORDER BY`, `SKIP`
+and `LIMIT`, and comprehension variables after a narrowing projection. No
+API changes; consumers that run a part's operations in order now get the
+`WITH ... WHERE` result right without reordering them.
+
 ### Fixed
 
 - A projection item without `AS` is named by its text up to its last token.
   Before, whitespace and comments that followed an expression became part of
   the name (`RETURN 1 + 1 LIMIT 1` named the column `1 + 1 `), and two items
-  that differed only in them were not reported as duplicate columns.
+  that differed only in them were not reported as duplicate columns (#154).
 - The HIR puts the `Filter` of a `WITH ... WHERE` after the `Sort`, `Skip`
   and `Limit` of the same clause, the order in which they apply. Before, it
   came first, so a consumer running the operations in order filtered before
-  sorting and cutting.
+  sorting and cutting (#155).
 - In the `WHERE` and `ORDER BY` of a `DISTINCT` or aggregating projection,
   text that reads like a projected item is no longer replaced by that item's
   column where it names a variable bound by a list or pattern comprehension,
   a quantifier (`all`, `any`, `none`, `single`) or `reduce` around it.
   Before, `WITH x, count(*) AS c WHERE [x IN [7] | x][0] = 7` read the column
-  `x` inside the comprehension.
+  `x` inside the comprehension (#156).
 
 ## [0.4.0] - 2026-11-25
 
@@ -578,7 +586,8 @@ versioning from here on, so there are no breaking changes within 0.2.x
 See the [GitHub releases](https://github.com/sunsided/decypher/releases) for
 0.2.0-alpha.6 and earlier.
 
-[Unreleased]: https://github.com/sunsided/decypher/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/sunsided/decypher/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/sunsided/decypher/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/sunsided/decypher/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/sunsided/decypher/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/sunsided/decypher/compare/v0.2.0-alpha.10...v0.2.0
