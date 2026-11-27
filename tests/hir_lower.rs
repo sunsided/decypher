@@ -2508,6 +2508,51 @@ fn set_and_remove_lower_dynamic_labels_and_keys() {
     ));
 }
 
+/// The `WHERE` of a `WITH` filters what its `ORDER BY`, `SKIP` and `LIMIT`
+/// leave: `WITH x ORDER BY x LIMIT 1 WHERE x > 1` keeps at most the first row.
+///
+/// Unit: `analyze()`
+/// Precondition: A `WITH` with `WHERE` and each combination of the other
+///               sub-clauses, plain, `DISTINCT` and aggregating.
+/// Expectation: The part's `Filter` follows its `Sort`, `Skip` and `Limit`.
+#[test]
+fn with_where_filters_after_order_skip_and_limit() {
+    let operations = |query: &str| -> Vec<&'static str> {
+        let hir = analyze(query).unwrap_or_else(|e| panic!("query: {query}, got: {e}"));
+        hir.parts[0]
+            .operations
+            .iter()
+            .filter_map(|op| match op {
+                Operation::Sort(_) => Some("sort"),
+                Operation::Skip(_) => Some("skip"),
+                Operation::Limit(_) => Some("limit"),
+                Operation::Filter(_) => Some("filter"),
+                _ => None,
+            })
+            .collect()
+    };
+    for (query, expected) in [
+        (
+            "MATCH (n) WITH n.x AS x ORDER BY x SKIP 1 LIMIT 2 WHERE x > 1 RETURN x",
+            vec!["sort", "skip", "limit", "filter"],
+        ),
+        (
+            "MATCH (n) WITH DISTINCT n.x AS x LIMIT 1 WHERE x > 1 RETURN x",
+            vec!["limit", "filter"],
+        ),
+        (
+            "MATCH (n) WITH n.x AS x, count(*) AS c ORDER BY c SKIP 1 WHERE c > 1 RETURN x",
+            vec!["sort", "skip", "filter"],
+        ),
+        (
+            "MATCH (n) WITH n.x AS x WHERE x > 1 RETURN x",
+            vec!["filter"],
+        ),
+    ] {
+        assert_eq!(operations(query), expected, "{query}");
+    }
+}
+
 /// After a narrowing projection, text that reads like a projected item stands
 /// for its column, but not where it names a variable that a comprehension, a
 /// quantifier or a reduction around it binds.

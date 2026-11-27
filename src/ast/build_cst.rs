@@ -843,7 +843,14 @@ fn build_projection_item(item: ProjectionItem) -> Result<ast_c::ProjectionItem> 
         .children_with_tokens()
         .take_while(|c| c.kind() != SyntaxKind::KW_AS)
         .filter(|c| !matches!(c.kind(), SyntaxKind::WHITESPACE | SyntaxKind::COMMENT))
-        .map(|c| c.text_range())
+        .map(|c| match c.as_node() {
+            // A node keeps the trivia that follows its last token.
+            Some(node) => {
+                let span = span_of(node);
+                rowan::TextRange::new((span.start as u32).into(), (span.end as u32).into())
+            }
+            None => c.text_range(),
+        })
         .reduce(|a, b| a.cover(b))
         .unwrap_or_else(|| item.syntax().text_range());
     let base = item.syntax().text_range().start();

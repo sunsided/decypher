@@ -10,6 +10,14 @@ are marked **Breaking** below.
 
 ### Fixed
 
+- A projection item without `AS` is named by its text up to its last token.
+  Before, whitespace and comments that followed an expression became part of
+  the name (`RETURN 1 + 1 LIMIT 1` named the column `1 + 1 `), and two items
+  that differed only in them were not reported as duplicate columns.
+- The HIR puts the `Filter` of a `WITH ... WHERE` after the `Sort`, `Skip`
+  and `Limit` of the same clause, the order in which they apply. Before, it
+  came first, so a consumer running the operations in order filtered before
+  sorting and cutting.
 - In the `WHERE` and `ORDER BY` of a `DISTINCT` or aggregating projection,
   text that reads like a projected item is no longer replaced by that item's
   column where it names a variable bound by a list or pattern comprehension,
