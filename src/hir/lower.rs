@@ -801,16 +801,6 @@ impl<'cfg> LoweringContext<'cfg> {
             self.lower_projection(passed_through, &w.items, w.distinct, BindingKind::WithAlias);
         self.scope_stack.hide_outer();
 
-        if let Some(where_expr) = &w.where_clause {
-            let aggregating = self.has_any_aggregate(&w.items);
-            let pred =
-                self.lower_after_projection(&w.items, &columns, aggregating, outer, |this| {
-                    this.lower_expr(where_expr)
-                });
-            self.current_part_ops
-                .push(Operation::Filter(FilterOp { predicate: pred }));
-        }
-
         self.lower_order_skip_limit(
             &w.items,
             &columns,
@@ -821,6 +811,18 @@ impl<'cfg> LoweringContext<'cfg> {
             w.limit.as_ref(),
             outer,
         );
+
+        // The `WHERE` filters the rows that `ORDER BY`, `SKIP` and `LIMIT`
+        // leave, so its operation follows theirs.
+        if let Some(where_expr) = &w.where_clause {
+            let aggregating = self.has_any_aggregate(&w.items);
+            let pred =
+                self.lower_after_projection(&w.items, &columns, aggregating, outer, |this| {
+                    this.lower_expr(where_expr)
+                });
+            self.current_part_ops
+                .push(Operation::Filter(FilterOp { predicate: pred }));
+        }
         scope
     }
 
