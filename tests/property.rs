@@ -258,6 +258,8 @@ proptest! {
         after in prop_oneof![Just(String::new()), trivia()],
         tail in prop_oneof![Just(""), Just(", 1 AS z"), Just(" LIMIT 1")],
     ) {
+        // `string_lit()` has no spaces, so each space replaced here lies
+        // between two tokens.
         let written = expression.replace(' ', &inner);
         let query = format!("RETURN{before}{written}{after}{tail}");
         let parsed = parse(&query).unwrap_or_else(|err| panic!("{query:?}: {err}"));
