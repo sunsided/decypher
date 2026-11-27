@@ -1180,6 +1180,118 @@ fn rt_trim_from() {
     check!(emitted.contains("trim(LEADING 'x' FROM s)"));
 }
 
+/// Round-trip `rt trim operands`: every operand the `FROM` form allows.
+///
+/// Unit: `ToCypher::to_cypher` / `parse`
+/// Precondition: A spec followed by a character that is not a string, a
+///               parameter or a name, a comment after the spec, `FROM` with
+///               neither spec nor character, and a character named `from`.
+/// Expectation: The keyword is read as the keyword and the form prints back.
+#[test]
+fn rt_trim_operands() {
+    for (query, printed) in [
+        ("RETURN trim(BOTH null FROM s);", "trim(BOTH NULL FROM s)"),
+        (
+            "RETURN trim(LEADING CASE WHEN true THEN 'x' END FROM s);",
+            "trim(LEADING CASE WHEN",
+        ),
+        (
+            "RETURN trim(LEADING ('x') FROM s);",
+            "trim(LEADING ('x') FROM s)",
+        ),
+        (
+            "RETURN trim(TRAILING ['x'][0] FROM s);",
+            "trim(TRAILING ['x'][0] FROM s)",
+        ),
+        (
+            "RETURN trim(BOTH toUpper('x') FROM s);",
+            "trim(BOTH toUpper('x') FROM s)",
+        ),
+        (
+            "RETURN trim(BOTH /* c */ 'x' FROM s);",
+            "trim(BOTH 'x' FROM s)",
+        ),
+        (
+            "RETURN trim(LEADING // c\n FROM s);",
+            "trim(LEADING FROM s)",
+        ),
+        ("RETURN trim(FROM '  a  ');", "trim(FROM '  a  ')"),
+        ("RETURN trim(FROM s);", "trim(FROM s)"),
+        ("RETURN trim(from ('a'));", "trim(FROM ('a'))"),
+        (
+            "WITH 'x' AS from RETURN trim(from FROM 'xa');",
+            "FROM 'xa')",
+        ),
+        (
+            "WITH 'x' AS from RETURN trim(BOTH from FROM 'xa');",
+            "FROM 'xa')",
+        ),
+        ("WITH 'a' AS from RETURN trim(FROM from);", "trim(FROM "),
+        ("RETURN trim(both{.x} FROM s);", "trim(both{.x} FROM s)"),
+        (
+            "RETURN trim(BOTH FROM from.name);",
+            "trim(BOTH FROM from.name)",
+        ),
+    ] {
+        let emitted = decypher::parse(query)
+            .unwrap_or_else(|e| panic!("query: {query}, got: {e}"))
+            .to_cypher();
+        check!(
+            emitted.contains(printed),
+            "query: {query}, emitted: {emitted}"
+        );
+        roundtrip(&emitted);
+    }
+}
+
+/// `BOTH`, `LEADING`, `TRAILING` and `FROM` stay names where only that reading
+/// fits.
+///
+/// Unit: `parse`
+/// Precondition: `trim` of a variable or function with one of these names,
+///               alone or followed by an operator, a property, an index or
+///               another argument.
+/// Expectation: A plain call without `FROM`.
+#[test]
+fn trim_keywords_stay_names() {
+    for argument in [
+        "both",
+        "leading + 'x'",
+        "trailing.name",
+        "both[0]",
+        "leading(x)",
+        "trailing(x.from)",
+        "both[x.from]",
+        "leading, 'x'",
+        "from",
+        "from + 'x'",
+        "from.name",
+        "from, 'x'",
+        "from[0]",
+        "from['name'], 'x'",
+        "both(x) - from",
+        "leading[0] + from",
+        "x.from",
+    ] {
+        let query = format!("RETURN trim({argument}) AS t");
+        let emitted = decypher::parse(&query)
+            .unwrap_or_else(|e| panic!("query: {query}, got: {e}"))
+            .to_cypher();
+        check!(
+            emitted.contains(&format!("trim({argument})")),
+            "query: {query}, emitted: {emitted}"
+        );
+    }
+    for query in [
+        "RETURN trim(BOTH 'x')",
+        "RETURN trim(FROM 'x', 'y')",
+        "RETURN trim(BOTH ('x') FROM)",
+        "RETURN trim(('x') FROM )",
+    ] {
+        check!(decypher::parse(query).is_err(), "query: {query}");
+    }
+}
+
 /// Round-trip `rt dynamic labels and keys in set and remove`: parse → serialise → re-parse must yield equal ASTs.
 ///
 /// Unit: `ToCypher::to_cypher` / `parse`

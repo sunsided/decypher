@@ -2424,6 +2424,10 @@ fn trim_from_lowers_to_the_matching_trim_function() {
         ("RETURN trim(LEADING 'x' FROM 'xxaxx')", "ltrim", 2),
         ("RETURN trim(TRAILING FROM '  a  ')", "rtrim", 1),
         ("RETURN trim('x' FROM 'xa')", "btrim", 2),
+        ("RETURN trim(FROM '  a  ')", "btrim", 1),
+        ("RETURN trim(LEADING ('x') FROM 'xa')", "ltrim", 2),
+        ("RETURN trim(TRAILING ['x'][0] FROM 'ax')", "rtrim", 2),
+        ("RETURN trim(BOTH null FROM 'a')", "btrim", 2),
     ] {
         let hir = analyze(query).unwrap();
         let ExprKind::FunctionCall {
