@@ -170,18 +170,17 @@ fn parse_infix_tail(p: &mut Parser, bp: Prec) {
 /// plain comma-separated arguments. `BOTH`, `LEADING`, `TRAILING` and `FROM`
 /// are not reserved: they are keywords only where something follows that does
 /// not continue an expression, so `trim(both)`, `trim(leading + x)` and
-/// `trim(from.name)` still read the variables. A spec followed by `(` or `[`
-/// is one if the `FROM` of the call comes further on, so `trim(both[0])` stays
-/// an index into `both`. A leading `FROM` takes a `(`, but `trim(from[0])`
-/// stays an index into `from`.
+/// `trim(from.name)` still read the variables. A spec word followed by `(` or
+/// `[` is read as a call or an index, also where a `FROM` comes further on.
+/// A leading `FROM` takes a `(`, but `trim(from[0])` stays an index into
+/// `from`.
 fn parse_trim_arguments(p: &mut Parser) {
     let is_spec = ["BOTH", "LEADING", "TRAILING"]
         .iter()
         .any(|spec| current_text(p).eq_ignore_ascii_case(spec))
         && match peek_kinds(p).next() {
-            Some(SyntaxKind::L_PAREN | SyntaxKind::L_BRACKET) => trim_from_follows(p),
+            Some(SyntaxKind::L_PAREN | SyntaxKind::L_BRACKET) | None => false,
             Some(next) => !continues_expression(next),
-            None => false,
         };
     if is_spec {
         p.start_node(SyntaxKind::TRIM_SPEC);
@@ -484,75 +483,6 @@ fn only_continues_expression(kind: SyntaxKind) -> bool {
                 | SyntaxKind::KW_ENDS
                 | SyntaxKind::KW_CONTAINS
         )
-}
-
-/// Whether the bracket after the current token, a `trim` specification or a
-/// name, starts a character expression that ends at the call's `FROM`.
-///
-/// The expression is parsed on a scratch parser, so the grammar itself says
-/// which `from` is a name. What brackets contain is left out: it does not
-/// change where the expression ends. That also keeps this linear in nested
-/// input, where a `trim` inside the brackets is not parsed a second time.
-fn trim_from_follows(p: &Parser) -> bool {
-    let mut outline = String::new();
-    let mut lx = p.lexer.clone();
-    // Where `lx` started in the input.
-    let mut base = 0;
-    while let Some(tok) = lx.advance() {
-        let end = base + lx.position();
-        let text = p.input.get(end - tok.text_len..end).unwrap_or_default();
-        match tok.kind {
-            SyntaxKind::L_PAREN | SyntaxKind::L_BRACKET | SyntaxKind::L_BRACE => {
-                let Some(closed) = p.bracket_end(end) else {
-                    return false;
-                };
-                outline.push_str(text);
-                // `()` and `[]` need something inside to stay an operand.
-                if tok.kind != SyntaxKind::L_BRACE {
-                    outline.push('0');
-                }
-                // The closing bracket is one byte.
-                outline.push_str(p.input.get(closed - 1..closed).unwrap_or_default());
-                base = closed;
-                lx = crate::parser::lexer::Lexer::new(p.input.get(closed..).unwrap_or_default());
-            }
-            // The end of the call, or of its first argument.
-            SyntaxKind::R_PAREN
-            | SyntaxKind::R_BRACKET
-            | SyntaxKind::R_BRACE
-            | SyntaxKind::COMMA => break,
-            _ => outline.push_str(text),
-        }
-    }
-    let mut trial = Parser::new(&outline);
-    // The trial recurses on top of the rules that got here.
-    trial.depth = p.depth;
-    trial.skip_trivia();
-    expr_bp(&mut trial, Prec::MIN);
-    trial.skip_trivia();
-    trial.errors.is_empty() && trial.at(SyntaxKind::KW_FROM)
-}
-
-/// For every opening bracket in `input`, keyed by the byte offset just after
-/// it, the byte offset just after the bracket that closes it.
-pub(crate) fn bracket_table(input: &str) -> std::collections::HashMap<usize, usize> {
-    let mut lexer = crate::parser::lexer::Lexer::new(input);
-    let mut table = std::collections::HashMap::new();
-    let mut open = Vec::new();
-    while let Some(tok) = lexer.advance() {
-        match tok.kind {
-            SyntaxKind::L_PAREN | SyntaxKind::L_BRACKET | SyntaxKind::L_BRACE => {
-                open.push(lexer.position());
-            }
-            SyntaxKind::R_PAREN | SyntaxKind::R_BRACKET | SyntaxKind::R_BRACE => {
-                if let Some(after_open) = open.pop() {
-                    table.insert(after_open, lexer.position());
-                }
-            }
-            _ => {}
-        }
-    }
-    table
 }
 
 /// Parses a GQL value type into a TYPE_EXPR node: type words, `<…>`

@@ -1194,12 +1194,7 @@ fn rt_trim_operands() {
     for call in [
         "trim(BOTH NULL FROM s)",
         "trim(LEADING CASE WHEN true THEN 'x' END FROM s)",
-        "trim(LEADING ('x') FROM s)",
-        "trim(TRAILING ['x'][0] FROM s)",
         "trim(BOTH toUpper('x') FROM s)",
-        "trim(LEADING (n).contains FROM s)",
-        "trim(LEADING (n).`in` + from.name FROM s)",
-        "trim(BOTH [0] + $from FROM from)",
         "trim(FROM '  a  ')",
         "trim(FROM s)",
         "trim(FROM ('a'))",
@@ -1208,7 +1203,6 @@ fn rt_trim_operands() {
         "trim(BOTH from FROM 'xa')",
         "trim(both{.x} FROM s)",
         "trim(BOTH FROM from.name)",
-        "trim(LEADING (x)[0] + {a: 1}.a FROM s)",
         "trim(from FROM `IS`)",
     ] {
         let query = format!("RETURN {call} AS t;");
@@ -1228,7 +1222,6 @@ fn rt_trim_spellings() {
     for (call, printed) in [
         ("trim(BOTH /* c */ 'x' FROM s)", "trim(BOTH 'x' FROM s)"),
         ("trim(LEADING // c\n FROM s)", "trim(LEADING FROM s)"),
-        ("trim(leading('x') from s)", "trim(LEADING ('x') FROM s)"),
         ("trim(from ('a'))", "trim(FROM ('a'))"),
     ] {
         let query = format!("RETURN {call} AS t;");
@@ -1243,8 +1236,8 @@ fn rt_trim_spellings() {
     }
 }
 
-/// `BOTH`, `LEADING`, `TRAILING` and `FROM` stay names where only that reading
-/// fits.
+/// `BOTH`, `LEADING`, `TRAILING` and `FROM` stay names where that reading fits,
+/// before a bracket also with a `FROM` further on.
 ///
 /// Unit: `parse`
 /// Precondition: `trim` of a variable or function with one of these names,
@@ -1279,6 +1272,13 @@ fn trim_keywords_stay_names() {
         "leading(x).contains",
         "trailing[0] IN from.list",
         "both(x) IS NULL",
+        "both[0] FROM s",
+        "leading(x) FROM s",
+        "both(x, y) FROM s",
+        "both() FROM s",
+        "leading(DISTINCT x) FROM s",
+        "trailing[1..2] FROM s",
+        "both(x, y)[0] FROM s",
     ] {
         let query = format!("RETURN trim({argument}) AS t");
         let emitted = decypher::parse(&query)
@@ -1297,21 +1297,6 @@ fn trim_keywords_stay_names() {
     ] {
         check!(decypher::parse(query).is_err(), "query: {query}");
     }
-}
-
-/// Deciding a specification before a bracket copes with very deep input.
-///
-/// Unit: `parse`
-/// Precondition: Thousands of `trim` calls inside each other, closed and not,
-///               each with a bracket after a specification.
-/// Expectation: An error, for the open brackets or the nesting depth, without
-///              a stack overflow or an exponential number of trial parses.
-#[test]
-fn deeply_nested_trim_specs_are_rejected() {
-    let open = "trim(both(x) + ".repeat(5_000);
-    let close = " FROM s)".repeat(5_000);
-    check!(decypher::parse(format!("RETURN {open}")).is_err());
-    check!(decypher::parse(format!("RETURN {open}1{close}")).is_err());
 }
 
 /// Round-trip `rt dynamic labels and keys in set and remove`: parse → serialise → re-parse must yield equal ASTs.

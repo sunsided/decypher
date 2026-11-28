@@ -10,11 +10,11 @@ are marked **Breaking** below.
 
 ### Fixed
 
-- `trim([BOTH | LEADING | TRAILING] [character] FROM source)` takes any
-  expression as the character: `BOTH null`, `LEADING CASE … END` and a comment
-  after the spec were parse errors, and `LEADING ('x') FROM s` or
-  `LEADING ['x'][0] FROM s` read `LEADING` as a function or variable.
-  `trim(FROM source)`, with neither spec nor character, parses too.
+- `trim(BOTH | LEADING | TRAILING … FROM source)` parses with a character such
+  as `null` or `CASE … END` and with a comment after the specification.
+  `trim(FROM source)`, with neither specification nor character, parses too. A
+  character that starts with `(` or `[` is still read as a call or an index of
+  `BOTH`, `LEADING` or `TRAILING`.
 
 ## [0.4.1] - 2026-11-27
 
