@@ -67,6 +67,9 @@ pub(crate) struct Parser<'a> {
     /// relationship follows its matching `)`. Built on first use in one pass,
     /// so deciding this at every `(` stays linear in nested input.
     pattern_follows: std::cell::OnceCell<std::collections::HashMap<usize, bool>>,
+    /// For each opening bracket, keyed by the byte offset just after it: the
+    /// offset just after its closing one. Built on first use in one pass.
+    bracket_ends: std::cell::OnceCell<std::collections::HashMap<usize, usize>>,
     /// Current nesting depth of recursive grammar rules (see [`MAX_NESTING`]).
     depth: usize,
     /// The real current token and lexer while parsing is halted for nesting
@@ -98,6 +101,7 @@ impl<'a> Parser<'a> {
             errors: Vec::new(),
             byte_pos: 0,
             pattern_follows: std::cell::OnceCell::new(),
+            bracket_ends: std::cell::OnceCell::new(),
             depth: 0,
             halted: None,
         }
@@ -149,6 +153,15 @@ impl<'a> Parser<'a> {
         // `depth` and then report every later level as too deep.
         debug_assert!(self.depth >= weight, "leave without matching enter");
         self.depth = self.depth.saturating_sub(weight);
+    }
+
+    /// The byte offset just after the bracket that closes the opening one
+    /// ending at byte `offset`, if it is closed.
+    pub(crate) fn bracket_end(&self, offset: usize) -> Option<usize> {
+        self.bracket_ends
+            .get_or_init(|| grammar::expr::bracket_table(self.input))
+            .get(&offset)
+            .copied()
     }
 
     /// Whether a relationship pattern follows the `(` that ends at byte
