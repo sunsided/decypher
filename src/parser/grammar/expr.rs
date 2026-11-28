@@ -166,30 +166,34 @@ fn parse_infix_tail(p: &mut Parser, bp: Prec) {
     p.builder.finish_node();
 }
 
-/// `trim([BOTH | LEADING | TRAILING] [character] FROM source)`, or the
-/// plain `trim(source)` arguments. `BOTH`, `LEADING` and `TRAILING` are not
-/// reserved: they only start a `TRIM_SPEC` when an operand or `FROM` follows,
-/// so `trim(both)` still trims the variable `both`.
+/// `trim([[BOTH | LEADING | TRAILING] [character] FROM] source)`, or the
+/// plain comma-separated arguments. `BOTH`, `LEADING`, `TRAILING` and `FROM`
+/// are not reserved: they are keywords only where something follows that does
+/// not continue an expression, so `trim(both)`, `trim(leading + x)` and
+/// `trim(from.name)` still read the variables. A spec word followed by `(` or
+/// `[` is read as a call or an index, also where a `FROM` comes further on.
+/// A leading `FROM` takes a `(`, but `trim(from[0])` stays an index into
+/// `from`.
 fn parse_trim_arguments(p: &mut Parser) {
     let is_spec = ["BOTH", "LEADING", "TRAILING"]
         .iter()
         .any(|spec| current_text(p).eq_ignore_ascii_case(spec))
-        && matches!(
-            p.peek_next_non_trivia(),
-            Some(
-                SyntaxKind::KW_FROM
-                    | SyntaxKind::STRING
-                    | SyntaxKind::DOLLAR
-                    | SyntaxKind::IDENT
-                    | SyntaxKind::ESCAPED_IDENT
-            )
-        );
+        && match peek_kinds(p).next() {
+            Some(SyntaxKind::L_PAREN | SyntaxKind::L_BRACKET) | None => false,
+            Some(next) => !continues_expression(next),
+        };
     if is_spec {
         p.start_node(SyntaxKind::TRIM_SPEC);
         p.bump();
         p.builder.finish_node();
         p.skip_trivia();
-        if !p.at(SyntaxKind::KW_FROM) {
+        // A `FROM` here is the keyword, unless another one follows it that is
+        // not the source: then it names the character.
+        let (next, after) = peek_two(p);
+        let names_character = next == Some(SyntaxKind::KW_FROM)
+            && after
+                .is_some_and(|kind| kind != SyntaxKind::L_BRACKET && !continues_expression(kind));
+        if !p.at(SyntaxKind::KW_FROM) || names_character {
             expr_bp(p, Prec::MIN);
             p.skip_trivia();
         }
@@ -198,6 +202,23 @@ fn parse_trim_arguments(p: &mut Parser) {
         expr_bp(p, Prec::MIN);
         p.skip_trivia();
         return;
+    }
+    if p.at(SyntaxKind::KW_FROM) {
+        // `FROM source` with neither spec nor character. A second `FROM`
+        // makes the first one the character, unless it is the source.
+        let is_keyword = match peek_two(p) {
+            (Some(SyntaxKind::KW_FROM), after) => after.is_none_or(only_continues_expression),
+            (Some(SyntaxKind::L_BRACKET), _) => false,
+            (Some(next), _) => !continues_expression(next),
+            (None, _) => false,
+        };
+        if is_keyword {
+            p.bump();
+            p.skip_trivia();
+            expr_bp(p, Prec::MIN);
+            p.skip_trivia();
+            return;
+        }
     }
     if p.at(SyntaxKind::R_PAREN) {
         return;
@@ -394,6 +415,74 @@ fn peek_texts<'a>(p: &Parser<'a>, n: usize) -> Vec<&'a str> {
         }
     }
     texts
+}
+
+/// The kinds of the significant tokens after the current one.
+fn peek_kinds<'p>(p: &'p Parser<'_>) -> impl Iterator<Item = SyntaxKind> + 'p {
+    let mut lx = p.lexer.clone();
+    std::iter::from_fn(move || lx.advance().map(|tok| tok.kind))
+        .filter(|kind| !matches!(kind, SyntaxKind::WHITESPACE | SyntaxKind::COMMENT))
+}
+
+/// The kinds of the next two significant tokens after the current one.
+fn peek_two(p: &Parser) -> (Option<SyntaxKind>, Option<SyntaxKind>) {
+    let mut kinds = peek_kinds(p);
+    (kinds.next(), kinds.next())
+}
+
+/// Whether `kind` can follow an expression as part of it or end it, without
+/// being able to start a new one. `+` and `-` count as operators here.
+fn continues_expression(kind: SyntaxKind) -> bool {
+    matches!(
+        kind,
+        SyntaxKind::R_PAREN
+            | SyntaxKind::COMMA
+            | SyntaxKind::DOT
+            | SyntaxKind::COLON
+            | SyntaxKind::L_BRACE
+            | SyntaxKind::EQ
+            | SyntaxKind::NE
+            | SyntaxKind::LT
+            | SyntaxKind::GT
+            | SyntaxKind::LE
+            | SyntaxKind::GE
+            | SyntaxKind::TILDE_EQ
+            | SyntaxKind::PLUS
+            | SyntaxKind::MINUS
+            | SyntaxKind::PIPE_PIPE
+            | SyntaxKind::STAR
+            | SyntaxKind::SLASH
+            | SyntaxKind::PERCENT
+            | SyntaxKind::POW
+            | SyntaxKind::KW_AND
+            | SyntaxKind::KW_OR
+            | SyntaxKind::KW_XOR
+            | SyntaxKind::KW_IS
+            | SyntaxKind::KW_IN
+            | SyntaxKind::KW_STARTS
+            | SyntaxKind::KW_ENDS
+            | SyntaxKind::KW_CONTAINS
+    )
+}
+
+/// Whether `kind` continues or ends an expression and cannot start one: not a
+/// sign, a map or an operator spelled as a word, which can name a variable.
+fn only_continues_expression(kind: SyntaxKind) -> bool {
+    continues_expression(kind)
+        && !matches!(
+            kind,
+            SyntaxKind::PLUS
+                | SyntaxKind::MINUS
+                | SyntaxKind::L_BRACE
+                | SyntaxKind::KW_AND
+                | SyntaxKind::KW_OR
+                | SyntaxKind::KW_XOR
+                | SyntaxKind::KW_IS
+                | SyntaxKind::KW_IN
+                | SyntaxKind::KW_STARTS
+                | SyntaxKind::KW_ENDS
+                | SyntaxKind::KW_CONTAINS
+        )
 }
 
 /// Parses a GQL value type into a TYPE_EXPR node: type words, `<…>`

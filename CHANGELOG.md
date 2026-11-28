@@ -8,6 +8,14 @@ are marked **Breaking** below.
 
 ## [Unreleased]
 
+### Fixed
+
+- `trim(BOTH | LEADING | TRAILING … FROM source)` parses with a character such
+  as `null` or `CASE … END` and with a comment after the specification.
+  `trim(FROM source)`, with neither specification nor character, parses too. A
+  character that starts with `(` or `[` is still read as a call or an index of
+  `BOTH`, `LEADING` or `TRAILING`.
+
 ## [0.4.1] - 2026-11-27
 
 Three fixes found by arqlet while moving to 0.4.0: column names of items
